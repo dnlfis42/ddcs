@@ -1,0 +1,17 @@
+BasedOnStyle: LLVM
+
+# 들여쓰기
+IndentWidth: 4
+AccessModifierOffset: -4
+
+# 열 길이
+ColumnLimit: 100
+
+# 정렬
+AlignAfterOpenBracket: BlockIndent
+
+# 포인터
+PointerAlignment: Left
+
+# 템플릿
+AlwaysBreakTemplateDeclarations: true
