@@ -12,6 +12,5 @@ target_link_libraries(
         compile_option
         ddcs::controller::conn
         ddcs::controller::domain
-        ddcs::protocol::frame
-        ddcs::protocol::message
+        ddcs::protocol
 )
