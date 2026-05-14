@@ -3,9 +3,13 @@ add_library(ddcs::protocol ALIAS ddcs_protocol)
 
 target_sources(
     ddcs_protocol
-    PRIVATE src/frame.cpp
+    PRIVATE src/frame.cpp src/message.cpp
     PUBLIC
-        FILE_SET HEADERS BASE_DIRS include FILES include/ddcs/protocol/frame.hpp
+        FILE_SET HEADERS
+            BASE_DIRS include
+            FILES
+                include/ddcs/protocol/frame.hpp
+                include/ddcs/protocol/message.hpp
 )
 target_link_libraries(ddcs_protocol PRIVATE compile_option)
 
