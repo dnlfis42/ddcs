@@ -18,7 +18,7 @@
 ## 빌드
 
 ```bash
-cmake workflow --preset [debug | asan | release]
+cmake --workflow --preset [debug | asan | release]
 ```
 
 ## 사용법
