@@ -18,7 +18,7 @@
 ## 빌드
 
 ```bash
-cmake --workflow --preset [debug | asan | release]
+cmake --workflow --preset {debug|asan|release}
 ```
 
 ## 사용법
@@ -38,4 +38,4 @@ docker/ # 개발/CI 컨테이너 이미지
 
 ## 라이선스
 
-MIT — [LICENSE](LICENSE)
+[MIT License](LICENSE)
