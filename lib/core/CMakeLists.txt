@@ -6,9 +6,11 @@ target_sources(
     INTERFACE
         FILE_SET HEADERS
             BASE_DIRS include
-            FILES include/ddcs/core/ring_buffer.hpp
+            FILES
+                include/ddcs/core/linear_buffer.hpp
+                include/ddcs/core/ring_buffer.hpp
 )
 target_link_libraries(ddcs_core INTERFACE compile_option)
 
 # 테스트 경로
-add_subdirectory(test)
+add_subdirectory(test/unit)
