@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace ddcs::protocol {
+namespace ddcs::protocol::frame {
 
 inline constexpr std::uint16_t magic{0xDDC5};
 inline constexpr std::size_t header_size{6};
@@ -26,4 +26,4 @@ using HeaderBytes = std::array<std::byte, header_size>;
 HeaderBytes encode_header(Header const& hdr);
 Header decode_header(HeaderBytes const& src);
 
-} // namespace ddcs::protocol
+} // namespace ddcs::protocol::frame

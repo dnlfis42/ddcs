@@ -1,10 +1,10 @@
-#include "ddcs/protocol/message.hpp"
+#include "ddcs/protocol/message/message.hpp"
 
 #include <gtest/gtest.h>
 
 #include <array>
 
-namespace ddcs::protocol {
+namespace ddcs::protocol::message {
 
 TEST(MessageTest, RoundTripsRegisterRequest) {
     RegisterRequest const in{.agent_tag = "agent-001"};
@@ -131,4 +131,4 @@ TEST(MessageTest, RejectsTruncatedU64) {
     EXPECT_FALSE(decode_command_ack(src).has_value());
 }
 
-} // namespace ddcs::protocol
+} // namespace ddcs::protocol::message
