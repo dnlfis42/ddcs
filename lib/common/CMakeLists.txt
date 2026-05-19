@@ -10,6 +10,7 @@ target_sources(
                 include/ddcs/common/linear_buffer.hpp
                 include/ddcs/common/object_pool.hpp
                 include/ddcs/common/ring_buffer.hpp
+                include/ddcs/common/uuid.hpp
 )
 target_link_libraries(ddcs_common INTERFACE compile_option)
 
