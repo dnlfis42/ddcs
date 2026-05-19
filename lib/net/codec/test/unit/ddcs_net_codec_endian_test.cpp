@@ -26,13 +26,13 @@ TEST(EndianTest, ByteswapKnownValues) {
     EXPECT_EQ(byteswap<std::uint64_t>(0x0123456789ABCDEFull), 0xEFCDAB8967452301ull);
 }
 
-TEST(EndianTest, RoundtripBe) {
+TEST(EndianTest, RoundTripBe) {
     EXPECT_EQ(from_be(to_be<std::uint16_t>(0xBEEF)), 0xBEEF);
     EXPECT_EQ(from_be(to_be<std::uint32_t>(0xDEADBEEFu)), 0xDEADBEEFu);
     EXPECT_EQ(from_be(to_be<std::uint64_t>(0xCAFEBABEDEADBEEFull)), 0xCAFEBABEDEADBEEFull);
 }
 
-TEST(EndianTest, RoundtripLe) {
+TEST(EndianTest, RoundTripLe) {
     EXPECT_EQ(from_le(to_le<std::uint16_t>(0xBEEF)), 0xBEEF);
     EXPECT_EQ(from_le(to_le<std::uint32_t>(0xDEADBEEFu)), 0xDEADBEEFu);
     EXPECT_EQ(from_le(to_le<std::uint64_t>(0xCAFEBABEDEADBEEFull)), 0xCAFEBABEDEADBEEFull);

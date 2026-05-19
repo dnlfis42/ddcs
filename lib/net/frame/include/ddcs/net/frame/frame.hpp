@@ -23,7 +23,7 @@ struct Header {
 
 using HeaderBytes = std::array<std::byte, header_size>;
 
-HeaderBytes encode_header(Header const& hdr);
-Header decode_header(HeaderBytes const& src);
+HeaderBytes encode(Header const& hdr);
+Header decode(HeaderBytes const& src);
 
 } // namespace ddcs::net::frame

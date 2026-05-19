@@ -11,7 +11,7 @@ TEST(FrameTest, RoundTripsTypicalHeader) {
         .opcode = 0x42,
         .length = 1024,
     };
-    EXPECT_EQ(decode_header(encode_header(in)), in);
+    EXPECT_EQ(decode(encode(in)), in);
 }
 
 TEST(FrameTest, RoundTripsEmptyPayload) {
@@ -21,7 +21,7 @@ TEST(FrameTest, RoundTripsEmptyPayload) {
         .opcode = 0x00,
         .length = 0,
     };
-    EXPECT_EQ(decode_header(encode_header(in)), in);
+    EXPECT_EQ(decode(encode(in)), in);
 }
 
 TEST(FrameTest, RoundTripsMaxLength) {
@@ -31,7 +31,7 @@ TEST(FrameTest, RoundTripsMaxLength) {
         .opcode = 0xff,
         .length = static_cast<std::uint16_t>(max_payload),
     };
-    EXPECT_EQ(decode_header(encode_header(in)), in);
+    EXPECT_EQ(decode(encode(in)), in);
 }
 
 TEST(FrameTest, DecodesInvalidMagicWithoutValidation) {
@@ -39,8 +39,22 @@ TEST(FrameTest, DecodesInvalidMagicWithoutValidation) {
         std::byte{0xCA}, std::byte{0xFE}, std::byte{0x01},
         std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
     };
-    auto const decoded = decode_header(src);
+    auto const decoded = decode(src);
     EXPECT_NE(decoded.magic, magic);
+}
+
+TEST(FrameTest, EncodesMagicAsBigEndian) {
+    Header const in{.magic = magic, .version = 0, .opcode = 0, .length = 0};
+    auto const bytes = encode(in);
+    EXPECT_EQ(std::to_integer<unsigned>(bytes[0]), 0xDDu);
+    EXPECT_EQ(std::to_integer<unsigned>(bytes[1]), 0xC5u);
+}
+
+TEST(FrameTest, EncodesLengthAsBigEndian) {
+    Header const in{.magic = magic, .version = 0, .opcode = 0, .length = 0x1234};
+    auto const bytes = encode(in);
+    EXPECT_EQ(std::to_integer<unsigned>(bytes[4]), 0x12u);
+    EXPECT_EQ(std::to_integer<unsigned>(bytes[5]), 0x34u);
 }
 
 } // namespace ddcs::net::frame

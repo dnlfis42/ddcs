@@ -1,28 +1,32 @@
 #include "ddcs/net/frame/frame.hpp"
 
+#include "ddcs/net/codec/endian.hpp"
+
+#include <cstring>
+
 namespace ddcs::net::frame {
 
-HeaderBytes encode_header(Header const& hdr) {
-    return {
-        std::byte((hdr.magic >> 8) & 0xff),
-        std::byte(hdr.magic & 0xff),
-        std::byte(hdr.version),
-        std::byte(hdr.opcode),
-        std::byte((hdr.length >> 8) & 0xff),
-        std::byte(hdr.length & 0xff),
-    };
+HeaderBytes encode(Header const& hdr) {
+    HeaderBytes out{};
+    auto const m = codec::to_be(hdr.magic);
+    auto const l = codec::to_be(hdr.length);
+    std::memcpy(out.data() + 0, &m, sizeof(m));
+    out[2] = static_cast<std::byte>(hdr.version);
+    out[3] = static_cast<std::byte>(hdr.opcode);
+    std::memcpy(out.data() + 4, &l, sizeof(l));
+    return out;
 }
 
-Header decode_header(HeaderBytes const& src) {
-    return {
-        .magic = static_cast<std::uint16_t>(
-            (std::to_integer<std::uint16_t>(src[0]) << 8) | std::to_integer<std::uint16_t>(src[1])
-        ),
+Header decode(HeaderBytes const& src) {
+    std::uint16_t magic_raw{};
+    std::uint16_t length_raw{};
+    std::memcpy(&magic_raw, src.data() + 0, sizeof(magic_raw));
+    std::memcpy(&length_raw, src.data() + 4, sizeof(length_raw));
+    return Header{
+        .magic = codec::from_be(magic_raw),
         .version = std::to_integer<std::uint8_t>(src[2]),
         .opcode = std::to_integer<std::uint8_t>(src[3]),
-        .length = static_cast<std::uint16_t>(
-            (std::to_integer<std::uint16_t>(src[4]) << 8) | std::to_integer<std::uint16_t>(src[5])
-        ),
+        .length = codec::from_be(length_raw),
     };
 }
 

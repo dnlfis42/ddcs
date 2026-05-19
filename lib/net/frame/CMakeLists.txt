@@ -9,7 +9,7 @@ target_sources(
             BASE_DIRS include
             FILES include/ddcs/net/frame/frame.hpp
 )
-target_link_libraries(ddcs_net_frame PRIVATE compile_option)
+target_link_libraries(ddcs_net_frame PRIVATE compile_option ddcs::net::codec)
 
 # 테스트 경로
 add_subdirectory(test/unit)
