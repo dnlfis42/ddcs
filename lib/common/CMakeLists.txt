@@ -8,6 +8,7 @@ target_sources(
             BASE_DIRS include
             FILES
                 include/ddcs/common/linear_buffer.hpp
+                include/ddcs/common/object_pool.hpp
                 include/ddcs/common/ring_buffer.hpp
 )
 target_link_libraries(ddcs_common INTERFACE compile_option)
