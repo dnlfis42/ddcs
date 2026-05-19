@@ -1,6 +1,6 @@
-#include "ddcs/protocol/frame/frame.hpp"
+#include "ddcs/net/frame/frame.hpp"
 
-namespace ddcs::protocol::frame {
+namespace ddcs::net::frame {
 
 HeaderBytes encode_header(Header const& hdr) {
     return {
@@ -26,4 +26,4 @@ Header decode_header(HeaderBytes const& src) {
     };
 }
 
-} // namespace ddcs::protocol::frame
+} // namespace ddcs::net::frame

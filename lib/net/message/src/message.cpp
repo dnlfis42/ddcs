@@ -1,9 +1,9 @@
-#include "ddcs/protocol/message/message.hpp"
+#include "ddcs/net/message/message.hpp"
 
 #include <string_view>
 #include <utility>
 
-namespace ddcs::protocol::message {
+namespace ddcs::net::message {
 
 namespace {
 
@@ -198,4 +198,4 @@ std::optional<CommandFail> decode_command_fail(std::span<std::byte const> src) {
     return CommandFail{.command_id = *command_id, .reason = std::move(*reason)};
 }
 
-} // namespace ddcs::protocol::message
+} // namespace ddcs::net::message

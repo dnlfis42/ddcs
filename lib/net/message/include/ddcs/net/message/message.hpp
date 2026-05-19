@@ -8,7 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace ddcs::protocol::message {
+namespace ddcs::net::message {
 
 enum class Opcode : std::uint8_t {
     RegisterRequest = 0x10, // Agent -> Controller
@@ -88,4 +88,4 @@ std::optional<CommandAck> decode_command_ack(std::span<std::byte const> src);
 std::optional<CommandSuccess> decode_command_success(std::span<std::byte const> src);
 std::optional<CommandFail> decode_command_fail(std::span<std::byte const> src);
 
-} // namespace ddcs::protocol::message
+} // namespace ddcs::net::message

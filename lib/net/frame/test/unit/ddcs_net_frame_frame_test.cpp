@@ -1,8 +1,8 @@
-#include "ddcs/protocol/frame/frame.hpp"
+#include "ddcs/net/frame/frame.hpp"
 
 #include <gtest/gtest.h>
 
-namespace ddcs::protocol::frame {
+namespace ddcs::net::frame {
 
 TEST(FrameTest, RoundTripsTypicalHeader) {
     Header const in{
@@ -43,4 +43,4 @@ TEST(FrameTest, DecodesInvalidMagicWithoutValidation) {
     EXPECT_NE(decoded.magic, magic);
 }
 
-} // namespace ddcs::protocol::frame
+} // namespace ddcs::net::frame
