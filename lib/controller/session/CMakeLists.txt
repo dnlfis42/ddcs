@@ -5,12 +5,12 @@ target_sources(
     ddcs_controller_session
     INTERFACE FILE_SET HEADERS BASE_DIRS include
 )
-
 target_link_libraries(
     ddcs_controller_session
     INTERFACE
         compile_option
-        ddcs::controller::conn
+        ddcs::controller::transport
         ddcs::controller::domain
-        ddcs::protocol
+        ddcs::net::frame
+        ddcs::net::message
 )
