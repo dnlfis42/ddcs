@@ -7,6 +7,7 @@ target_sources(
         FILE_SET HEADERS
             BASE_DIRS include
             FILES
+                include/ddcs/common/clock.hpp
                 include/ddcs/common/linear_buffer.hpp
                 include/ddcs/common/object_pool.hpp
                 include/ddcs/common/ring_buffer.hpp
