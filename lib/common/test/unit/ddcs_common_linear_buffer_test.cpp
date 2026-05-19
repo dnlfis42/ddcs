@@ -1,4 +1,4 @@
-#include "ddcs/core/linear_buffer.hpp"
+#include "ddcs/common/linear_buffer.hpp"
 
 #include <gtest/gtest.h>
 
@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <cstring>
 
-namespace ddcs::core {
+namespace ddcs::common {
 
 namespace {
 
@@ -307,4 +307,4 @@ TEST(LinearBufferTest, IsMoveConstructible) {
     EXPECT_EQ(out, 42);
 }
 
-} // namespace ddcs::core
+} // namespace ddcs::common

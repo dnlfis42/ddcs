@@ -7,7 +7,7 @@
 #include <cstddef>
 #include <cstring>
 
-namespace ddcs::core {
+namespace ddcs::common {
 
 namespace detail {
 
@@ -127,4 +127,4 @@ private:
     std::size_t write_pos_{0};
 };
 
-} // namespace ddcs::core
+} // namespace ddcs::common

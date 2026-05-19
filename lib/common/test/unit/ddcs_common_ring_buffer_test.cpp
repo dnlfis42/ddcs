@@ -1,4 +1,4 @@
-#include "ddcs/core/ring_buffer.hpp"
+#include "ddcs/common/ring_buffer.hpp"
 
 #include <gtest/gtest.h>
 
@@ -8,7 +8,7 @@
 
 #include <cstddef>
 
-namespace ddcs::core {
+namespace ddcs::common {
 
 static_assert(ringbuf_capacity<1>);
 static_assert(ringbuf_capacity<2>);
@@ -264,4 +264,4 @@ TEST(RingBufferTest, PreservesContentsAcrossManyWrapCycles) {
     EXPECT_TRUE(rb.empty());
 }
 
-} // namespace ddcs::core
+} // namespace ddcs::common

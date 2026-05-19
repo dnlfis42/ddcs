@@ -1,5 +1,5 @@
 # 라이브러리 경로
-add_subdirectory(core)
+add_subdirectory(common)
 add_subdirectory(logger)
 add_subdirectory(config)
 add_subdirectory(protocol/frame)

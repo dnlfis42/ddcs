@@ -7,7 +7,7 @@
 #include <cstddef>
 #include <cstring>
 
-namespace ddcs::core {
+namespace ddcs::common {
 
 class LinearBuffer {
 public:
@@ -137,4 +137,4 @@ private:
     bool fail_{false};
 };
 
-} // namespace ddcs::core
+} // namespace ddcs::common
