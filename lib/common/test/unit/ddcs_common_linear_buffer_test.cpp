@@ -4,7 +4,6 @@
 
 #include <array>
 #include <span>
-#include <utility>
 
 #include <cstddef>
 #include <cstdint>
@@ -114,15 +113,35 @@ TEST(LinearBufferTest, WritableShrinksAfterWrite) {
     EXPECT_EQ(lb.writable().size(), kCap - 5);
 }
 
-// --- cursor advance ---
+// --- cursor ---
 
-TEST(LinearBufferTest, MoveWritePosExposesExternallyFilledData) {
+TEST(LinearBufferTest, ReserveAdvancesBothCursorsWhenEmpty) {
+    LinearBuffer lb{kCap};
+    ASSERT_TRUE(lb.reserve(4));
+    EXPECT_TRUE(lb.empty());
+    EXPECT_EQ(lb.size(), 0u);
+    EXPECT_EQ(lb.available(), kCap - 4);
+}
+
+TEST(LinearBufferTest, ReserveFailsWhenNotEmpty) {
+    LinearBuffer lb{kCap};
+    std::array<std::byte, 1> one{std::byte{0xff}};
+    ASSERT_TRUE(lb.write(one));
+    EXPECT_FALSE(lb.reserve(4));
+}
+
+TEST(LinearBufferTest, ReserveFailsWhenLargerThanCapacity) {
+    LinearBuffer lb{4};
+    EXPECT_FALSE(lb.reserve(5));
+}
+
+TEST(LinearBufferTest, CommitExposesExternallyFilledData) {
     LinearBuffer lb{kCap};
     auto region = lb.writable();
     ASSERT_GE(region.size(), 2u);
     region[0] = std::byte{0xab};
     region[1] = std::byte{0xcd};
-    ASSERT_TRUE(lb.move_write_pos(2));
+    ASSERT_TRUE(lb.commit(2));
     EXPECT_EQ(lb.size(), 2u);
 
     std::array<std::byte, 2> dst{};
@@ -131,18 +150,18 @@ TEST(LinearBufferTest, MoveWritePosExposesExternallyFilledData) {
     EXPECT_EQ(dst[1], std::byte{0xcd});
 }
 
-TEST(LinearBufferTest, MoveWritePosReturnsFalseOnOverflow) {
+TEST(LinearBufferTest, CommitReturnsFalseOnOverflow) {
     LinearBuffer lb{4};
-    EXPECT_FALSE(lb.move_write_pos(5));
+    EXPECT_FALSE(lb.commit(5));
     EXPECT_EQ(lb.size(), 0u);
     EXPECT_EQ(lb.available(), 4u);
 }
 
-TEST(LinearBufferTest, MoveReadPosReturnsFalseOnUnderflow) {
+TEST(LinearBufferTest, ConsumeReturnsFalseOnUnderflow) {
     LinearBuffer lb{kCap};
     std::array<std::byte, 2> two{};
     ASSERT_TRUE(lb.write(two));
-    EXPECT_FALSE(lb.move_read_pos(3));
+    EXPECT_FALSE(lb.consume(3));
     EXPECT_EQ(lb.size(), 2u);
 }
 
@@ -208,51 +227,37 @@ TEST(LinearBufferTest, PeekDoesNotAdvanceReadCursor) {
     }
 }
 
-// --- prefix view (LinearBuffer-only) ---
+// --- write_front (prepend into headroom) ---
 
-TEST(LinearBufferTest, PeekSizeReturnsPrefixSpanWithoutAdvance) {
+TEST(LinearBufferTest, WriteFrontPrependsIntoReservedHeadroom) {
     LinearBuffer lb{kCap};
-    std::int32_t v{0x12345678};
-    lb << v;
+    ASSERT_TRUE(lb.reserve(2));
 
-    auto s = lb.peek(sizeof(v));
-    ASSERT_EQ(s.size(), sizeof(v));
-    EXPECT_EQ(lb.size(), sizeof(v));
+    std::array<std::byte, 3> body{std::byte{0xaa}, std::byte{0xbb}, std::byte{0xcc}};
+    ASSERT_TRUE(lb.write(body));
+    EXPECT_EQ(lb.size(), 3u);
 
-    std::int32_t recovered{};
-    std::memcpy(&recovered, s.data(), sizeof(v));
-    EXPECT_EQ(recovered, v);
+    std::array<std::byte, 2> header{std::byte{0x01}, std::byte{0x02}};
+    ASSERT_TRUE(lb.write_front(header));
+    EXPECT_EQ(lb.size(), 5u);
+
+    std::array<std::byte, 5> dst{};
+    ASSERT_TRUE(lb.read(dst));
+    EXPECT_EQ(dst[0], std::byte{0x01});
+    EXPECT_EQ(dst[1], std::byte{0x02});
+    EXPECT_EQ(dst[2], std::byte{0xaa});
+    EXPECT_EQ(dst[3], std::byte{0xbb});
+    EXPECT_EQ(dst[4], std::byte{0xcc});
 }
 
-TEST(LinearBufferTest, PeekSizeReturnsEmptyOnUnderflow) {
+TEST(LinearBufferTest, WriteFrontFailsWithoutHeadroom) {
     LinearBuffer lb{kCap};
-    auto s = lb.peek(std::size_t{4});
-    EXPECT_TRUE(s.empty());
-}
+    std::array<std::byte, 3> body{};
+    ASSERT_TRUE(lb.write(body));
 
-TEST(LinearBufferTest, ReadSizeReturnsSpanAndAdvances) {
-    LinearBuffer lb{kCap};
-    std::int32_t a{10};
-    std::int32_t b{20};
-    lb << a << b;
-
-    auto s1 = lb.read(sizeof(a));
-    ASSERT_EQ(s1.size(), sizeof(a));
-    EXPECT_EQ(lb.size(), sizeof(b));
-
-    std::int32_t recovered{};
-    std::memcpy(&recovered, s1.data(), sizeof(a));
-    EXPECT_EQ(recovered, a);
-}
-
-TEST(LinearBufferTest, ReadSizeReturnsEmptyOnUnderflow) {
-    LinearBuffer lb{kCap};
-    std::int32_t v{1};
-    lb << v;
-
-    auto s = lb.read(sizeof(v) + 1);
-    EXPECT_TRUE(s.empty());
-    EXPECT_EQ(lb.size(), sizeof(v));
+    std::array<std::byte, 2> header{};
+    EXPECT_FALSE(lb.write_front(header));
+    EXPECT_EQ(lb.size(), 3u);
 }
 
 // --- stream serialization ---
@@ -290,21 +295,6 @@ TEST(LinearBufferTest, StreamRoundTripsMixedArithmeticTypes) {
     EXPECT_DOUBLE_EQ(d_out, 3.141592);
     EXPECT_TRUE(lb.empty());
     EXPECT_TRUE(static_cast<bool>(lb));
-}
-
-// --- move ---
-
-TEST(LinearBufferTest, IsMoveConstructible) {
-    LinearBuffer a{kCap};
-    a << 42;
-
-    LinearBuffer b{std::move(a)};
-    EXPECT_EQ(b.capacity(), kCap);
-    EXPECT_EQ(b.size(), sizeof(int));
-
-    int out{};
-    b >> out;
-    EXPECT_EQ(out, 42);
 }
 
 } // namespace ddcs::common

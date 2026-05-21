@@ -27,50 +27,46 @@ inline void copy_bytes(void* dst, void const* src, std::size_t n) noexcept {
 } // namespace detail
 
 template <std::size_t N>
-concept ringbuf_capacity = (N > 0) && ((N & (N - 1)) == 0);
+concept valid_ringbuf_capacity = (N > 0) && ((N & (N - 1)) == 0);
 
 template <std::size_t N>
-    requires ringbuf_capacity<N>
+    requires valid_ringbuf_capacity<N>
 class RingBuffer {
 public:
     RingBuffer() : buf_{new std::byte[N]} {}
     ~RingBuffer() = default;
 
-    RingBuffer(RingBuffer&&) noexcept = default;
-    RingBuffer& operator=(RingBuffer&&) noexcept = default;
     RingBuffer(RingBuffer const&) = delete;
     RingBuffer& operator=(RingBuffer const&) = delete;
+    RingBuffer(RingBuffer&&) noexcept = delete;
+    RingBuffer& operator=(RingBuffer&&) noexcept = delete;
 
-public: // observers
+public: // observer
     static constexpr std::size_t capacity() noexcept { return N; }
     std::size_t size() const noexcept { return write_pos_ - read_pos_; }
     std::size_t available() const noexcept { return N - size(); }
-    std::size_t readable_size() const noexcept {
-        return std::min(size(), N - (read_pos_ & (N - 1)));
-    }
-    std::size_t writable_size() const noexcept {
-        return std::min(available(), N - (write_pos_ & (N - 1)));
-    }
     bool empty() const noexcept { return read_pos_ == write_pos_; }
     bool full() const noexcept { return size() == N; }
 
-public: // zero-copy region (single contiguous region; wrap -> caller iterates)
+public: // zero-copy region
     std::span<std::byte const> readable() const noexcept {
-        return {buf_.get() + (read_pos_ & (N - 1)), readable_size()};
+        std::size_t const idx = read_pos_ & (N - 1);
+        return {buf_.get() + idx, std::min(size(), N - idx)};
     }
     std::span<std::byte> writable() noexcept {
-        return {buf_.get() + (write_pos_ & (N - 1)), writable_size()};
+        std::size_t const idx = write_pos_ & (N - 1);
+        return {buf_.get() + idx, std::min(available(), N - idx)};
     }
 
-public: // cursor advance (all-or-nothing)
-    bool move_read_pos(std::size_t n) noexcept {
+public: // cursor advance
+    bool consume(std::size_t n) noexcept {
         if (size() < n) {
             return false;
         }
         read_pos_ += n;
         return true;
     }
-    bool move_write_pos(std::size_t n) noexcept {
+    bool commit(std::size_t n) noexcept {
         if (available() < n) {
             return false;
         }
@@ -82,13 +78,13 @@ public: // cursor advance (all-or-nothing)
         read_pos_ = 0;
         write_pos_ = 0;
     }
+    void reset() noexcept { clear(); }
 
-public: // copy I/O (all-or-nothing; wrap handled internally)
+public: // copy I/O
     bool peek(std::span<std::byte> dst) const noexcept {
         if (size() < dst.size()) {
             return false;
         }
-
         std::size_t const idx = read_pos_ & (N - 1);
         std::size_t const first = std::min(dst.size(), N - idx);
         detail::copy_bytes(dst.data(), buf_.get() + idx, first);
@@ -109,7 +105,6 @@ public: // copy I/O (all-or-nothing; wrap handled internally)
         if (available() < src.size()) {
             return false;
         }
-
         std::size_t const idx = write_pos_ & (N - 1);
         std::size_t const first = std::min(src.size(), N - idx);
         detail::copy_bytes(buf_.get() + idx, src.data(), first);

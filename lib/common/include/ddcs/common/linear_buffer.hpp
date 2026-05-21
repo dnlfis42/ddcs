@@ -17,10 +17,10 @@ public:
 
     LinearBuffer(LinearBuffer const&) = delete;
     LinearBuffer& operator=(LinearBuffer const&) = delete;
-    LinearBuffer(LinearBuffer&&) noexcept = default;
-    LinearBuffer& operator=(LinearBuffer&&) noexcept = default;
+    LinearBuffer(LinearBuffer&&) noexcept = delete;
+    LinearBuffer& operator=(LinearBuffer&&) noexcept = delete;
 
-public: // observers
+public: // observer
     std::size_t capacity() const noexcept { return capacity_; }
     std::size_t size() const noexcept { return write_pos_ - read_pos_; }
     std::size_t available() const noexcept { return capacity_ - write_pos_; }
@@ -30,21 +30,29 @@ public: // stream state
     explicit operator bool() const noexcept { return !fail_; }
     void set_fail() noexcept { fail_ = true; }
 
-public: // zero-copy region (single contiguous region; no wrap)
+public: // zero-copy region
     std::span<std::byte const> readable() const noexcept {
         return {buf_.get() + read_pos_, size()};
     }
     std::span<std::byte> writable() noexcept { return {buf_.get() + write_pos_, available()}; }
 
-public: // cursor advance (all-or-nothing)
-    bool move_read_pos(std::size_t n) noexcept {
+public: // cursor advance
+    bool reserve(std::size_t n) noexcept {
+        if (read_pos_ != 0 || write_pos_ != 0 || n > capacity_) {
+            return false;
+        }
+        read_pos_ = n;
+        write_pos_ = n;
+        return true;
+    }
+    bool consume(std::size_t n) noexcept {
         if (size() < n) {
             return false;
         }
         read_pos_ += n;
         return true;
     }
-    bool move_write_pos(std::size_t n) noexcept {
+    bool commit(std::size_t n) noexcept {
         if (available() < n) {
             return false;
         }
@@ -57,8 +65,9 @@ public: // cursor advance (all-or-nothing)
         write_pos_ = 0;
         fail_ = false;
     }
+    void reset() noexcept { clear(); }
 
-public: // copy I/O (all-or-nothing)
+public: // copy I/O
     bool peek(std::span<std::byte> dst) const noexcept {
         if (size() < dst.size()) {
             return false;
@@ -81,24 +90,16 @@ public: // copy I/O (all-or-nothing)
         write_pos_ += src.size();
         return true;
     }
-
-public: // prefix view (LinearBuffer-only; no wrap)
-    std::span<std::byte const> peek(std::size_t n) const noexcept {
-        if (size() < n) {
-            return {};
+    bool write_front(std::span<std::byte const> src) noexcept {
+        if (read_pos_ < src.size()) {
+            return false;
         }
-        return {buf_.get() + read_pos_, n};
-    }
-    std::span<std::byte const> read(std::size_t n) noexcept {
-        if (size() < n) {
-            return {};
-        }
-        std::size_t const pos = read_pos_;
-        read_pos_ += n;
-        return {buf_.get() + pos, n};
+        read_pos_ -= src.size();
+        std::memcpy(buf_.get() + read_pos_, src.data(), src.size());
+        return true;
     }
 
-public: // stream serialization (host byte order; fail-sticky)
+public: // stream serialization
     template <typename T>
         requires std::is_arithmetic_v<T>
     LinearBuffer& operator<<(T v) noexcept {
@@ -113,7 +114,6 @@ public: // stream serialization (host byte order; fail-sticky)
         write_pos_ += sizeof(T);
         return *this;
     }
-
     template <typename T>
         requires std::is_arithmetic_v<T>
     LinearBuffer& operator>>(T& out) noexcept {

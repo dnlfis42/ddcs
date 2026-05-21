@@ -2,13 +2,20 @@
 
 #include <gtest/gtest.h>
 
-#include <string>
 #include <utility>
 
 namespace ddcs::common {
 
-TEST(ObjectPool, AcquireRoundtrip) {
-    ObjectPool<std::string> pool;
+namespace {
+
+struct Item {
+    void reset() noexcept {}
+};
+
+} // namespace
+
+TEST(ObjectPoolTest, AcquireRoundtrip) {
+    auto pool = make_pool<Item>(0, 64);
     EXPECT_EQ(pool.in_use(), 0u);
 
     {
@@ -20,14 +27,14 @@ TEST(ObjectPool, AcquireRoundtrip) {
     EXPECT_EQ(pool.in_use(), 0u);
 }
 
-TEST(ObjectPool, LifoOrder) {
-    ObjectPool<std::string> pool;
+TEST(ObjectPoolTest, LifoOrder) {
+    auto pool = make_pool<Item>(0, 64);
 
     auto h1 = pool.acquire();
     auto h2 = pool.acquire();
 
-    std::string* p1 = h1.get();
-    std::string* p2 = h2.get();
+    Item* p1 = h1.get();
+    Item* p2 = h2.get();
 
     h2.reset();
     h1.reset();
@@ -39,8 +46,8 @@ TEST(ObjectPool, LifoOrder) {
     EXPECT_EQ(h4.get(), p2);
 }
 
-TEST(ObjectPool, GrowsOnDemand) {
-    ObjectPool<std::string> pool{0, 4};
+TEST(ObjectPoolTest, GrowsOnDemand) {
+    auto pool = make_pool<Item>(0, 4);
 
     EXPECT_EQ(pool.capacity(), 0u);
 
@@ -55,24 +62,24 @@ TEST(ObjectPool, GrowsOnDemand) {
     EXPECT_EQ(pool.capacity(), 8u);
 }
 
-TEST(ObjectPool, InitialCapacityRoundUp) {
-    ObjectPool<std::string> pool{5, 4};
+TEST(ObjectPoolTest, InitialCapacityRoundUp) {
+    auto pool = make_pool<Item>(5, 4);
     EXPECT_EQ(pool.capacity(), 8u);
 }
 
-TEST(ObjectPool, HandleDtorReuse) {
-    ObjectPool<std::string> pool;
+TEST(ObjectPoolTest, HandleDtorReuse) {
+    auto pool = make_pool<Item>(0, 64);
 
     auto h1 = pool.acquire();
-    std::string* p1 = h1.get();
+    Item* p1 = h1.get();
     h1.reset();
 
     auto h2 = pool.acquire();
     EXPECT_EQ(h2.get(), p1);
 }
 
-TEST(ObjectPool, MoveOnly) {
-    ObjectPool<std::string> pool;
+TEST(ObjectPoolTest, MoveOnly) {
+    auto pool = make_pool<Item>(0, 64);
 
     auto h1 = pool.acquire();
     ASSERT_TRUE(static_cast<bool>(h1));
