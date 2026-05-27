@@ -11,8 +11,7 @@ namespace ddcs::common {
 
 class LinearBuffer {
 public:
-    explicit LinearBuffer(std::size_t capacity)
-        : buf_{new std::byte[capacity]}, capacity_{capacity} {}
+    explicit LinearBuffer(std::size_t capacity) : buf_{new std::byte[capacity]}, capacity_{capacity} {}
     ~LinearBuffer() = default;
 
     LinearBuffer(LinearBuffer const&) = delete;
@@ -31,9 +30,7 @@ public: // stream state
     void set_fail() noexcept { fail_ = true; }
 
 public: // zero-copy region
-    std::span<std::byte const> readable() const noexcept {
-        return {buf_.get() + read_pos_, size()};
-    }
+    std::span<std::byte const> readable() const noexcept { return {buf_.get() + read_pos_, size()}; }
     std::span<std::byte> writable() noexcept { return {buf_.get() + write_pos_, available()}; }
 
 public: // cursor advance

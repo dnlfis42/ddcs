@@ -17,8 +17,7 @@ concept resettable = requires(T& t) {
     { t.reset() } noexcept -> std::same_as<void>;
 };
 
-template <typename T>
-    requires resettable<T>
+template <resettable T>
 class ObjectPool {
 private:
     struct Node {
@@ -31,24 +30,27 @@ private:
 public:
     class Deleter {
     public:
-        Deleter(ObjectPool& pool, Node& node) noexcept : pool_{pool}, node_{node} {}
+        Deleter() noexcept = default;
+        Deleter(ObjectPool& pool, Node& node) noexcept : pool_{&pool}, node_{&node} {}
 
-        void operator()(T*) const noexcept { pool_.get().release(node_); }
+        void operator()(T*) const noexcept {
+            if (pool_ != nullptr) {
+                pool_->release(*node_);
+            }
+        }
 
     private:
-        std::reference_wrapper<ObjectPool> pool_;
-        std::reference_wrapper<Node> node_;
+        ObjectPool* pool_;
+        Node* node_;
     };
 
     using Handle = std::unique_ptr<T, Deleter>;
     using Factory = std::function<void(void* /* placement-new 대상 주소 */)>;
 
 public:
-    explicit ObjectPool(
-        Factory factory, std::size_t initial_capacity = 0, std::size_t chunk_size = 64
-    )
-        : factory_{std::move(factory)}, head_free_{nullptr},
-          chunk_size_{chunk_size == 0 ? 1 : chunk_size}, capacity_{0}, available_{0} {
+    explicit ObjectPool(Factory factory, std::size_t initial_capacity = 0, std::size_t chunk_size = 64)
+        : factory_{std::move(factory)}, head_free_{nullptr}, chunk_size_{chunk_size == 0 ? 1 : chunk_size},
+          capacity_{0}, available_{0} {
         std::size_t const initial_chunks = (initial_capacity + chunk_size_ - 1) / chunk_size_;
         for (std::size_t i = 0; i < initial_chunks; ++i) {
             grow();
@@ -141,7 +143,7 @@ using PoolHandle = typename ObjectPool<T>::Handle;
 // auto p = make_pool<LinearBuffer>(/*initial*/256, /*chunk*/64, /*T ctor args*/4096);
 template <typename T, typename... Args>
 [[nodiscard]]
-ObjectPool<T> make_pool(std::size_t initial_capacity, std::size_t chunk_size, Args... args) {
+ObjectPool<T> make_pool(std::size_t initial_capacity, std::size_t chunk_size, Args&&... args) {
     return ObjectPool<T>([args...](void* p) { new (p) T(args...); }, initial_capacity, chunk_size);
 }
 

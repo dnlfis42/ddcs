@@ -18,9 +18,7 @@ namespace detail {
 #endif
 
 DDCS_RINGBUF_NOINLINE_NOCLONE
-inline void copy_bytes(void* dst, void const* src, std::size_t n) noexcept {
-    std::memcpy(dst, src, n);
-}
+inline void copy_bytes(void* dst, void const* src, std::size_t n) noexcept { std::memcpy(dst, src, n); }
 
 #undef DDCS_RINGBUF_NOINLINE_NOCLONE
 
