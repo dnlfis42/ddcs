@@ -1,7 +1,9 @@
 # 라이브러리 경로
 add_subdirectory(common)
+add_subdirectory(device)
+add_subdirectory(json)
 add_subdirectory(logger)
-add_subdirectory(config)
-add_subdirectory(net)
+add_subdirectory(io)
+add_subdirectory(proto)
+add_subdirectory(ctrl)
 add_subdirectory(agent)
-add_subdirectory(controller)

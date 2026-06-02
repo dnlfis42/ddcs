@@ -79,7 +79,6 @@ include(FetchContent)
 FetchContent_Declare(
     googletest
     URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz
-    SYSTEM
 )
 set(INSTALL_GTEST OFF)
 FetchContent_MakeAvailable(googletest)
@@ -88,7 +87,6 @@ FetchContent_MakeAvailable(googletest)
 FetchContent_Declare(
     benchmark
     URL https://github.com/google/benchmark/archive/refs/tags/v1.9.5.tar.gz
-    SYSTEM
 )
 set(BENCHMARK_ENABLE_TESTING OFF)
 set(BENCHMARK_ENABLE_INSTALL OFF)
@@ -101,8 +99,7 @@ enable_testing()
 add_subdirectory(lib)
 
 # 실행 파일 경로
-add_subdirectory(app/agent)
-add_subdirectory(app/controller)
+add_subdirectory(apps)
 
 # 테스트 경로
 add_subdirectory(test)
