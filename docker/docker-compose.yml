@@ -1,0 +1,57 @@
+# docker compose -f docker/docker-compose.yml up --build
+# controller 1 + agent 3 - agent 들은 DDCS_AGENT_TAG 로 고정 식별 (kick-old 검증용).
+services:
+  controller:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: controller
+    container_name: ddcs-controller
+    image: ddcs-controller:dev
+    ports:
+      - "8080:8080"
+    networks:
+      - ddcs
+
+  agent-1:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: agent
+    image: ddcs-agent:dev
+    depends_on:
+      - controller
+    environment:
+      DDCS_CONTROLLER_HOST: controller
+      DDCS_CONTROLLER_PORT: "8080"
+      DDCS_AGENT_TAG: "11111111-1111-1111-1111-111111111111"
+    networks:
+      - ddcs
+
+  agent-2:
+    image: ddcs-agent:dev
+    depends_on:
+      - controller
+      - agent-1
+    environment:
+      DDCS_CONTROLLER_HOST: controller
+      DDCS_CONTROLLER_PORT: "8080"
+      DDCS_AGENT_TAG: "22222222-2222-2222-2222-222222222222"
+    networks:
+      - ddcs
+
+  agent-3:
+    image: ddcs-agent:dev
+    depends_on:
+      - controller
+      - agent-1
+    environment:
+      DDCS_CONTROLLER_HOST: controller
+      DDCS_CONTROLLER_PORT: "8080"
+      DDCS_AGENT_TAG: "33333333-3333-3333-3333-333333333333"
+    networks:
+      - ddcs
+
+networks:
+  ddcs:
+    driver: bridge
