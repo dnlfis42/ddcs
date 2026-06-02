@@ -5,7 +5,7 @@ IndentWidth: 4
 AccessModifierOffset: -4
 
 # 열 길이
-ColumnLimit: 100
+ColumnLimit: 120
 
 # 정렬
 AlignAfterOpenBracket: BlockIndent
@@ -15,3 +15,6 @@ PointerAlignment: Left
 
 # 템플릿
 AlwaysBreakTemplateDeclarations: true
+
+# 분기 명료화
+InsertBraces: true
