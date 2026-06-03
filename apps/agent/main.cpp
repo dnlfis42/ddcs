@@ -1,5 +1,5 @@
 #include "ddcs/agent/agent.hpp"
-#include "ddcs/agent/domain/dummy_device.hpp"
+#include "ddcs/agent/domain/simulated_device.hpp"
 
 #include <array>
 #include <memory>
@@ -132,7 +132,7 @@ int main() {
     cfg.agent_uuid_is_ephemeral = uuid.ephemeral;
     cfg.session.group = get_env_or("DDCS_AGENT_GROUP", "edge");
     cfg.session.version = get_env_or("DDCS_AGENT_VERSION", "1.0.0");
-    cfg.device = std::make_unique<ddcs::agent::domain::DummyDevice>();
+    cfg.device = std::make_unique<ddcs::agent::domain::SimulatedDevice>();
     if (char const* lvl = std::getenv("DDCS_LOG_LEVEL")) {
         cfg.log_level = ddcs::logger::level_from_string(lvl, cfg.log_level);
     }

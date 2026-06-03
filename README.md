@@ -81,7 +81,7 @@ cmake --workflow --preset release
 ctest --test-dir build/debug --output-on-failure
 ```
 
-전체 `ctest` 38개 통과 - 공통 라이브러리 단위, 프로토콜 코덱, controller/agent FSM, 정책 엔진, controller<->agent 왕복 E2E.
+전체 `ctest` 39개 통과 - 공통 라이브러리 단위, 프로토콜 코덱, controller/agent FSM, 정책 엔진, controller<->agent 왕복 E2E.
 
 ## 디렉토리 구조
 
