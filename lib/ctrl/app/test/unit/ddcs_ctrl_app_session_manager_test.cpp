@@ -92,7 +92,7 @@ struct Harness {
     AgentRegistry registry;
     MockOutbound outbound;
     ManualClock clock;
-    RegisterService registrar{sessions, registry, outbound, clock};
+    RegisterService registrar{registry, outbound};
     StatusService status{sessions, registry};
     CommandService commands{sessions, outbound, clock, std::chrono::seconds{5}};
     SessionManager mgr{sessions, registrar, status, commands, outbound, clock};
@@ -229,4 +229,39 @@ TEST(SessionManagerTest, PreRegisterUnexpectedTypeCloses) {
     );
     ASSERT_EQ(h.outbound.closes.size(), 1u);
     EXPECT_EQ(h.outbound.closes[0].second, CloseMode::force);
+}
+
+TEST(SessionManagerTest, KicksOldConnectionOnSameUuidReRegister) {
+    Harness h;
+    h.register_active(ConnectionId{1}, make_uuid(1)); // conn1 active (sends/closes cleared)
+    // 같은 uuid 가 새 conn 으로 재등록 -> 옛 conn 축출.
+    h.mgr.on_connect(ConnectionId{2});
+    h.mgr.on_recv(
+        ConnectionId{2}, kType(msg::Type::RegisterRequest),
+        encode_body(msg::RegisterRequest{.agent_uuid = make_uuid(1)})
+    );
+
+    EXPECT_EQ(h.mgr.kicked_total(), 1u);
+    ASSERT_EQ(h.outbound.closes.size(), 1u);
+    EXPECT_EQ(h.outbound.closes[0].first, ConnectionId{1}); // 옛 conn force close
+    EXPECT_EQ(h.outbound.closes[0].second, CloseMode::force);
+    EXPECT_EQ(h.sessions.resolve(AgentId{1}), ConnectionId{2}); // 현재 바인딩 = 새 conn
+}
+
+TEST(SessionManagerTest, RegisterDecodeFailClosesConnection) {
+    Harness h;
+    h.mgr.on_connect(ConnectionId{1}); // handshaking
+    static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 4, std::size_t{64});
+    auto bad = pool.acquire();
+    std::array<std::byte, 4> junk{};
+    ASSERT_TRUE(bad->write({junk.data(), junk.size()}));
+    h.mgr.on_recv(ConnectionId{1}, kType(msg::Type::RegisterRequest), std::move(bad));
+
+    ASSERT_EQ(h.outbound.closes.size(), 1u);
+    EXPECT_EQ(h.outbound.closes[0].first, ConnectionId{1});
+    EXPECT_EQ(h.outbound.closes[0].second, CloseMode::force);
+    EXPECT_TRUE(h.outbound.sends.empty()); // 응답 없음
+    auto* s = h.sessions.find(ConnectionId{1});
+    ASSERT_NE(s, nullptr);
+    EXPECT_EQ(s->state, State::handshaking); // 바인딩 안 됨
 }

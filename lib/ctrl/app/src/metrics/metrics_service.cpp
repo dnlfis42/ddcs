@@ -66,7 +66,7 @@ std::string MetricsService::scrape() {
     );
     append_metric(
         out, "ddcs_agents_kicked_total", "Old connections kicked by same-uuid re-register (reconnect churn).",
-        "counter", registrar_.kicked_total()
+        "counter", session_manager_.kicked_total()
     );
     return out;
 }

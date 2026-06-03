@@ -10,14 +10,14 @@ namespace ddcs::ctrl {
 
 Controller::Controller(Config cfg)
     : cfg_{cfg}, coordinator_{reactor_}, acceptor_{reactor_, coordinator_, cfg.listen_port, cfg.accept_backlog},
-      registrar_{sessions_, registry_, coordinator_, clock_}, status_{sessions_, registry_},
+      registrar_{registry_, coordinator_}, status_{sessions_, registry_},
       commands_{
           sessions_, coordinator_, clock_, cfg.command_timeout, cfg.command_max_attempts, cfg.command_backoff_base
       },
       session_manager_{sessions_, registrar_, status_, commands_, coordinator_, clock_},
       operator_service_{registry_, commands_}, policy_{sessions_, registry_, operator_service_},
       liveness_{sessions_, coordinator_, clock_, cfg.liveness_timeout},
-      metrics_service_{sessions_, registry_, commands_, registrar_, liveness_} {
+      metrics_service_{sessions_, registry_, commands_, session_manager_, liveness_} {
     auto& lg = logger::Logger::instance();
     lg.set_level(cfg.log_level);
     lg.set_sink(cfg.log_sink != nullptr ? *cfg.log_sink : default_sink_);

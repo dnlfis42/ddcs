@@ -1,41 +1,36 @@
 #pragma once
 
-#include "ddcs/common/clock.hpp"
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
-#include "ddcs/ctrl/app/session/session_registry.hpp"
+#include "ddcs/ctrl/domain/agent/agent_id.hpp"
 #include "ddcs/ctrl/domain/agent/agent_registry.hpp"
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/outbound.hpp"
 
-#include <cstdint>
-
 namespace ddcs::ctrl::app::agent {
 
-using ddcs::ctrl::app::session::SessionRegistry;
+using ddcs::ctrl::domain::agent::AgentId;
 using ddcs::ctrl::domain::agent::AgentRegistry;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
 
-// 등록 핸드셰이크 use-case. RegisterRequest -> uuid->AgentId 바인딩 + kick-old + RegisterResponse +
-// 세션 active(+last_seen). 정체성/세션 수명만 - liveness/telemetry 는 별 use-case 소관.
+// 등록 핸드셰이크의 identity/ack 책임. RegisterRequest 를 decode 해 uuid->AgentId(영속)로 해소하고
+// 선언된 group/version 을 갱신한다. 세션 바인딩(active 전이/kick-old)은 SessionManager 소관 -
+// 여긴 정체성 해소와 RegisterResponse 송신만 담당.
 class RegisterService {
 public:
-    RegisterService(SessionRegistry& sessions, AgentRegistry& registry, Outbound& outbound, common::Clock& clock) noexcept
-        : sessions_{sessions}, registry_{registry}, outbound_{outbound}, clock_{clock} {}
+    RegisterService(AgentRegistry& registry, Outbound& outbound) noexcept : registry_{registry}, outbound_{outbound} {}
 
-    void handle_register(ConnectionId conn, common::PoolHandle<common::LinearBuffer> body);
+    // RegisterRequest decode -> AgentId 해소(+ group/version 갱신). decode 실패 시 무효 AgentId{}.
+    // conn 은 decode_fail 로그 식별용.
+    AgentId resolve(ConnectionId conn, common::PoolHandle<common::LinearBuffer> body);
 
-    std::uint64_t kicked_total() const noexcept { return kicked_total_; } // same-uuid kick 누적(재연결 churn 알람)
-
-private:
+    // RegisterResponse(success/fail) 송신.
     void send_register_response(ConnectionId conn, bool success);
 
-    SessionRegistry& sessions_;
+private:
     AgentRegistry& registry_;
     Outbound& outbound_;
-    common::Clock& clock_;
-    std::uint64_t kicked_total_{};
 };
 
 } // namespace ddcs::ctrl::app::agent

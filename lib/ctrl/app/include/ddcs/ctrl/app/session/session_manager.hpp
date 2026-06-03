@@ -30,6 +30,8 @@ using ddcs::ctrl::port::transport::Outbound;
 //  - on_recv          : handshaking->Register 만 허용 / active 면 update_seen 후 type -> 서비스 분기
 //  - on_close_request : session -> closing(liveness 제외) 후 Outbound::close
 //  - on_disconnect    : 세션 erase
+// RegisterRequest 는 여기서 직접 처리: registrar 로 identity 해소 후 session bind(active)+kick-old+ack.
+// (identity = AgentRegistry/RegisterService, session binding = SessionRegistry/SessionManager.)
 class SessionManager final : public Inbound {
 public:
     SessionManager(
@@ -37,18 +39,25 @@ public:
         Outbound& outbound, common::Clock& clock
     ) noexcept;
 
+public:
     void on_connect(ConnectionId conn) override;
     void on_recv(ConnectionId conn, std::uint8_t type, common::PoolHandle<common::LinearBuffer> body) override;
     void on_close_request(ConnectionId conn, CloseReason reason) override;
     void on_disconnect(ConnectionId conn) override;
 
+public:
+    std::uint64_t kicked_total() const noexcept { return kicked_total_; } // same-uuid kick 누적(재연결 churn 알람)
+
 private:
+    void handle_register(ConnectionId conn, common::PoolHandle<common::LinearBuffer> body); // resolve+bind+kick+ack
+
     SessionRegistry& sessions_;
     RegisterService& registrar_;
     StatusService& status_;
     CommandService& commands_;
     Outbound& outbound_;
     common::Clock& clock_;
+    std::uint64_t kicked_total_{};
 };
 
 } // namespace ddcs::ctrl::app::session

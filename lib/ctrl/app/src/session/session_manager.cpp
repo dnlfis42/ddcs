@@ -1,6 +1,7 @@
 #include "ddcs/ctrl/app/session/session_manager.hpp"
 
 #include "ddcs/ctrl/app/session/session.hpp"
+#include "ddcs/ctrl/domain/agent/agent_id.hpp"
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/msg/type.hpp"
 
@@ -10,6 +11,7 @@
 
 namespace ddcs::ctrl::app::session {
 
+using ddcs::ctrl::domain::agent::AgentId;
 using ddcs::ctrl::port::transport::CloseMode;
 
 SessionManager::SessionManager(
@@ -44,7 +46,7 @@ void SessionManager::on_recv(ConnectionId conn, std::uint8_t type, common::PoolH
 
     switch (t) {
     case proto::msg::Type::RegisterRequest:
-        registrar_.handle_register(conn, std::move(body));
+        handle_register(conn, std::move(body));
         break;
     case proto::msg::Type::Heartbeat:
         break; // idle keepalive - 위 update_seen 으로 충분. 별도 처리 없음.
@@ -77,6 +79,26 @@ void SessionManager::on_close_request(ConnectionId conn, CloseReason reason) {
 void SessionManager::on_disconnect(ConnectionId conn) {
     sessions_.erase(conn);
     // pending command 는 sweep 타임아웃으로 정리(agent 응답 불가).
+}
+
+// RegisterRequest 처리: registrar 로 identity 해소 -> session bind(active+last_seen) + kick-old -> ack.
+void SessionManager::handle_register(ConnectionId conn, common::PoolHandle<common::LinearBuffer> body) {
+    AgentId const agent = registrar_.resolve(conn, std::move(body));
+    if (!agent.valid()) {
+        outbound_.close(conn, CloseMode::force); // 식별 불가 -> 응답 없이 종료
+        return;
+    }
+    ConnectionId const kicked = sessions_.bind(conn, agent, clock_.now()); // active(+last_seen) + kick-old 추적
+    if (kicked.valid()) {
+        ++kicked_total_;
+        LOG_INFO(
+            "agent.kick_old", ddcs::logger::kv("agent", agent.value()), ddcs::logger::kv("old_conn", kicked.value()),
+            ddcs::logger::kv("new_conn", conn.value())
+        );
+        outbound_.close(kicked, CloseMode::force); // 옛 연결 축출
+    }
+    LOG_INFO("agent.register", ddcs::logger::kv("agent", agent.value()), ddcs::logger::kv("conn", conn.value()));
+    registrar_.send_register_response(conn, true);
 }
 
 } // namespace ddcs::ctrl::app::session
