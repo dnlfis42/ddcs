@@ -1,5 +1,5 @@
 # docker compose -f docker/docker-compose.yml up --build
-# controller 1 + agent 3 - agent 들은 DDCS_AGENT_TAG 로 고정 식별 (kick-old 검증용).
+# controller 1 + agent 3 - agent 들은 DDCS_AGENT_UUID 로 고정 식별 (kick-old 검증용).
 services:
   controller:
     build:
@@ -10,6 +10,7 @@ services:
     image: ddcs-controller:dev
     ports:
       - "8080:8080"
+      - "9090:9090"
     networks:
       - ddcs
 
@@ -24,7 +25,8 @@ services:
     environment:
       DDCS_CONTROLLER_HOST: controller
       DDCS_CONTROLLER_PORT: "8080"
-      DDCS_AGENT_TAG: "11111111-1111-1111-1111-111111111111"
+      DDCS_AGENT_UUID: "11111111-1111-1111-1111-111111111111"
+      DDCS_AGENT_GROUP: edge
     networks:
       - ddcs
 
@@ -36,7 +38,8 @@ services:
     environment:
       DDCS_CONTROLLER_HOST: controller
       DDCS_CONTROLLER_PORT: "8080"
-      DDCS_AGENT_TAG: "22222222-2222-2222-2222-222222222222"
+      DDCS_AGENT_UUID: "22222222-2222-2222-2222-222222222222"
+      DDCS_AGENT_GROUP: edge
     networks:
       - ddcs
 
@@ -48,7 +51,8 @@ services:
     environment:
       DDCS_CONTROLLER_HOST: controller
       DDCS_CONTROLLER_PORT: "8080"
-      DDCS_AGENT_TAG: "33333333-3333-3333-3333-333333333333"
+      DDCS_AGENT_UUID: "33333333-3333-3333-3333-333333333333"
+      DDCS_AGENT_GROUP: edge
     networks:
       - ddcs
 

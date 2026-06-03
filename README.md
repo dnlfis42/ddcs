@@ -49,7 +49,9 @@ docker compose -f docker/docker-compose.yml logs -f
 docker compose -f docker/docker-compose.yml down
 ```
 
-agent 들은 `DDCS_AGENT_TAG` 로 고정 식별되어 controller 의 kick-old 정책 검증에 사용 가능합니다.
+agent 들은 `DDCS_AGENT_UUID` 로 고정 식별되어 controller 의 kick-old 정책 검증에 사용 가능합니다.
+
+controller 는 `9090` 에 Prometheus 메트릭을 노출하고 `config/policy.json` (그룹 `edge`) 정책을 부팅 시 로드합니다.
 
 ## 환경 변수 (agent)
 
@@ -57,7 +59,8 @@ agent 들은 `DDCS_AGENT_TAG` 로 고정 식별되어 controller 의 kick-old �
 | ---------------------- | ----------- | ----------------------------------------------------------------------- |
 | `DDCS_CONTROLLER_HOST` | `127.0.0.1` | controller 호스트명 또는 IP                                             |
 | `DDCS_CONTROLLER_PORT` | `8080`      | controller TCP 포트                                                     |
-| `DDCS_AGENT_TAG`       | random      | UUID 표준(`8-4-4-4-12`) 또는 32자 hex. 미지정 시 부팅마다 새 random tag |
+| `DDCS_AGENT_UUID`      | random      | UUID 표준(`8-4-4-4-12`) 또는 32자 hex. 미지정 시 부팅마다 새 random     |
+| `DDCS_AGENT_GROUP`     | `edge`      | 정책 타깃 그룹명 (policy.json 의 group 키와 매칭)                        |
 
 ## 빌드 프로파일
 

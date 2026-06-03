@@ -25,7 +25,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # controller 이미지
 FROM runtime AS controller
 COPY --from=builder /src/build/release/bin/ctrl /usr/local/bin/ctrl
-EXPOSE 8080
+# 기본 정책 설정 (ctrl 는 cwd=/ 기준 config/policy.json 으로 읽음)
+COPY --from=builder /src/config /config
+EXPOSE 8080 9090
 ENTRYPOINT ["/usr/local/bin/ctrl"]
 
 # agent 이미지
