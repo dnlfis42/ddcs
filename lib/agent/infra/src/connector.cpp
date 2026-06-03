@@ -13,6 +13,7 @@
 #include <cstdint>
 
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -118,11 +119,18 @@ void Connector::try_connect() {
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = ::htons(port_);
-    if (::inet_pton(AF_INET, host_.c_str(), &addr.sin_addr) != 1) {
+    // 호스트네임(DNS) 또는 숫자 IP 해석. 단일 연결 client 이므로 (재)연결 시 blocking resolve 1회 허용.
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* res = nullptr;
+    if (::getaddrinfo(host_.c_str(), nullptr, &hints, &res) != 0 || res == nullptr) {
         LOG_ERROR("agent_transport.bad_host", ddcs::logger::kv("host", host_));
         arm_reconnect();
         return;
     }
+    addr.sin_addr = reinterpret_cast<sockaddr_in const*>(res->ai_addr)->sin_addr;
+    ::freeaddrinfo(res);
 
     int r = 0;
     do {
