@@ -1,0 +1,10 @@
+{
+  "groups": {
+    "edge": {
+      "high_load": 70,
+      "low_load": 30,
+      "busy_mode": "performance",
+      "idle_mode": "normal"
+    }
+  }
+}

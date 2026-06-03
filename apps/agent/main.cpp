@@ -130,6 +130,8 @@ int main() {
     cfg.controller_port = get_env_port_or("DDCS_CONTROLLER_PORT", 8080);
     cfg.agent_uuid = uuid.value;
     cfg.agent_uuid_is_ephemeral = uuid.ephemeral;
+    cfg.session.group = get_env_or("DDCS_AGENT_GROUP", "edge");
+    cfg.session.version = get_env_or("DDCS_AGENT_VERSION", "1.0.0");
     cfg.device = std::make_unique<ddcs::agent::domain::DummyDevice>();
     if (char const* lvl = std::getenv("DDCS_LOG_LEVEL")) {
         cfg.log_level = ddcs::logger::level_from_string(lvl, cfg.log_level);
