@@ -1,4 +1,4 @@
-#include "ddcs/ctrl/app/transport/dispatcher.hpp"
+#include "ddcs/ctrl/app/session/session_manager.hpp"
 
 #include "ddcs/common/clock.hpp"
 #include "ddcs/common/linear_buffer.hpp"
@@ -37,9 +37,9 @@ using ddcs::common::Uuid;
 using ddcs::ctrl::app::agent::CommandService;
 using ddcs::ctrl::app::agent::RegisterService;
 using ddcs::ctrl::app::agent::StatusService;
+using ddcs::ctrl::app::session::SessionManager;
 using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::app::session::State;
-using ddcs::ctrl::app::transport::Dispatcher;
 using ddcs::ctrl::domain::agent::AgentId;
 using ddcs::ctrl::domain::agent::AgentRegistry;
 using ddcs::ctrl::port::transport::CloseMode;
@@ -86,7 +86,7 @@ PoolHandle<LinearBuffer> encode_body(T const& m) {
 
 constexpr std::uint8_t kType(msg::Type t) { return static_cast<std::uint8_t>(t); }
 
-// Dispatcher 와 그 뒤의 실 use-case 그래프를 묶은 테스트 하니스.
+// SessionManager 와 그 뒤의 실 use-case 그래프를 묶은 테스트 하니스.
 struct Harness {
     SessionRegistry sessions;
     AgentRegistry registry;
@@ -95,11 +95,11 @@ struct Harness {
     RegisterService registrar{sessions, registry, outbound, clock};
     StatusService status{sessions, registry};
     CommandService commands{sessions, outbound, clock, std::chrono::seconds{5}};
-    Dispatcher disp{sessions, registrar, status, commands, outbound, clock};
+    SessionManager mgr{sessions, registrar, status, commands, outbound, clock};
 
     void register_active(ConnectionId conn, Uuid uuid) {
-        disp.on_connect(conn);
-        disp.on_recv(conn, kType(msg::Type::RegisterRequest), encode_body(msg::RegisterRequest{.agent_uuid = uuid}));
+        mgr.on_connect(conn);
+        mgr.on_recv(conn, kType(msg::Type::RegisterRequest), encode_body(msg::RegisterRequest{.agent_uuid = uuid}));
         outbound.sends.clear();
         outbound.closes.clear();
     }
@@ -107,18 +107,18 @@ struct Harness {
 
 } // namespace
 
-TEST(DispatcherTest, OnConnectOpensHandshakingSession) {
+TEST(SessionManagerTest, OnConnectOpensHandshakingSession) {
     Harness h;
-    h.disp.on_connect(ConnectionId{1});
+    h.mgr.on_connect(ConnectionId{1});
     auto* s = h.sessions.find(ConnectionId{1});
     ASSERT_NE(s, nullptr);
     EXPECT_EQ(s->state, State::handshaking);
 }
 
-TEST(DispatcherTest, RoutesRegisterRequestActivatesSession) {
+TEST(SessionManagerTest, RoutesRegisterRequestActivatesSession) {
     Harness h;
-    h.disp.on_connect(ConnectionId{1});
-    h.disp.on_recv(
+    h.mgr.on_connect(ConnectionId{1});
+    h.mgr.on_recv(
         ConnectionId{1}, kType(msg::Type::RegisterRequest),
         encode_body(msg::RegisterRequest{.agent_uuid = make_uuid(1)})
     );
@@ -130,11 +130,11 @@ TEST(DispatcherTest, RoutesRegisterRequestActivatesSession) {
     EXPECT_EQ(h.outbound.sends[0].type, kType(msg::Type::RegisterResponse));
 }
 
-TEST(DispatcherTest, ActiveRecvUpdatesLastSeen) {
+TEST(SessionManagerTest, ActiveRecvUpdatesLastSeen) {
     Harness h;
     h.register_active(ConnectionId{1}, make_uuid(1)); // last_seen = t0
     h.clock.advance(std::chrono::seconds{2});
-    h.disp.on_recv(ConnectionId{1}, kType(msg::Type::Heartbeat), encode_body(msg::Heartbeat{.timestamp_ms = 0}));
+    h.mgr.on_recv(ConnectionId{1}, kType(msg::Type::Heartbeat), encode_body(msg::Heartbeat{.timestamp_ms = 0}));
 
     auto* s = h.sessions.find(ConnectionId{1});
     ASSERT_NE(s, nullptr);
@@ -142,37 +142,37 @@ TEST(DispatcherTest, ActiveRecvUpdatesLastSeen) {
     EXPECT_TRUE(h.outbound.closes.empty());
 }
 
-TEST(DispatcherTest, RoutesStatusAsTelemetry) {
+TEST(SessionManagerTest, RoutesStatusAsTelemetry) {
     Harness h;
     h.register_active(ConnectionId{1}, make_uuid(1));
-    h.disp.on_recv(
+    h.mgr.on_recv(
         ConnectionId{1}, kType(msg::Type::Status), encode_body(msg::Status{.timestamp_ms = 0, .status_json = "{}"})
     );
     EXPECT_TRUE(h.outbound.closes.empty()); // 비치명적
 }
 
-TEST(DispatcherTest, RoutesCommandOutcomeResolvesPending) {
+TEST(SessionManagerTest, RoutesCommandOutcomeResolvesPending) {
     Harness h;
     h.sessions.open(ConnectionId{1});
     h.sessions.bind(ConnectionId{1}, AgentId{1}, h.clock.now());
     auto const command_id = h.commands.dispatch(AgentId{1}, 0x01, "payload");
     ASSERT_EQ(h.commands.pending_count(), 1u);
 
-    h.disp.on_recv(
+    h.mgr.on_recv(
         ConnectionId{1}, kType(msg::Type::CommandOutcome),
         encode_body(msg::CommandOutcome{.command_id = command_id, .result = msg::CommandResult::success, .reason = {}})
     );
     EXPECT_EQ(h.commands.pending_count(), 0u); // outcome 라우팅 -> 해소
 }
 
-TEST(DispatcherTest, RoutesCommandAckExtendsDeadline) {
+TEST(SessionManagerTest, RoutesCommandAckExtendsDeadline) {
     Harness h;
     h.sessions.open(ConnectionId{1});
     h.sessions.bind(ConnectionId{1}, AgentId{1}, h.clock.now());
     auto const command_id = h.commands.dispatch(AgentId{1}, 0x01, "payload"); // deadline t0+5s
 
     h.clock.advance(std::chrono::seconds{4});
-    h.disp.on_recv(
+    h.mgr.on_recv(
         ConnectionId{1}, kType(msg::Type::CommandAck), encode_body(msg::CommandAck{.command_id = command_id})
     ); // deadline -> t0+9s
 
@@ -181,11 +181,11 @@ TEST(DispatcherTest, RoutesCommandAckExtendsDeadline) {
     EXPECT_EQ(h.commands.pending_count(), 1u); // ack 라우팅 -> deadline 연장 확인
 }
 
-TEST(DispatcherTest, UnexpectedTypeClosesConnection) {
+TEST(SessionManagerTest, UnexpectedTypeClosesConnection) {
     Harness h;
-    h.disp.on_connect(ConnectionId{1});
+    h.mgr.on_connect(ConnectionId{1});
     // RegisterResponse 는 c->a 전용 -> 수신 시 프로토콜 위반.
-    h.disp.on_recv(
+    h.mgr.on_recv(
         ConnectionId{1}, kType(msg::Type::RegisterResponse),
         encode_body(msg::RegisterResponse{.result = msg::RegisterResult::success, .reason = {}})
     );
@@ -194,10 +194,10 @@ TEST(DispatcherTest, UnexpectedTypeClosesConnection) {
     EXPECT_EQ(h.outbound.closes[0].second, CloseMode::force);
 }
 
-TEST(DispatcherTest, CloseRequestMarksClosingAndGracefulOnPeerClosed) {
+TEST(SessionManagerTest, CloseRequestMarksClosingAndGracefulOnPeerClosed) {
     Harness h;
     h.register_active(ConnectionId{1}, make_uuid(1));
-    h.disp.on_close_request(ConnectionId{1}, CloseReason::peer_closed);
+    h.mgr.on_close_request(ConnectionId{1}, CloseReason::peer_closed);
 
     auto* s = h.sessions.find(ConnectionId{1});
     ASSERT_NE(s, nullptr);
@@ -206,25 +206,25 @@ TEST(DispatcherTest, CloseRequestMarksClosingAndGracefulOnPeerClosed) {
     EXPECT_EQ(h.outbound.closes[0].second, CloseMode::graceful);
 }
 
-TEST(DispatcherTest, CloseRequestErrorIsForce) {
+TEST(SessionManagerTest, CloseRequestErrorIsForce) {
     Harness h;
-    h.disp.on_close_request(ConnectionId{1}, CloseReason::conn_error);
+    h.mgr.on_close_request(ConnectionId{1}, CloseReason::conn_error);
     ASSERT_EQ(h.outbound.closes.size(), 1u);
     EXPECT_EQ(h.outbound.closes[0].second, CloseMode::force);
 }
 
-TEST(DispatcherTest, DisconnectErasesSession) {
+TEST(SessionManagerTest, DisconnectErasesSession) {
     Harness h;
     h.register_active(ConnectionId{1}, make_uuid(1));
-    h.disp.on_disconnect(ConnectionId{1});
+    h.mgr.on_disconnect(ConnectionId{1});
     EXPECT_EQ(h.sessions.find(ConnectionId{1}), nullptr); // 세션 제거
 }
 
-TEST(DispatcherTest, PreRegisterUnexpectedTypeCloses) {
+TEST(SessionManagerTest, PreRegisterUnexpectedTypeCloses) {
     Harness h;
-    h.disp.on_connect(ConnectionId{1}); // handshaking
+    h.mgr.on_connect(ConnectionId{1}); // handshaking
     // 등록 전 비-Register 프레임 -> 프로토콜 위반 -> close (register-or-die gap-fix).
-    h.disp.on_recv(
+    h.mgr.on_recv(
         ConnectionId{1}, kType(msg::Type::Status), encode_body(msg::Status{.timestamp_ms = 0, .status_json = "{}"})
     );
     ASSERT_EQ(h.outbound.closes.size(), 1u);

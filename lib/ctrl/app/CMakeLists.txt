@@ -1,7 +1,7 @@
 add_library(ddcs_ctrl_app STATIC)
 add_library(ddcs::ctrl::app ALIAS ddcs_ctrl_app)
 
-# 6a app::session, 6b app::agent. transport 는 6c 에서 추가.
+# app::session / app::agent / app::ops / app::policy / app::metrics.
 target_sources(
     ddcs_ctrl_app
     PRIVATE
@@ -11,9 +11,9 @@ target_sources(
         src/metrics/metrics_service.cpp
         src/ops/operator_service.cpp
         src/policy/policy_service.cpp
+        src/session/liveness_monitor.cpp
+        src/session/session_manager.cpp
         src/session/session_registry.cpp
-        src/transport/dispatcher.cpp
-        src/transport/liveness_monitor.cpp
     PUBLIC
         FILE_SET HEADERS
             BASE_DIRS include
@@ -24,10 +24,10 @@ target_sources(
                 include/ddcs/ctrl/app/metrics/metrics_service.hpp
                 include/ddcs/ctrl/app/ops/operator_service.hpp
                 include/ddcs/ctrl/app/policy/policy_service.hpp
+                include/ddcs/ctrl/app/session/liveness_monitor.hpp
                 include/ddcs/ctrl/app/session/session.hpp
+                include/ddcs/ctrl/app/session/session_manager.hpp
                 include/ddcs/ctrl/app/session/session_registry.hpp
-                include/ddcs/ctrl/app/transport/dispatcher.hpp
-                include/ddcs/ctrl/app/transport/liveness_monitor.hpp
 )
 target_link_libraries(
     ddcs_ctrl_app

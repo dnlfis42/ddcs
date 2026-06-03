@@ -1,14 +1,12 @@
-#include "ddcs/ctrl/app/transport/liveness_monitor.hpp"
+#include "ddcs/ctrl/app/session/liveness_monitor.hpp"
 
 #include "ddcs/ctrl/app/session/session.hpp"
 #include "ddcs/logger/log.hpp"
 
 #include <chrono>
 
-namespace ddcs::ctrl::app::transport {
+namespace ddcs::ctrl::app::session {
 
-using ddcs::ctrl::app::session::Session;
-using ddcs::ctrl::app::session::State;
 using ddcs::ctrl::port::transport::CloseMode;
 
 LivenessMonitor::LivenessMonitor(
@@ -36,4 +34,4 @@ void LivenessMonitor::sweep() {
     }
 }
 
-} // namespace ddcs::ctrl::app::transport
+} // namespace ddcs::ctrl::app::session

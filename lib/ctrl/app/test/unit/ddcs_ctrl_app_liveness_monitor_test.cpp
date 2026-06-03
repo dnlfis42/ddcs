@@ -1,4 +1,4 @@
-#include "ddcs/ctrl/app/transport/liveness_monitor.hpp"
+#include "ddcs/ctrl/app/session/liveness_monitor.hpp"
 
 #include "ddcs/common/clock.hpp"
 #include "ddcs/common/linear_buffer.hpp"
@@ -22,9 +22,9 @@ namespace {
 using ddcs::common::LinearBuffer;
 using ddcs::common::ManualClock;
 using ddcs::common::PoolHandle;
+using ddcs::ctrl::app::session::LivenessMonitor;
 using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::app::session::State;
-using ddcs::ctrl::app::transport::LivenessMonitor;
 using ddcs::ctrl::domain::agent::AgentId;
 using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;

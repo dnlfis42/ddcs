@@ -75,9 +75,12 @@ add_test(
     COMMAND ddcs_ctrl_app_operator_service_test
 )
 
-add_executable(ddcs_ctrl_app_dispatcher_test ddcs_ctrl_app_dispatcher_test.cpp)
+add_executable(
+    ddcs_ctrl_app_session_manager_test
+    ddcs_ctrl_app_session_manager_test.cpp
+)
 target_link_libraries(
-    ddcs_ctrl_app_dispatcher_test
+    ddcs_ctrl_app_session_manager_test
     PRIVATE
         compile_option
         ddcs::ctrl::app
@@ -86,8 +89,8 @@ target_link_libraries(
         GTest::gtest_main
 )
 add_test(
-    NAME ddcs_ctrl_app_dispatcher_test
-    COMMAND ddcs_ctrl_app_dispatcher_test
+    NAME ddcs_ctrl_app_session_manager_test
+    COMMAND ddcs_ctrl_app_session_manager_test
 )
 
 add_executable(

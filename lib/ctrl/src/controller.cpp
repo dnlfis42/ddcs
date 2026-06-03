@@ -14,7 +14,7 @@ Controller::Controller(Config cfg)
       commands_{
           sessions_, coordinator_, clock_, cfg.command_timeout, cfg.command_max_attempts, cfg.command_backoff_base
       },
-      dispatcher_{sessions_, registrar_, status_, commands_, coordinator_, clock_},
+      session_manager_{sessions_, registrar_, status_, commands_, coordinator_, clock_},
       operator_service_{registry_, commands_}, policy_{sessions_, registry_, operator_service_},
       liveness_{sessions_, coordinator_, clock_, cfg.liveness_timeout},
       metrics_service_{sessions_, registry_, commands_, registrar_, liveness_} {
@@ -22,12 +22,12 @@ Controller::Controller(Config cfg)
     lg.set_level(cfg.log_level);
     lg.set_sink(cfg.log_sink != nullptr ? *cfg.log_sink : default_sink_);
 
-    coordinator_.init(dispatcher_); // inbound 포트 주입
+    coordinator_.init(session_manager_); // inbound 포트 주입
 }
 
 Controller::~Controller() {
     stop();
-    // 멤버 dtor 역순: dispatcher_ -> ... -> coordinator_ -> reactor_ (reactor 가 마지막에 소멸).
+    // 멤버 dtor 역순: session_manager_ -> ... -> coordinator_ -> reactor_ (reactor 가 마지막에 소멸).
 }
 
 void Controller::start() {

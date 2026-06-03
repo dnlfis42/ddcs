@@ -1,4 +1,4 @@
-#include "ddcs/ctrl/app/transport/dispatcher.hpp"
+#include "ddcs/ctrl/app/session/session_manager.hpp"
 
 #include "ddcs/ctrl/app/session/session.hpp"
 #include "ddcs/logger/log.hpp"
@@ -8,24 +8,22 @@
 
 #include <cstdint>
 
-namespace ddcs::ctrl::app::transport {
+namespace ddcs::ctrl::app::session {
 
-using ddcs::ctrl::app::session::Session;
-using ddcs::ctrl::app::session::State;
 using ddcs::ctrl::port::transport::CloseMode;
 
-Dispatcher::Dispatcher(
+SessionManager::SessionManager(
     SessionRegistry& sessions, RegisterService& registrar, StatusService& status, CommandService& commands,
     Outbound& outbound, common::Clock& clock
 ) noexcept
     : sessions_{sessions}, registrar_{registrar}, status_{status}, commands_{commands}, outbound_{outbound},
       clock_{clock} {}
 
-void Dispatcher::on_connect(ConnectionId conn) {
+void SessionManager::on_connect(ConnectionId conn) {
     sessions_.open(conn); // handshaking 세션 생성 (register 전까지)
 }
 
-void Dispatcher::on_recv(ConnectionId conn, std::uint8_t type, common::PoolHandle<common::LinearBuffer> body) {
+void SessionManager::on_recv(ConnectionId conn, std::uint8_t type, common::PoolHandle<common::LinearBuffer> body) {
     auto const t = static_cast<proto::msg::Type>(type);
     Session* const s = sessions_.find(conn);
 
@@ -67,7 +65,7 @@ void Dispatcher::on_recv(ConnectionId conn, std::uint8_t type, common::PoolHandl
     }
 }
 
-void Dispatcher::on_close_request(ConnectionId conn, CloseReason reason) {
+void SessionManager::on_close_request(ConnectionId conn, CloseReason reason) {
     if (Session* const s = sessions_.find(conn); s != nullptr) {
         s->state = State::closing; // liveness 에서 즉시 제외(드레인 한도는 coordinator pw 소관)
     }
@@ -76,9 +74,9 @@ void Dispatcher::on_close_request(ConnectionId conn, CloseReason reason) {
     outbound_.close(conn, mode);
 }
 
-void Dispatcher::on_disconnect(ConnectionId conn) {
+void SessionManager::on_disconnect(ConnectionId conn) {
     sessions_.erase(conn);
     // pending command 는 sweep 타임아웃으로 정리(agent 응답 불가).
 }
 
-} // namespace ddcs::ctrl::app::transport
+} // namespace ddcs::ctrl::app::session

@@ -8,9 +8,9 @@
 #include "ddcs/ctrl/app/metrics/metrics_service.hpp"
 #include "ddcs/ctrl/app/ops/operator_service.hpp"
 #include "ddcs/ctrl/app/policy/policy_service.hpp"
+#include "ddcs/ctrl/app/session/liveness_monitor.hpp"
+#include "ddcs/ctrl/app/session/session_manager.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
-#include "ddcs/ctrl/app/transport/dispatcher.hpp"
-#include "ddcs/ctrl/app/transport/liveness_monitor.hpp"
 #include "ddcs/ctrl/domain/agent/agent_registry.hpp"
 #include "ddcs/ctrl/infra/metrics/server.hpp"
 #include "ddcs/ctrl/infra/transport/acceptor.hpp"
@@ -29,7 +29,7 @@
 
 namespace ddcs::ctrl {
 
-// Controller 조립 루트: io(Reactor) + infra(Coordinator/Acceptor) + app(Session/Agent/Command/Dispatcher)
+// Controller 조립 루트: io(Reactor) + infra(Coordinator/Acceptor) + app(Session/Agent/Command/SessionManager)
 // + domain(AgentRegistry)을 한데 묶는다. 외부(main, 통합 테스트)는 이 클래스만 다룬다.
 // CommandService.sweep() 의 주기 구동을 위해 io::TimerHandler 를 구현한다.
 class Controller : public io::TimerHandler {
@@ -94,10 +94,10 @@ private:
     app::agent::RegisterService registrar_;
     app::agent::StatusService status_;
     app::agent::CommandService commands_;
-    app::transport::Dispatcher dispatcher_;
+    app::session::SessionManager session_manager_;
     app::ops::OperatorService operator_service_;
     app::policy::PolicyService policy_;
-    app::transport::LivenessMonitor liveness_;
+    app::session::LivenessMonitor liveness_;
     app::metrics::MetricsService metrics_service_;
     // reactor 의 2nd guest. Config.metrics_port 있을 때만 start() 에서 emplace.
     // metrics_service_ 뒤에 선언 -> 먼저 소멸(Inbound& 참조가 dangling 되지 않도록).
