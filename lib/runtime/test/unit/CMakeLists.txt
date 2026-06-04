@@ -21,6 +21,13 @@ add_test(
     COMMAND ddcs_runtime_timer_queue_test
 )
 
+add_executable(ddcs_runtime_timer_source_test ddcs_runtime_timer_source_test.cpp)
+target_link_libraries(
+    ddcs_runtime_timer_source_test
+    PRIVATE compile_option ddcs::runtime GTest::gtest_main
+)
+add_test(NAME ddcs_runtime_timer_source_test COMMAND ddcs_runtime_timer_source_test)
+
 add_executable(ddcs_runtime_reactor_test ddcs_runtime_reactor_test.cpp)
 target_link_libraries(
     ddcs_runtime_reactor_test

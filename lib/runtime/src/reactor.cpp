@@ -3,7 +3,6 @@
 #include "ddcs/common/throw_errno.hpp"
 #include "ddcs/logger/log.hpp"
 
-#include <algorithm>
 #include <array>
 #include <chrono>
 #include <limits>
@@ -36,11 +35,7 @@ int to_epoll_timeout(std::chrono::milliseconds t) noexcept {
 
 } // namespace
 
-Reactor::Reactor() : clock_{default_clock_} { setup(); }
-
-Reactor::Reactor(common::Clock& clock) : clock_{clock} { setup(); }
-
-void Reactor::setup() {
+Reactor::Reactor() {
     epoll_fd_.reset(::epoll_create1(EPOLL_CLOEXEC));
     if (!epoll_fd_) {
         common::throw_errno(errno, "epoll_create1");
@@ -72,12 +67,6 @@ void Reactor::del(int fd) {
     fd_dispatch_.erase(fd);                                   // gen++ -> 진행 중 배치의 stale 토큰 무효화
 }
 
-TimerId Reactor::schedule(std::chrono::nanoseconds delay, TimerHandler* handler) {
-    return timers_.schedule(clock_.now() + delay, handler);
-}
-
-void Reactor::cancel(TimerId id) noexcept { timers_.cancel(id); }
-
 void Reactor::run() {
     running_ = true;
     LOG_INFO("runtime.reactor.start");
@@ -90,27 +79,14 @@ void Reactor::run_once(std::chrono::milliseconds timeout) {
     std::array<epoll_event, max_epoll_events> events{};
     auto const n = wait(timeout, events.data(), events.size());
     if (!n) {
-        return; // EINTR 등: 기존 동작대로 timer expire 없이 다음 호출에서 재시도
+        return; // EINTR 등: 다음 호출에서 재시도
     }
 
     dispatch(events.data(), *n);
-    timers_.expire(clock_.now()); // fd 이벤트 처리 뒤 due 타이머 fire
 }
 
 std::optional<int> Reactor::wait(std::chrono::milliseconds timeout, epoll_event* events, std::size_t capacity) {
-    using std::chrono::milliseconds;
-
-    auto const now = clock_.now();
-    int wait_ms{};
-    if (auto const dl = timers_.next_deadline()) {                                   // 모든 consumer 타이머 집계
-        auto const remaining = std::max(*dl - now, common::Clock::duration::zero()); // 음수->0
-        auto const due = std::chrono::ceil<milliseconds>(remaining);                 // 일찍 안 깸
-        wait_ms = to_epoll_timeout(timeout.count() < 0 ? due : std::min(timeout, due));
-    } else {
-        wait_ms = to_epoll_timeout(timeout); // 타이머 없음(-1 가능)
-    }
-
-    int const n = ::epoll_wait(epoll_fd_.get(), events, static_cast<int>(capacity), wait_ms);
+    int const n = ::epoll_wait(epoll_fd_.get(), events, static_cast<int>(capacity), to_epoll_timeout(timeout));
     if (n < 0) {
         if (errno == EINTR) {
             return std::nullopt; // 깨움 - 다음 이터레이션 재시도

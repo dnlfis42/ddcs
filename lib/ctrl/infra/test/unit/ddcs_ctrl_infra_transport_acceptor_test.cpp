@@ -8,6 +8,7 @@
 #include "ddcs/ctrl/port/transport/inbound.hpp"
 #include "ddcs/proto/frame/frame.hpp"
 #include "ddcs/runtime/reactor.hpp"
+#include "ddcs/runtime/timer_source.hpp"
 
 #include <gtest/gtest.h>
 
@@ -32,6 +33,7 @@ using ddcs::ctrl::port::transport::CloseReason;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Inbound;
 using ddcs::runtime::Reactor;
+using ddcs::runtime::TimerSource;
 using namespace std::chrono_literals;
 
 class MockInbound : public Inbound {
@@ -67,7 +69,9 @@ Fd connect_loopback(std::uint16_t port) {
 
 TEST(AcceptorTest, AcceptsConnectionAndDeliversFrame) {
     Reactor reactor;
-    ConnectionCoordinator coord{reactor};
+    TimerSource timers{reactor};
+    timers.start();
+    ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
     coord.init(inbound);
     Acceptor acceptor{reactor, coord, 0, 128}; // ephemeral port

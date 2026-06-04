@@ -1,6 +1,7 @@
 #include "ddcs/agent/infra/connector.hpp"
 
 #include "ddcs/runtime/reactor.hpp"
+#include "ddcs/runtime/timer_source.hpp"
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/frame/frame.hpp"
 
@@ -27,15 +28,15 @@ constexpr std::uint32_t connect_interest{EPOLLOUT | EPOLLET}; // 완료를 EPOLL
 constexpr std::uint32_t read_interest{EPOLLIN | EPOLLET};
 } // namespace
 
-Connector::Connector(runtime::Reactor& reactor, std::string host, std::uint16_t port)
-    : reactor_{reactor}, host_{std::move(host)}, port_{port},
+Connector::Connector(runtime::Reactor& reactor, runtime::TimerSource& timers, std::string host, std::uint16_t port)
+    : reactor_{reactor}, timers_{timers}, host_{std::move(host)}, port_{port},
       payload_pool_{common::make_pool<common::LinearBuffer>(0, pool_chunk, payload_buf_capacity)} {}
 
 Connector::~Connector() {
     if (connection_.in_epoll()) {
         reactor_.del(connection_.fd());
     }
-    // connection_ dtor 가 fd 를 닫고, 타이머는 reactor 와 함께 소멸.
+    // connection_ dtor 가 fd 를 닫고, 타이머는 TimerSource 와 함께 소멸.
 }
 
 void Connector::start() { try_connect(); }
@@ -70,15 +71,15 @@ void Connector::send(std::uint8_t type, common::PoolHandle<common::LinearBuffer>
 void Connector::schedule_timer(TimerId id, std::chrono::nanoseconds delay) {
     auto& slot = app_timer_.at(slot_of(id));
     if (slot.valid()) {
-        reactor_.cancel(slot); // reschedule = 기존 취소
+        timers_.cancel(slot); // reschedule = 기존 취소
     }
-    slot = reactor_.schedule(delay, this);
+    slot = timers_.schedule(delay, this);
 }
 
 void Connector::cancel_timer(TimerId id) {
     auto& slot = app_timer_.at(slot_of(id));
     if (slot.valid()) {
-        reactor_.cancel(slot);
+        timers_.cancel(slot);
         slot = runtime::TimerId{};
     }
 }
@@ -293,7 +294,7 @@ void Connector::disconnect_and_reconnect() {
 
 void Connector::arm_reconnect() {
     auto const delay = backoff_.next_delay();
-    reconnect_timer_ = reactor_.schedule(delay, this);
+    reconnect_timer_ = timers_.schedule(delay, this);
     LOG_DEBUG(
         "agent_transport.reconnect_scheduled",
         ddcs::logger::kv("delay_ms", std::chrono::duration_cast<std::chrono::milliseconds>(delay).count())
@@ -303,7 +304,7 @@ void Connector::arm_reconnect() {
 void Connector::cancel_app_timers() {
     for (auto& slot : app_timer_) {
         if (slot.valid()) {
-            reactor_.cancel(slot);
+            timers_.cancel(slot);
             slot = runtime::TimerId{};
         }
     }

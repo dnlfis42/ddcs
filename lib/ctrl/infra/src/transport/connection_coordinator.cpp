@@ -1,6 +1,7 @@
 #include "ddcs/ctrl/infra/transport/connection_coordinator.hpp"
 
 #include "ddcs/runtime/reactor.hpp"
+#include "ddcs/runtime/timer_source.hpp"
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/frame/frame.hpp"
 
@@ -25,8 +26,8 @@ constexpr std::chrono::nanoseconds handshake_timeout{std::chrono::seconds{3}}; /
 
 } // namespace
 
-ConnectionCoordinator::ConnectionCoordinator(runtime::Reactor& reactor)
-    : reactor_{reactor}, connection_pool_{common::make_pool<Connection>(0, pool_chunk)},
+ConnectionCoordinator::ConnectionCoordinator(runtime::Reactor& reactor, runtime::TimerSource& timers)
+    : reactor_{reactor}, timers_{timers}, connection_pool_{common::make_pool<Connection>(0, pool_chunk)},
       payload_pool_{common::make_pool<common::LinearBuffer>(0, pool_chunk, payload_buf_capacity)} {}
 
 // --- Outbound (app -> transport) -------------------------------------------
@@ -138,7 +139,7 @@ void ConnectionCoordinator::handle_accept(common::Fd fd, Endpoint peer) {
         LOG_DEBUG("transport.accept", ddcs::logger::kv("id", id.value()), ddcs::logger::kv("peer_port", peer.port));
         handler_->on_connect(id);
         // handshake 한도: 3초 내 첫 프레임이 없으면 close. 첫 on_recv 가 cancel.
-        runtime::TimerId const tid = reactor_.schedule(handshake_timeout, this);
+        runtime::TimerId const tid = timers_.schedule(handshake_timeout, this);
         timer_slot_[tid] = TimerSlot{id, TimerKind::handshake};
         handshake_timer_id_[id] = tid;
     } else {
@@ -335,7 +336,7 @@ void ConnectionCoordinator::epoll_del(Connection* conn) {
 void ConnectionCoordinator::to_passive_wait(Connection* conn) {
     conn->shutdown_write();
     (void)conn->transition(Connection::State::passive_wait);
-    runtime::TimerId const tid = reactor_.schedule(pw_timeout, this);
+    runtime::TimerId const tid = timers_.schedule(pw_timeout, this);
     timer_slot_[tid] = TimerSlot{conn->id(), TimerKind::pw};
     pw_timer_id_[conn->id()] = tid; // 정상 close 시 close_connections 가 cancel
     update_interest(conn);          // pw -> EPOLLIN 만
@@ -375,7 +376,7 @@ void ConnectionCoordinator::cancel_handshake(ConnectionId id) {
     if (it == handshake_timer_id_.end()) {
         return; // 첫 프레임 이미 도착했거나 미등록 - 멱등
     }
-    reactor_.cancel(it->second);
+    timers_.cancel(it->second);
     timer_slot_.erase(it->second);
     handshake_timer_id_.erase(it);
 }
@@ -391,7 +392,7 @@ void ConnectionCoordinator::close_connections() {
         // 남은 타이머(handshake/pw) 정리 - heap 에 죽은 타이머를 안 남긴다.
         cancel_handshake(id);
         if (auto const pit = pw_timer_id_.find(id); pit != pw_timer_id_.end()) {
-            reactor_.cancel(pit->second);
+            timers_.cancel(pit->second);
             timer_slot_.erase(pit->second);
             pw_timer_id_.erase(pit);
         }

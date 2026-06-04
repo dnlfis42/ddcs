@@ -18,6 +18,7 @@
 
 namespace ddcs::runtime {
 class Reactor;
+class TimerSource;
 }
 
 namespace ddcs::agent::infra {
@@ -34,7 +35,7 @@ using ddcs::agent::port::TimerId;
 // Reactor 는 이 클래스를 모른다. 재연결/framing 은 전부 여기 산다.
 class Connector : public Outbound, public runtime::TimerHandler {
 public:
-    Connector(runtime::Reactor& reactor, std::string host, std::uint16_t port);
+    Connector(runtime::Reactor& reactor, runtime::TimerSource& timers, std::string host, std::uint16_t port);
     ~Connector() override;
 
     Connector(Connector const&) = delete;
@@ -75,6 +76,7 @@ private:
     static std::size_t slot_of(TimerId id) noexcept { return static_cast<std::size_t>(id); }
 
     runtime::Reactor& reactor_;
+    runtime::TimerSource& timers_;
     std::string host_;
     std::uint16_t port_;
     Inbound* handler_{nullptr};

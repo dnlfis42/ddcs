@@ -10,6 +10,7 @@
 #include "ddcs/ctrl/port/transport/outbound.hpp"
 #include "ddcs/proto/frame/frame.hpp"
 #include "ddcs/runtime/reactor.hpp"
+#include "ddcs/runtime/timer_source.hpp"
 
 #include <gtest/gtest.h>
 
@@ -37,6 +38,7 @@ using ddcs::ctrl::port::transport::CloseReason;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Inbound;
 using ddcs::runtime::Reactor;
+using ddcs::runtime::TimerSource;
 using namespace std::chrono_literals;
 
 // 이벤트 기록용 mock Inbound (app 측 대역).
@@ -80,7 +82,9 @@ struct SocketPair {
 
 TEST(ConnectionCoordinatorTest, AcceptRegistersAndNotifiesConnect) {
     Reactor reactor;
-    ConnectionCoordinator coord{reactor};
+    TimerSource timers{reactor};
+    timers.start();
+    ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
     coord.init(inbound);
 
@@ -94,7 +98,9 @@ TEST(ConnectionCoordinatorTest, AcceptRegistersAndNotifiesConnect) {
 
 TEST(ConnectionCoordinatorTest, CloseForceReapsAndNotifiesDisconnect) {
     Reactor reactor;
-    ConnectionCoordinator coord{reactor};
+    TimerSource timers{reactor};
+    timers.start();
+    ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
     coord.init(inbound);
 
@@ -117,7 +123,9 @@ TEST(ConnectionCoordinatorTest, CloseForceReapsAndNotifiesDisconnect) {
 
 TEST(ConnectionCoordinatorTest, PeerFinTriggersCloseRequest) {
     Reactor reactor;
-    ConnectionCoordinator coord{reactor};
+    TimerSource timers{reactor};
+    timers.start();
+    ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
     coord.init(inbound);
 
@@ -136,7 +144,9 @@ TEST(ConnectionCoordinatorTest, PeerFinTriggersCloseRequest) {
 
 TEST(ConnectionCoordinatorTest, FramedMessageDeliveredToOnRecv) {
     Reactor reactor;
-    ConnectionCoordinator coord{reactor};
+    TimerSource timers{reactor};
+    timers.start();
+    ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
     coord.init(inbound);
 
@@ -159,7 +169,9 @@ TEST(ConnectionCoordinatorTest, FramedMessageDeliveredToOnRecv) {
 
 TEST(ConnectionCoordinatorTest, SendFramesBodyAndTransmits) {
     Reactor reactor;
-    ConnectionCoordinator coord{reactor};
+    TimerSource timers{reactor};
+    timers.start();
+    ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
     coord.init(inbound);
 
@@ -190,7 +202,9 @@ TEST(ConnectionCoordinatorTest, SendFramesBodyAndTransmits) {
 
 TEST(ConnectionCoordinatorTest, GracefulCloseHalfClosesThenReapsOnPeerFin) {
     Reactor reactor;
-    ConnectionCoordinator coord{reactor};
+    TimerSource timers{reactor};
+    timers.start();
+    ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
     coord.init(inbound);
 
@@ -216,8 +230,10 @@ TEST(ConnectionCoordinatorTest, GracefulCloseHalfClosesThenReapsOnPeerFin) {
 
 TEST(ConnectionCoordinatorTest, HandshakeTimeoutClosesSilentConnection) {
     ddcs::common::ManualClock clk;
-    Reactor reactor{clk};
-    ConnectionCoordinator coord{reactor};
+    Reactor reactor;
+    TimerSource timers{reactor, clk};
+    timers.start();
+    ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
     coord.init(inbound);
 
@@ -226,7 +242,7 @@ TEST(ConnectionCoordinatorTest, HandshakeTimeoutClosesSilentConnection) {
     EXPECT_EQ(coord.size(), 1u);
 
     clk.advance(std::chrono::seconds{4}); // > 3s handshake 한도
-    reactor.run_once(0ms);                // handshake 발화 -> force close -> reap
+    timers.expire_due();                  // handshake 발화 -> force close -> reap
 
     EXPECT_EQ(coord.size(), 0u);
     ASSERT_EQ(inbound.disconnected.size(), 1u);
@@ -234,8 +250,10 @@ TEST(ConnectionCoordinatorTest, HandshakeTimeoutClosesSilentConnection) {
 
 TEST(ConnectionCoordinatorTest, FirstFrameCancelsHandshakeTimeout) {
     ddcs::common::ManualClock clk;
-    Reactor reactor{clk};
-    ConnectionCoordinator coord{reactor};
+    Reactor reactor;
+    TimerSource timers{reactor, clk};
+    timers.start();
+    ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
     coord.init(inbound);
 
@@ -250,7 +268,7 @@ TEST(ConnectionCoordinatorTest, FirstFrameCancelsHandshakeTimeout) {
     ASSERT_EQ(inbound.recv_type.size(), 1u);
 
     clk.advance(std::chrono::seconds{10}); // handshake 한도 지나도
-    reactor.run_once(0ms);                 // 취소됐으니 발화 안 함
+    timers.expire_due();                   // 취소됐으니 발화 안 함
 
     EXPECT_EQ(coord.size(), 1u); // 연결 유지
     EXPECT_TRUE(inbound.disconnected.empty());

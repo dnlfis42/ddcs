@@ -18,6 +18,7 @@
 #include "ddcs/runtime/reactor.hpp"
 #include "ddcs/runtime/signal_source.hpp"
 #include "ddcs/runtime/timer_handler.hpp"
+#include "ddcs/runtime/timer_source.hpp"
 #include "ddcs/runtime/timer_id.hpp"
 
 #include <csignal>
@@ -62,6 +63,7 @@ private:
 
     runtime::Reactor reactor_;
     runtime::SignalSource signal_source_;
+    runtime::TimerSource timer_source_;
     infra::transport::ConnectionCoordinator coordinator_;
     infra::transport::Acceptor acceptor_;
 
@@ -83,8 +85,8 @@ private:
 };
 
 Controller::Impl::Impl(Config cfg)
-    : cfg_{cfg}, signal_source_{reactor_, {SIGINT, SIGTERM}, [this] { stop(); }}, coordinator_{reactor_},
-      acceptor_{reactor_, coordinator_, cfg.listen_port, cfg.accept_backlog},
+    : cfg_{cfg}, signal_source_{reactor_, {SIGINT, SIGTERM}, [this] { stop(); }}, timer_source_{reactor_},
+      coordinator_{reactor_, timer_source_}, acceptor_{reactor_, coordinator_, cfg.listen_port, cfg.accept_backlog},
       registrar_{registry_, coordinator_}, status_{sessions_, registry_},
       commands_{
           sessions_, coordinator_, clock_, cfg.command_timeout, cfg.command_max_attempts, cfg.command_backoff_base
@@ -102,11 +104,12 @@ Controller::Impl::Impl(Config cfg)
 
 Controller::Impl::~Impl() {
     stop();
-    // 멤버 dtor 역순: session_manager_ -> ... -> coordinator_ -> signal_source_ -> reactor_.
+    // 멤버 dtor 역순: session_manager_ -> ... -> coordinator_ -> timer_source_ -> signal_source_ -> reactor_.
 }
 
 void Controller::Impl::start() {
     signal_source_.start();
+    timer_source_.start();
     acceptor_.start();
     if (cfg_.metrics_port) {
         constexpr int metrics_backlog{16}; // 스크레이프는 저빈도 - 작은 backlog 로 충분
@@ -122,6 +125,7 @@ void Controller::Impl::run() { reactor_.run(); }
 void Controller::Impl::run_once(std::chrono::milliseconds timeout) { reactor_.run_once(timeout); }
 
 void Controller::Impl::stop() {
+    timer_source_.stop();
     signal_source_.stop();
     reactor_.stop();
 }
@@ -135,7 +139,7 @@ void Controller::Impl::on_timer(runtime::TimerId /*id*/) {
     schedule_sweep();                 // 주기 재무장
 }
 
-void Controller::Impl::schedule_sweep() { sweep_timer_ = reactor_.schedule(cfg_.sweep_interval, this); }
+void Controller::Impl::schedule_sweep() { sweep_timer_ = timer_source_.schedule(cfg_.sweep_interval, this); }
 
 void Controller::Impl::load_policy() {
     if (!cfg_.policy_path) {

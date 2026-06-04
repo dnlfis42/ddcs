@@ -8,6 +8,7 @@ target_sources(
         src/reactor.cpp
         src/signal_source.cpp
         src/timer_queue.cpp
+        src/timer_source.cpp
     PUBLIC
         FILE_SET HEADERS
             BASE_DIRS include
@@ -19,6 +20,7 @@ target_sources(
                 include/ddcs/runtime/timer_handler.hpp
                 include/ddcs/runtime/timer_id.hpp
                 include/ddcs/runtime/timer_queue.hpp
+                include/ddcs/runtime/timer_source.hpp
 )
 target_link_libraries(
     ddcs_runtime

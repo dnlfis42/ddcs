@@ -18,6 +18,7 @@
 
 namespace ddcs::runtime {
 class Reactor;
+class TimerSource;
 }
 
 namespace ddcs::ctrl::infra::transport {
@@ -33,7 +34,7 @@ using ddcs::ctrl::port::transport::Outbound;
 // Reactor(runtime)는 이 클래스를 모른다. 연결 수명/FSM/framing 은 전부 여기 산다.
 class ConnectionCoordinator final : public Outbound, public runtime::TimerHandler {
 public:
-    explicit ConnectionCoordinator(runtime::Reactor& reactor);
+    ConnectionCoordinator(runtime::Reactor& reactor, runtime::TimerSource& timers);
     ~ConnectionCoordinator() override { connection_map_.clear(); }
 
     ConnectionCoordinator(ConnectionCoordinator const&) = delete;
@@ -104,6 +105,7 @@ private: // 타이머 장부 (opaque TimerId -> 의미)
 
 private:
     runtime::Reactor& reactor_;
+    runtime::TimerSource& timers_;
     Inbound* handler_{nullptr};
     std::uint64_t next_id_{0}; // ConnectionId 발급 카운터(transport mint). 1 부터
     common::ObjectPool<Connection> connection_pool_;

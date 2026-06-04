@@ -13,10 +13,10 @@
 
 namespace ddcs::runtime {
 
-// 절대-deadline min-heap + live_ 셋(lazy cancel). Clock 을 모른다 - '지금'은 호출자(Reactor)가 준다.
+// 절대-deadline min-heap + live_ 셋(lazy cancel). Clock 을 모른다 - '지금'은 호출자가 준다.
 //
 // 모든 소비자(session liveness/pw/command sweep/agent backoff)의 타이머가 여기 모이고,
-// next_deadline() 이 전체를 한 점으로 집계한다 -> Reactor 가 epoll_wait 타임아웃 하나로 끝낸다.
+// next_deadline() 이 전체를 한 점으로 집계된다. TimerSource 가 이를 timerfd 재무장에 사용한다.
 // cancel 은 heap 을 건드리지 않고 live_ 에서만 지운다(lazy); 취소분은 prune/expire 에서 걸러진다.
 class TimerQueue {
 public:
@@ -32,7 +32,7 @@ public:
     [[nodiscard]]
     std::optional<time_point> next_deadline();
 
-    // deadline <= now 인 live 타이머를 전부 fire(취소분은 조용히 skip). fd 이벤트 처리 뒤 1회.
+    // deadline <= now 인 live 타이머를 전부 fire(취소분은 조용히 skip).
     // 재진입 안전: 핸들러가 on_timer 안에서 schedule/cancel 해도 정합.
     void expire(time_point now);
 

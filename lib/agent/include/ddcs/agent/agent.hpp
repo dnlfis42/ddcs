@@ -6,6 +6,7 @@
 #include "ddcs/common/uuid.hpp"
 #include "ddcs/runtime/reactor.hpp"
 #include "ddcs/runtime/signal_source.hpp"
+#include "ddcs/runtime/timer_source.hpp"
 #include "ddcs/logger/log.hpp"
 
 #include <chrono>
@@ -16,7 +17,7 @@
 
 namespace ddcs::agent {
 
-// Agent 조립 루트: runtime(Reactor/SignalSource) + infra(Connector) + app(SessionService) + domain(Device)를 묶는다.
+// Agent 조립 루트: runtime(Reactor/SignalSource/TimerSource) + infra(Connector) + app(SessionService) + domain(Device)를 묶는다.
 // 외부(main, 통합 테스트)는 이 클래스만 다룬다.
 class Agent {
 public:
@@ -56,6 +57,7 @@ private:
     std::unique_ptr<domain::Device> device_;
     runtime::Reactor reactor_;
     runtime::SignalSource signal_source_;
+    runtime::TimerSource timer_source_;
     infra::Connector connector_;
     app::SessionService session_;
 };
