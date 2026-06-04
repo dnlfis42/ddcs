@@ -6,7 +6,7 @@
 #include "ddcs/common/uuid.hpp"
 #include "ddcs/ctrl/app/agent/command_service.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
-#include "ddcs/ctrl/domain/agent/agent_registry.hpp"
+#include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/outbound.hpp"
 #include "ddcs/device/mode.hpp"
@@ -33,8 +33,8 @@ using ddcs::common::Uuid;
 using ddcs::ctrl::app::agent::CommandService;
 using ddcs::ctrl::app::ops::OperatorService;
 using ddcs::ctrl::app::session::SessionRegistry;
-using ddcs::ctrl::domain::agent::AgentId;
-using ddcs::ctrl::domain::agent::AgentRegistry;
+using ddcs::ctrl::domain::DeviceId;
+using ddcs::ctrl::domain::DeviceRegistry;
 using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
@@ -70,7 +70,7 @@ Uuid make_uuid(std::uint8_t seed) {
 
 TEST(OperatorServiceTest, SetModeDispatchesCommandToBoundAgent) {
     SessionRegistry sessions;
-    AgentRegistry registry;
+    DeviceRegistry registry;
     MockOutbound outbound;
     ManualClock clock;
     CommandService commands{sessions, outbound, clock};
@@ -102,7 +102,7 @@ TEST(OperatorServiceTest, SetModeDispatchesCommandToBoundAgent) {
 
 TEST(OperatorServiceTest, SetModeUnknownAgentReturnsZero) {
     SessionRegistry sessions;
-    AgentRegistry registry;
+    DeviceRegistry registry;
     MockOutbound outbound;
     ManualClock clock;
     CommandService commands{sessions, outbound, clock};
@@ -116,7 +116,7 @@ TEST(OperatorServiceTest, SetModeUnknownAgentReturnsZero) {
 
 TEST(OperatorServiceTest, SetModeKnownButOfflineAgentReturnsZero) {
     SessionRegistry sessions;
-    AgentRegistry registry;
+    DeviceRegistry registry;
     MockOutbound outbound;
     ManualClock clock;
     CommandService commands{sessions, outbound, clock};

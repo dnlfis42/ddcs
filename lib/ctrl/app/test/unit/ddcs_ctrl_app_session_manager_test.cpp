@@ -9,8 +9,8 @@
 #include "ddcs/ctrl/app/agent/status_service.hpp"
 #include "ddcs/ctrl/app/session/session.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
-#include "ddcs/ctrl/domain/agent/agent_id.hpp"
-#include "ddcs/ctrl/domain/agent/agent_registry.hpp"
+#include "ddcs/ctrl/domain/device_id.hpp"
+#include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/inbound.hpp"
 #include "ddcs/ctrl/port/transport/outbound.hpp"
@@ -40,8 +40,8 @@ using ddcs::ctrl::app::agent::StatusService;
 using ddcs::ctrl::app::session::SessionManager;
 using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::app::session::State;
-using ddcs::ctrl::domain::agent::AgentId;
-using ddcs::ctrl::domain::agent::AgentRegistry;
+using ddcs::ctrl::domain::DeviceId;
+using ddcs::ctrl::domain::DeviceRegistry;
 using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::CloseReason;
 using ddcs::ctrl::port::transport::ConnectionId;
@@ -89,7 +89,7 @@ constexpr std::uint8_t kType(msg::Type t) { return static_cast<std::uint8_t>(t);
 // SessionManager 와 그 뒤의 실 use-case 그래프를 묶은 테스트 하니스.
 struct Harness {
     SessionRegistry sessions;
-    AgentRegistry registry;
+    DeviceRegistry registry;
     MockOutbound outbound;
     ManualClock clock;
     RegisterService registrar{registry, outbound};
@@ -154,8 +154,8 @@ TEST(SessionManagerTest, RoutesStatusAsTelemetry) {
 TEST(SessionManagerTest, RoutesCommandOutcomeResolvesPending) {
     Harness h;
     h.sessions.open(ConnectionId{1});
-    h.sessions.bind(ConnectionId{1}, AgentId{1}, h.clock.now());
-    auto const command_id = h.commands.dispatch(AgentId{1}, 0x01, "payload");
+    h.sessions.bind(ConnectionId{1}, DeviceId{1}, h.clock.now());
+    auto const command_id = h.commands.dispatch(DeviceId{1}, 0x01, "payload");
     ASSERT_EQ(h.commands.pending_count(), 1u);
 
     h.mgr.on_recv(
@@ -168,8 +168,8 @@ TEST(SessionManagerTest, RoutesCommandOutcomeResolvesPending) {
 TEST(SessionManagerTest, RoutesCommandAckExtendsDeadline) {
     Harness h;
     h.sessions.open(ConnectionId{1});
-    h.sessions.bind(ConnectionId{1}, AgentId{1}, h.clock.now());
-    auto const command_id = h.commands.dispatch(AgentId{1}, 0x01, "payload"); // deadline t0+5s
+    h.sessions.bind(ConnectionId{1}, DeviceId{1}, h.clock.now());
+    auto const command_id = h.commands.dispatch(DeviceId{1}, 0x01, "payload"); // deadline t0+5s
 
     h.clock.advance(std::chrono::seconds{4});
     h.mgr.on_recv(
@@ -245,7 +245,7 @@ TEST(SessionManagerTest, KicksOldConnectionOnSameUuidReRegister) {
     ASSERT_EQ(h.outbound.closes.size(), 1u);
     EXPECT_EQ(h.outbound.closes[0].first, ConnectionId{1}); // 옛 conn force close
     EXPECT_EQ(h.outbound.closes[0].second, CloseMode::force);
-    EXPECT_EQ(h.sessions.resolve(AgentId{1}), ConnectionId{2}); // 현재 바인딩 = 새 conn
+    EXPECT_EQ(h.sessions.resolve(DeviceId{1}), ConnectionId{2}); // 현재 바인딩 = 새 conn
 }
 
 TEST(SessionManagerTest, RegisterDecodeFailClosesConnection) {

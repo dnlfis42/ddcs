@@ -4,7 +4,7 @@
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
-#include "ddcs/ctrl/domain/agent/agent_id.hpp"
+#include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/outbound.hpp"
 #include "ddcs/proto/msg/message.hpp"
@@ -28,7 +28,7 @@ using ddcs::common::ManualClock;
 using ddcs::common::PoolHandle;
 using ddcs::ctrl::app::agent::CommandService;
 using ddcs::ctrl::app::session::SessionRegistry;
-using ddcs::ctrl::domain::agent::AgentId;
+using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
@@ -70,7 +70,7 @@ PoolHandle<LinearBuffer> make_outcome_body(std::uint64_t command_id, msg::Comman
 }
 
 // agent 를 conn 에 바인딩(active)해 dispatch 가 resolve 할 수 있게 한다.
-void bind_agent(SessionRegistry& sessions, ConnectionId conn, AgentId agent) {
+void bind_agent(SessionRegistry& sessions, ConnectionId conn, DeviceId agent) {
     sessions.open(conn);
     sessions.bind(conn, agent, {});
 }
@@ -84,9 +84,9 @@ TEST(CommandServiceTest, DispatchSendsCommandAndTracksPending) {
     MockOutbound outbound;
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout};
-    bind_agent(sessions, ConnectionId{1}, AgentId{1});
+    bind_agent(sessions, ConnectionId{1}, DeviceId{1});
 
-    auto const command_id = svc.dispatch(AgentId{1}, 0x01, "payload");
+    auto const command_id = svc.dispatch(DeviceId{1}, 0x01, "payload");
 
     EXPECT_NE(command_id, 0u);
     EXPECT_EQ(svc.pending_count(), 1u);
@@ -109,7 +109,7 @@ TEST(CommandServiceTest, DispatchOfflineAgentReturnsInvalid) {
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout};
 
-    auto const command_id = svc.dispatch(AgentId{1}, 0x01, "payload"); // 미바인딩
+    auto const command_id = svc.dispatch(DeviceId{1}, 0x01, "payload"); // 미바인딩
 
     EXPECT_EQ(command_id, 0u);
     EXPECT_EQ(svc.pending_count(), 0u);
@@ -121,9 +121,9 @@ TEST(CommandServiceTest, OutcomeResolvesPending) {
     MockOutbound outbound;
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout};
-    bind_agent(sessions, ConnectionId{1}, AgentId{1});
+    bind_agent(sessions, ConnectionId{1}, DeviceId{1});
 
-    auto const command_id = svc.dispatch(AgentId{1}, 0x01, "payload");
+    auto const command_id = svc.dispatch(DeviceId{1}, 0x01, "payload");
     svc.handle_outcome(ConnectionId{1}, make_outcome_body(command_id, msg::CommandResult::success));
 
     EXPECT_EQ(svc.pending_count(), 0u); // 결과 확정 -> 종료
@@ -134,9 +134,9 @@ TEST(CommandServiceTest, SweepExpiresTimedOutCommand) {
     MockOutbound outbound;
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout};
-    bind_agent(sessions, ConnectionId{1}, AgentId{1});
+    bind_agent(sessions, ConnectionId{1}, DeviceId{1});
 
-    svc.dispatch(AgentId{1}, 0x01, "payload");
+    svc.dispatch(DeviceId{1}, 0x01, "payload");
     clock.advance(kTimeout + std::chrono::seconds{1}); // deadline 초과
     svc.sweep();
 
@@ -149,9 +149,9 @@ TEST(CommandServiceTest, OutcomeRecordsRoundTripTime) {
     MockOutbound outbound;
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout};
-    bind_agent(sessions, ConnectionId{1}, AgentId{1});
+    bind_agent(sessions, ConnectionId{1}, DeviceId{1});
 
-    auto const command_id = svc.dispatch(AgentId{1}, 0x01, "payload");
+    auto const command_id = svc.dispatch(DeviceId{1}, 0x01, "payload");
     clock.advance(std::chrono::milliseconds{120});
     svc.handle_outcome(ConnectionId{1}, make_outcome_body(command_id, msg::CommandResult::success));
 
@@ -164,11 +164,11 @@ TEST(CommandServiceTest, AckExtendsDeadline) {
     MockOutbound outbound;
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout};
-    bind_agent(sessions, ConnectionId{1}, AgentId{1});
+    bind_agent(sessions, ConnectionId{1}, DeviceId{1});
 
-    auto const command_id = svc.dispatch(AgentId{1}, 0x01, "payload"); // deadline = t0 + 5s
-    clock.advance(std::chrono::seconds{4});                            // t0 + 4s
-    svc.handle_ack(ConnectionId{1}, make_ack_body(command_id));        // deadline = t0 + 9s 로 연장
+    auto const command_id = svc.dispatch(DeviceId{1}, 0x01, "payload"); // deadline = t0 + 5s
+    clock.advance(std::chrono::seconds{4});                             // t0 + 4s
+    svc.handle_ack(ConnectionId{1}, make_ack_body(command_id));         // deadline = t0 + 9s 로 연장
 
     clock.advance(std::chrono::seconds{4}); // t0 + 8s (원 deadline 초과지만 연장됨)
     svc.sweep();
@@ -184,9 +184,9 @@ TEST(CommandServiceTest, OutcomeFromWrongConnIgnored) {
     MockOutbound outbound;
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout};
-    bind_agent(sessions, ConnectionId{1}, AgentId{1});
+    bind_agent(sessions, ConnectionId{1}, DeviceId{1});
 
-    auto const command_id = svc.dispatch(AgentId{1}, 0x01, "payload");
+    auto const command_id = svc.dispatch(DeviceId{1}, 0x01, "payload");
     svc.handle_outcome(ConnectionId{2}, make_outcome_body(command_id, msg::CommandResult::success)); // 남의 conn
 
     EXPECT_EQ(svc.pending_count(), 1u); // 무시 -> 미결 유지
@@ -197,9 +197,9 @@ TEST(CommandServiceTest, OutcomeForUnknownCommandIgnored) {
     MockOutbound outbound;
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout};
-    bind_agent(sessions, ConnectionId{1}, AgentId{1});
+    bind_agent(sessions, ConnectionId{1}, DeviceId{1});
 
-    svc.dispatch(AgentId{1}, 0x01, "payload");
+    svc.dispatch(DeviceId{1}, 0x01, "payload");
     svc.handle_outcome(ConnectionId{1}, make_outcome_body(9999, msg::CommandResult::success)); // 미발급 id
 
     EXPECT_EQ(svc.pending_count(), 1u); // 기존 미결 영향 없음
@@ -210,9 +210,9 @@ TEST(CommandServiceTest, AckDecodeFailDropped) {
     MockOutbound outbound;
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout};
-    bind_agent(sessions, ConnectionId{1}, AgentId{1});
+    bind_agent(sessions, ConnectionId{1}, DeviceId{1});
 
-    svc.dispatch(AgentId{1}, 0x01, "payload");
+    svc.dispatch(DeviceId{1}, 0x01, "payload");
 
     static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 4, std::size_t{64});
     auto bad = pool.acquire();
@@ -229,9 +229,9 @@ TEST(CommandServiceTest, RetriesOnTimeoutAfterBackoff) {
     MockOutbound outbound;
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout, 3, std::chrono::seconds{1}}; // max=3, backoff 1s
-    bind_agent(sessions, ConnectionId{1}, AgentId{1});
+    bind_agent(sessions, ConnectionId{1}, DeviceId{1});
 
-    svc.dispatch(AgentId{1}, 0x01, "payload"); // attempt 1
+    svc.dispatch(DeviceId{1}, 0x01, "payload"); // attempt 1
     ASSERT_EQ(outbound.sends.size(), 1u);
 
     clock.advance(kTimeout + std::chrono::seconds{1}); // 응답 timeout
@@ -252,9 +252,9 @@ TEST(CommandServiceTest, RetriesOnNack) {
     MockOutbound outbound;
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout, 3, std::chrono::seconds{1}};
-    bind_agent(sessions, ConnectionId{1}, AgentId{1});
+    bind_agent(sessions, ConnectionId{1}, DeviceId{1});
 
-    auto const id = svc.dispatch(AgentId{1}, 0x01, "payload");
+    auto const id = svc.dispatch(DeviceId{1}, 0x01, "payload");
     svc.handle_outcome(ConnectionId{1}, make_outcome_body(id, msg::CommandResult::failed)); // NACK
 
     EXPECT_EQ(svc.completed_total(), 0u); // NACK 은 완료 아님
@@ -271,9 +271,9 @@ TEST(CommandServiceTest, GivesUpAfterMaxAttempts) {
     MockOutbound outbound;
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout, 2, std::chrono::milliseconds{100}}; // max=2
-    bind_agent(sessions, ConnectionId{1}, AgentId{1});
+    bind_agent(sessions, ConnectionId{1}, DeviceId{1});
 
-    svc.dispatch(AgentId{1}, 0x01, "payload");         // attempt 1
+    svc.dispatch(DeviceId{1}, 0x01, "payload");        // attempt 1
     clock.advance(kTimeout + std::chrono::seconds{1}); // timeout
     svc.sweep();                                       // -> backoff
     clock.advance(std::chrono::seconds{1});            // backoff 경과
@@ -292,9 +292,9 @@ TEST(CommandServiceTest, LateSuccessOutcomeCompletesDuringBackoff) {
     MockOutbound outbound;
     ManualClock clock;
     CommandService svc{sessions, outbound, clock, kTimeout, 3, std::chrono::seconds{10}}; // 긴 backoff
-    bind_agent(sessions, ConnectionId{1}, AgentId{1});
+    bind_agent(sessions, ConnectionId{1}, DeviceId{1});
 
-    auto const id = svc.dispatch(AgentId{1}, 0x01, "payload");
+    auto const id = svc.dispatch(DeviceId{1}, 0x01, "payload");
     clock.advance(kTimeout + std::chrono::seconds{1}); // timeout
     svc.sweep();                                       // -> backoff (원 command_id 유지)
     EXPECT_EQ(svc.pending_count(), 1u);

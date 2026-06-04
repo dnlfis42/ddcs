@@ -13,12 +13,12 @@ namespace ddcs::ctrl::app::policy {
 using ddcs::ctrl::app::session::Session;
 using ddcs::ctrl::app::session::State;
 
-std::optional<domain::policy::Policy> parse_policy(json::Value const& root) {
+std::optional<domain::Policy> parse_policy(json::Value const& root) {
     auto const* groups = root.find("groups");
     if (groups == nullptr || !groups->is_object()) {
         return std::nullopt;
     }
-    domain::policy::Policy policy;
+    domain::Policy policy;
     bool ok = true;
     groups->for_each_member([&](std::string_view name, json::Value const& g) {
         auto const* high = g.find("high_load");
@@ -44,8 +44,7 @@ std::optional<domain::policy::Policy> parse_policy(json::Value const& root) {
             return;
         }
         policy.set(
-            std::string{name},
-            domain::policy::GroupRule{.high_load = *hv, .low_load = *lv, .busy_mode = *bm, .idle_mode = *im}
+            std::string{name}, domain::GroupRule{.high_load = *hv, .low_load = *lv, .busy_mode = *bm, .idle_mode = *im}
         );
     });
     if (!ok) {
@@ -54,7 +53,7 @@ std::optional<domain::policy::Policy> parse_policy(json::Value const& root) {
     return policy;
 }
 
-void PolicyService::set_policy(domain::policy::Policy policy) {
+void PolicyService::set_policy(domain::Policy policy) {
     policy_ = std::move(policy);
     regime_.clear(); // 새 정책 -> 재평가(이전 regime 무효)
 }
@@ -82,7 +81,7 @@ void PolicyService::evaluate() {
         ++a.count;
     });
     // 2. 정책 그룹별 히스테리시스 평가 -> regime 전환 시에만 명령.
-    policy_.for_each([&](std::string const& group, domain::policy::GroupRule const& rule) {
+    policy_.for_each([&](std::string const& group, domain::GroupRule const& rule) {
         auto const it = agg.find(group);
         if (it == agg.end() || it->second.count == 0) {
             return; // 활성 agent 없는 그룹 -> skip

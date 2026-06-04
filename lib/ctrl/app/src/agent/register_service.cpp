@@ -10,13 +10,13 @@
 
 namespace ddcs::ctrl::app::agent {
 
-AgentId RegisterService::resolve(ConnectionId conn, common::PoolHandle<common::LinearBuffer> body) {
+DeviceId RegisterService::resolve(ConnectionId conn, common::PoolHandle<common::LinearBuffer> body) {
     proto::msg::RegisterRequest req{};
     if (!proto::msg::decode(body->readable(), req)) {
         LOG_WARN("agent.register.decode_fail", ddcs::logger::kv("conn", conn.value()));
-        return AgentId{}; // 식별 불가 -> 무효(호출자가 close)
+        return DeviceId{}; // 식별 불가 -> 무효(호출자가 close)
     }
-    auto const& agent = registry_.find_or_create(req.agent_uuid);                     // uuid -> 영속 AgentId
+    auto const& agent = registry_.find_or_create(req.agent_uuid);                     // uuid -> 영속 DeviceId
     registry_.set_attributes(agent.id, std::move(req.group), std::move(req.version)); // 선언된 group/version 갱신
     return agent.id;
 }

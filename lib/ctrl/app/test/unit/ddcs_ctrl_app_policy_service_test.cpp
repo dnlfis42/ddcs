@@ -7,8 +7,8 @@
 #include "ddcs/ctrl/app/agent/command_service.hpp"
 #include "ddcs/ctrl/app/ops/operator_service.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
-#include "ddcs/ctrl/domain/agent/agent_registry.hpp"
-#include "ddcs/ctrl/domain/policy/policy.hpp"
+#include "ddcs/ctrl/domain/device_registry.hpp"
+#include "ddcs/ctrl/domain/policy.hpp"
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/outbound.hpp"
 #include "ddcs/device/mode.hpp"
@@ -38,10 +38,10 @@ using ddcs::ctrl::app::ops::OperatorService;
 using ddcs::ctrl::app::policy::parse_policy;
 using ddcs::ctrl::app::policy::PolicyService;
 using ddcs::ctrl::app::session::SessionRegistry;
-using ddcs::ctrl::domain::agent::AgentId;
-using ddcs::ctrl::domain::agent::AgentRegistry;
-using ddcs::ctrl::domain::policy::GroupRule;
-using ddcs::ctrl::domain::policy::Policy;
+using ddcs::ctrl::domain::DeviceId;
+using ddcs::ctrl::domain::DeviceRegistry;
+using ddcs::ctrl::domain::GroupRule;
+using ddcs::ctrl::domain::Policy;
 using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
@@ -86,14 +86,14 @@ GroupRule sensors_rule() {
 
 struct Fixture {
     SessionRegistry sessions;
-    AgentRegistry registry;
+    DeviceRegistry registry;
     MockOutbound outbound;
     ManualClock clock;
     CommandService commands{sessions, outbound, clock, std::chrono::seconds{5}};
     OperatorService ops{registry, commands};
     PolicyService policy{sessions, registry, ops};
 
-    AgentId add_agent(std::uint8_t seed, ConnectionId conn, std::string const& group, double load) {
+    DeviceId add_agent(std::uint8_t seed, ConnectionId conn, std::string const& group, double load) {
         auto const id = registry.find_or_create(make_uuid(seed)).id;
         registry.set_attributes(id, group, "v");
         registry.update_telemetry(id, Mode::normal, load, 0.0);

@@ -8,7 +8,7 @@
 
 #include <cstddef>
 
-namespace ddcs::ctrl::domain::policy {
+namespace ddcs::ctrl::domain {
 
 // 그룹 정책 룰 - 히스테리시스(high/low) 임계 + 전환 모드.
 // 평균 load > high_load -> busy_mode, < low_load -> idle_mode, 그 사이 -> 유지(밴드).
@@ -19,7 +19,7 @@ struct GroupRule {
     device::Mode idle_mode{}; // 회복 시 목표 모드
 };
 
-// 그룹->룰 정책. 부팅 시 policy.json 에서 빌드(app 의 parse_policy), PolicyService 가 평가에 사용.
+// 그룹->룰 정책. 부팅 시 policy.json에서 빌드(app 의 parse_policy), PolicyService가 평가에 사용.
 // 순수 값객체(json 무지). 핫스왑 단위(set_policy 로 통째 교체).
 class Policy {
 public:
@@ -47,4 +47,4 @@ private:
     std::vector<std::pair<std::string, GroupRule>> rules_; // 삽입순, 그룹 적어 선형 검색
 };
 
-} // namespace ddcs::ctrl::domain::policy
+} // namespace ddcs::ctrl::domain

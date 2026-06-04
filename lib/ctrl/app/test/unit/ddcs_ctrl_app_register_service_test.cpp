@@ -3,7 +3,7 @@
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
 #include "ddcs/common/uuid.hpp"
-#include "ddcs/ctrl/domain/agent/agent_registry.hpp"
+#include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/outbound.hpp"
 #include "ddcs/proto/msg/message.hpp"
@@ -25,7 +25,7 @@ using ddcs::common::LinearBuffer;
 using ddcs::common::PoolHandle;
 using ddcs::common::Uuid;
 using ddcs::ctrl::app::agent::RegisterService;
-using ddcs::ctrl::domain::agent::AgentRegistry;
+using ddcs::ctrl::domain::DeviceRegistry;
 using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
@@ -69,7 +69,7 @@ PoolHandle<LinearBuffer> make_register_body(Uuid uuid, std::string group = "", s
 
 // identity/ack 전용 RegisterService. 세션 바인딩/kick 은 SessionManager 소관(session_manager_test 가 검증).
 struct Fixture {
-    AgentRegistry registry;
+    DeviceRegistry registry;
     MockOutbound outbound;
     RegisterService svc{registry, outbound};
 };

@@ -10,7 +10,7 @@
 #include "ddcs/ctrl/app/session/liveness_monitor.hpp"
 #include "ddcs/ctrl/app/session/session_manager.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
-#include "ddcs/ctrl/domain/agent/agent_registry.hpp"
+#include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/outbound.hpp"
 #include "ddcs/proto/msg/message.hpp"
@@ -37,7 +37,7 @@ using ddcs::ctrl::app::metrics::MetricsService;
 using ddcs::ctrl::app::session::LivenessMonitor;
 using ddcs::ctrl::app::session::SessionManager;
 using ddcs::ctrl::app::session::SessionRegistry;
-using ddcs::ctrl::domain::agent::AgentRegistry;
+using ddcs::ctrl::domain::DeviceRegistry;
 using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
@@ -71,7 +71,7 @@ bool contains(std::string const& s, char const* sub) { return s.find(sub) != std
 
 struct Fixture {
     SessionRegistry sessions;
-    AgentRegistry registry;
+    DeviceRegistry registry;
     MockOutbound outbound;
     ManualClock clock;
     CommandService commands{sessions, outbound, clock, std::chrono::seconds{5}};

@@ -1,7 +1,7 @@
 #include "ddcs/ctrl/app/session/session_manager.hpp"
 
 #include "ddcs/ctrl/app/session/session.hpp"
-#include "ddcs/ctrl/domain/agent/agent_id.hpp"
+#include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/msg/type.hpp"
 
@@ -11,7 +11,7 @@
 
 namespace ddcs::ctrl::app::session {
 
-using ddcs::ctrl::domain::agent::AgentId;
+using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::port::transport::CloseMode;
 
 SessionManager::SessionManager(
@@ -83,7 +83,7 @@ void SessionManager::on_disconnect(ConnectionId conn) {
 
 // RegisterRequest 처리: registrar 로 identity 해소 -> session bind(active+last_seen) + kick-old -> ack.
 void SessionManager::handle_register(ConnectionId conn, common::PoolHandle<common::LinearBuffer> body) {
-    AgentId const agent = registrar_.resolve(conn, std::move(body));
+    DeviceId const agent = registrar_.resolve(conn, std::move(body));
     if (!agent.valid()) {
         outbound_.close(conn, CloseMode::force); // 식별 불가 -> 응답 없이 종료
         return;

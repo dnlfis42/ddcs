@@ -31,7 +31,7 @@ using ddcs::ctrl::port::transport::Outbound;
 //  - on_close_request : session -> closing(liveness 제외) 후 Outbound::close
 //  - on_disconnect    : 세션 erase
 // RegisterRequest 는 여기서 직접 처리: registrar 로 identity 해소 후 session bind(active)+kick-old+ack.
-// (identity = AgentRegistry/RegisterService, session binding = SessionRegistry/SessionManager.)
+// (identity = DeviceRegistry/RegisterService, session binding = SessionRegistry/SessionManager.)
 class SessionManager final : public Inbound {
 public:
     SessionManager(

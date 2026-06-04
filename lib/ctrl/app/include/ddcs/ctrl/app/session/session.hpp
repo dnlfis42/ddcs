@@ -1,13 +1,13 @@
 #pragma once
 
 #include "ddcs/common/clock.hpp"
-#include "ddcs/ctrl/domain/agent/agent_id.hpp"
+#include "ddcs/ctrl/domain/device_id.hpp"
 
 #include <cstdint>
 
 namespace ddcs::ctrl::app::session {
 
-using ddcs::ctrl::domain::agent::AgentId;
+using ddcs::ctrl::domain::DeviceId;
 
 // 세션 수명 상태.
 enum class State : std::uint8_t {
@@ -19,7 +19,7 @@ enum class State : std::uint8_t {
 
 // 한 연결의 세션 상태(연결<->agent 바인딩 + liveness 관측). SessionRegistry 가 conn 으로 키잉해 소유.
 struct Session {
-    AgentId agent;                         // active 일 때 유효
+    DeviceId agent;                        // active 일 때 유효
     State state{State::idle};              // idle 초깃값
     common::Clock::time_point last_seen{}; // active 트래픽 마지막 관측 시각(liveness)
 

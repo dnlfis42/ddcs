@@ -39,7 +39,7 @@ bool CommandService::send_command(
     return true;
 }
 
-std::uint64_t CommandService::dispatch(AgentId agent, std::uint8_t type, std::string payload) {
+std::uint64_t CommandService::dispatch(DeviceId agent, std::uint8_t type, std::string payload) {
     ConnectionId const conn = sessions_.resolve(agent);
     if (!conn.valid()) {
         LOG_WARN("command.dispatch.offline", ddcs::logger::kv("agent", agent.value()));

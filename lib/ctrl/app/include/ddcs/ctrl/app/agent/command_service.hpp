@@ -4,7 +4,7 @@
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
-#include "ddcs/ctrl/domain/agent/agent_id.hpp"
+#include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/outbound.hpp"
 
@@ -18,7 +18,7 @@
 namespace ddcs::ctrl::app::agent {
 
 using ddcs::ctrl::app::session::SessionRegistry;
-using ddcs::ctrl::domain::agent::AgentId;
+using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
 
@@ -40,7 +40,7 @@ public:
 
     // agent 의 현재 conn 으로 Command(type/payload 는 opaque) 송신 + pending 등록.
     // 반환: 발급된 command_id. agent 미연결이면 0(무효, 송신 안 함).
-    std::uint64_t dispatch(AgentId agent, std::uint8_t type, std::string payload);
+    std::uint64_t dispatch(DeviceId agent, std::uint8_t type, std::string payload);
 
     void handle_ack(ConnectionId conn, common::PoolHandle<common::LinearBuffer> body);     // a->c: deadline 연장
     void handle_outcome(ConnectionId conn, common::PoolHandle<common::LinearBuffer> body); // a->c: 종료/NACK
@@ -63,7 +63,7 @@ private:
 
     struct Pending {
         ConnectionId conn; // 현재 attempt 의 target conn (ack/outcome conn 검증용)
-        AgentId agent;
+        DeviceId agent;
         std::uint8_t type{};
         std::string payload;                       // 재발송용
         common::Clock::time_point dispatched_at{}; // 최초 dispatch(총 RTT 기준)

@@ -5,7 +5,7 @@
 #include "ddcs/common/uuid.hpp"
 #include "ddcs/ctrl/app/session/session.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
-#include "ddcs/ctrl/domain/agent/agent_registry.hpp"
+#include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/device/mode.hpp"
 #include "ddcs/proto/msg/message.hpp"
 
@@ -25,8 +25,8 @@ using ddcs::common::PoolHandle;
 using ddcs::common::Uuid;
 using ddcs::ctrl::app::agent::StatusService;
 using ddcs::ctrl::app::session::SessionRegistry;
-using ddcs::ctrl::domain::agent::AgentId;
-using ddcs::ctrl::domain::agent::AgentRegistry;
+using ddcs::ctrl::domain::DeviceId;
+using ddcs::ctrl::domain::DeviceRegistry;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::device::Mode;
 namespace msg = ddcs::proto::msg;
@@ -49,10 +49,10 @@ PoolHandle<LinearBuffer> make_status_body(std::string json) {
 
 struct Fixture {
     SessionRegistry sessions;
-    AgentRegistry registry;
+    DeviceRegistry registry;
     StatusService svc{sessions, registry};
 
-    AgentId activate(ConnectionId conn, Uuid uuid) { // 등록 + 세션 active 바인딩
+    DeviceId activate(ConnectionId conn, Uuid uuid) { // 등록 + 세션 active 바인딩
         auto const id = registry.find_or_create(uuid).id;
         sessions.open(conn);
         sessions.bind(conn, id, {});

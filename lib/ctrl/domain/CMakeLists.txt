@@ -3,16 +3,15 @@ add_library(ddcs::ctrl::domain ALIAS ddcs_ctrl_domain)
 
 target_sources(
     ddcs_ctrl_domain
-    PRIVATE src/agent/agent_registry.cpp
+    PRIVATE src/device_registry.cpp
     PUBLIC
         FILE_SET HEADERS
             BASE_DIRS include
             FILES
-                include/ddcs/ctrl/domain/agent/agent.hpp
-                include/ddcs/ctrl/domain/agent/agent_id.hpp
-                include/ddcs/ctrl/domain/agent/agent_registry.hpp
-                include/ddcs/ctrl/domain/agent/agent_uuid.hpp
-                include/ddcs/ctrl/domain/policy/policy.hpp
+                include/ddcs/ctrl/domain/device.hpp
+                include/ddcs/ctrl/domain/device_id.hpp
+                include/ddcs/ctrl/domain/device_registry.hpp
+                include/ddcs/ctrl/domain/policy.hpp
 )
 target_link_libraries(
     ddcs_ctrl_domain

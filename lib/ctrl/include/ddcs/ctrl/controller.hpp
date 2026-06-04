@@ -11,7 +11,7 @@
 #include "ddcs/ctrl/app/session/liveness_monitor.hpp"
 #include "ddcs/ctrl/app/session/session_manager.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
-#include "ddcs/ctrl/domain/agent/agent_registry.hpp"
+#include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/infra/metrics/server.hpp"
 #include "ddcs/ctrl/infra/transport/acceptor.hpp"
 #include "ddcs/ctrl/infra/transport/connection_coordinator.hpp"
@@ -29,9 +29,9 @@
 
 namespace ddcs::ctrl {
 
-// Controller 조립 루트: io(Reactor) + infra(Coordinator/Acceptor) + app(Session/Agent/Command/SessionManager)
-// + domain(AgentRegistry)을 한데 묶는다. 외부(main, 통합 테스트)는 이 클래스만 다룬다.
-// CommandService.sweep() 의 주기 구동을 위해 io::TimerHandler 를 구현한다.
+// Controller 조립 루트: io(Reactor) + infra(Coordinator/Acceptor) + app(Session/Device/Command/SessionManager)
+// + domain(DeviceRegistry)을 한데 묶는다. 외부(main, 통합 테스트)는 이 클래스만 다룬다.
+// CommandService.sweep()의 주기 구동을 위해 io::TimerHandler를 구현한다.
 class Controller : public io::TimerHandler {
 public:
     struct Config {
@@ -44,7 +44,7 @@ public:
         int command_max_attempts{3}; // 부분실패 재시도(1 = 재시도 없음)
         std::chrono::nanoseconds command_backoff_base{std::chrono::milliseconds{500}}; // 지수 backoff 기준
         std::chrono::nanoseconds sweep_interval{std::chrono::seconds{1}}; // command/liveness/policy sweep 주기
-        // nullopt = 정책 비활성. 값이 있으면 부팅 시 그 policy.json 을 load-once.
+        // nullopt = 정책 비활성. 값이 있으면 부팅 시 그 policy.json을 load-once.
         std::optional<std::filesystem::path> policy_path{};
 
         logger::Level log_level{logger::Level::Info};
@@ -79,7 +79,7 @@ public: // io::TimerHandler - sweep 타이머 만료
 
 private:
     void schedule_sweep();
-    void load_policy(); // policy.json load-once (start 에서). 파일/파싱 실패는 WARN 후 빈 정책.
+    void load_policy(); // policy.json load-once (start에서). 파일/파싱 실패는 WARN 후 빈 정책.
 
     logger::StdoutSink default_sink_;
     common::SystemClock clock_;
@@ -90,7 +90,7 @@ private:
     infra::transport::Acceptor acceptor_;
 
     app::session::SessionRegistry sessions_;
-    domain::agent::AgentRegistry registry_;
+    domain::DeviceRegistry registry_;
     app::agent::RegisterService registrar_;
     app::agent::StatusService status_;
     app::agent::CommandService commands_;
@@ -99,7 +99,7 @@ private:
     app::policy::PolicyService policy_;
     app::session::LivenessMonitor liveness_;
     app::metrics::MetricsService metrics_service_;
-    // reactor 의 2nd guest. Config.metrics_port 있을 때만 start() 에서 emplace.
+    // reactor의 2nd guest. Config.metrics_port 있을 때만 start()에서 emplace.
     // metrics_service_ 뒤에 선언 -> 먼저 소멸(Inbound& 참조가 dangling 되지 않도록).
     std::optional<infra::metrics::Server> metrics_server_;
 
