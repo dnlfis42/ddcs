@@ -7,6 +7,7 @@
 #include <array>
 #include <chrono>
 #include <limits>
+#include <optional>
 
 #include <cerrno>
 #include <cstddef>
@@ -65,7 +66,7 @@ void Reactor::setup() {
     // signalfd 도 fd 디스패치 일원화: table 등록 후 토큰을 epoll data 에 싣는다.
     epoll_event sev{};
     sev.events = EPOLLIN | EPOLLET;
-    sev.data.u64 = handlers_.insert(signal_fd_.get(), &signal_pump_);
+    sev.data.u64 = fd_dispatch_.insert(signal_fd_.get(), &signal_pump_);
     if (::epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, signal_fd_.get(), &sev) < 0) {
         common::throw_errno(errno, "epoll_ctl ADD signal_fd");
     }
@@ -76,9 +77,9 @@ Reactor::~Reactor() { stop(); }
 bool Reactor::add(int fd, std::uint32_t interest, FdHandler* handler) {
     epoll_event ev{};
     ev.events = interest;
-    ev.data.u64 = handlers_.insert(fd, handler);
+    ev.data.u64 = fd_dispatch_.insert(fd, handler);
     if (::epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, fd, &ev) != 0) {
-        handlers_.erase(fd); // 롤백: 테이블에 dangling 핸들러를 남기지 않음
+        fd_dispatch_.erase(fd); // 롤백: 테이블에 dangling 핸들러를 남기지 않음
         return false;
     }
     return true;
@@ -87,13 +88,13 @@ bool Reactor::add(int fd, std::uint32_t interest, FdHandler* handler) {
 bool Reactor::mod(int fd, std::uint32_t interest) {
     epoll_event ev{};
     ev.events = interest;
-    ev.data.u64 = handlers_.token(fd); // MOD 가 data 를 덮어쓰므로 토큰 재지정(핸들러 불변)
+    ev.data.u64 = fd_dispatch_.token(fd); // MOD 가 data 를 덮어쓰므로 토큰 재지정(핸들러 불변)
     return ::epoll_ctl(epoll_fd_.get(), EPOLL_CTL_MOD, fd, &ev) == 0;
 }
 
 void Reactor::del(int fd) {
     ::epoll_ctl(epoll_fd_.get(), EPOLL_CTL_DEL, fd, nullptr); // best-effort
-    handlers_.erase(fd);                                      // gen++ -> 진행 중 배치의 stale 토큰 무효화
+    fd_dispatch_.erase(fd);                                  // gen++ -> 진행 중 배치의 stale 토큰 무효화
 }
 
 TimerId Reactor::schedule(std::chrono::nanoseconds delay, TimerHandler* handler) {
@@ -125,6 +126,17 @@ void Reactor::run() {
 }
 
 void Reactor::run_once(std::chrono::milliseconds timeout) {
+    std::array<epoll_event, max_epoll_events> events{};
+    auto const n = wait(timeout, events.data(), events.size());
+    if (!n) {
+        return; // EINTR 등: 기존 동작대로 timer expire 없이 다음 호출에서 재시도
+    }
+
+    dispatch(events.data(), *n);
+    timers_.expire(clock_.now()); // fd 이벤트 처리 뒤 due 타이머 fire
+}
+
+std::optional<int> Reactor::wait(std::chrono::milliseconds timeout, epoll_event* events, std::size_t capacity) {
     using std::chrono::milliseconds;
 
     auto const now = clock_.now();
@@ -137,23 +149,23 @@ void Reactor::run_once(std::chrono::milliseconds timeout) {
         wait_ms = to_epoll_timeout(timeout); // 타이머 없음(-1 가능)
     }
 
-    std::array<epoll_event, max_epoll_events> events{};
-    int const n = ::epoll_wait(epoll_fd_.get(), events.data(), events.size(), wait_ms);
+    int const n = ::epoll_wait(epoll_fd_.get(), events, static_cast<int>(capacity), wait_ms);
     if (n < 0) {
         if (errno == EINTR) {
-            return; // 깨움 - 다음 이터레이션 재시도
+            return std::nullopt; // 깨움 - 다음 이터레이션 재시도
         }
         common::throw_errno(errno, "epoll_wait");
     }
+    return n;
+}
 
-    for (int i = 0; i < n; ++i) {
+void Reactor::dispatch(epoll_event const* events, int count) {
+    for (int i = 0; i < count; ++i) {
         auto const& e = events[static_cast<std::size_t>(i)];
-        if (auto* h = handlers_.resolve(e.data.u64)) { // gen 불일치(닫힌 fd)면 skip - UAF 차단
+        if (auto* h = fd_dispatch_.resolve(e.data.u64)) { // gen 불일치(닫힌 fd)면 skip - UAF 차단
             h->on_io(e.events);
         }
     }
-
-    timers_.expire(clock_.now()); // fd 이벤트 처리 뒤 due 타이머 fire
 }
 
 void Reactor::stop() noexcept {

@@ -10,15 +10,20 @@
 
 #include <chrono>
 #include <functional>
+#include <optional>
 #include <utility>
 
+#include <cstddef>
 #include <cstdint>
+
+struct epoll_event;
 
 namespace ddcs::io {
 
-// Edge-Triggered epoll, single-thread reactor. 순수 IO 멀티플렉싱 기질.
+// Edge-Triggered epoll 기반, single-thread fd readiness reactor.
 //
-// 아는 것: fd readiness, 타이머, signal. 그뿐이다.
+// 핵심 책임: fd add/mod/del, epoll_wait, FdHandler dispatch, loop stop.
+// timer/signal 은 아직 분리 전 호환 서비스로 이 클래스 안에 남아 있다.
 // 모르는 것: Connection / frame / FSM / SessionId / 그 무엇이든 transport/app 개념.
 //
 // fd 디스패치는 FdDispatchTable(gen-token)로 일원화 - epoll data.u64 에 토큰을 싣고 resolve 로 되찾는다.
@@ -26,7 +31,7 @@ namespace ddcs::io {
 // fd 를 그 자리에서 닫아도 안전). 타이머는 TimerQueue(heap)에 모여 epoll_wait 타임아웃 하나로
 // 구동된다(무장 syscall 0). signalfd 도 동일 경로(table)를 탄다.
 class Reactor {
-public:
+public: // special functions
     Reactor();                              // 내부 SystemClock 사용 (프로덕션 기본)
     explicit Reactor(common::Clock& clock); // Clock 주입 (테스트 결정성)
     ~Reactor();
@@ -44,27 +49,29 @@ public: // fd registry - 기계만. 실패는 bool 로 *보고*하고 의미부�
     bool mod(int fd, std::uint32_t interest);
     void del(int fd);
 
-public: // timer service - opaque TimerId. 취소된 타이머는 핸들러에게 안 온다.
+public: // transitional timer service - opaque TimerId. 취소된 타이머는 핸들러에게 안 온다.
     // delay 는 *상대* 지연(내부에서 clock_.now() + delay 로 절대 마감 계산).
     [[nodiscard]]
     TimerId schedule(std::chrono::nanoseconds delay, TimerHandler* handler);
     void cancel(TimerId id) noexcept; // O(1). heap 은 안 건드림(lazy). 멱등.
 
-public: // signal hook - SIGINT/SIGTERM 수신 시 호출. 미설정 시 stop().
+public: // transitional signal hook - SIGINT/SIGTERM 수신 시 호출. 미설정 시 stop().
     void on_signal(std::function<void()> cb) { signal_cb_ = std::move(cb); }
 
-public:         // loop
-    void run(); // while (running_) 무기한 블록
-    void run_once(
-        std::chrono::milliseconds timeout
-    );                    // 음수 = 무한블록. 타이머 마감과 min 후 epoll_wait -> resolve -> on_io -> expire
+public: // loop
+    void run();
+    // 음수 = 무한블록. timer 분리 전까지 가장 이른 timer deadline 이 wait 상한을 낮춘다.
+    void run_once(std::chrono::milliseconds timeout);
     void stop() noexcept; // 멱등
     bool running() const noexcept { return running_; }
 
 private:
-    void setup(); // 두 ctor 공통 1회 기동: epoll/signalfd 생성 + 등록(SIGINT/SIGTERM 블록)
+    void setup(); // 두 ctor 공통 1회 기동: epoll 생성 + transitional signalfd 등록
+    [[nodiscard]]
+    std::optional<int> wait(std::chrono::milliseconds timeout, epoll_event* events, std::size_t capacity);
+    void dispatch(epoll_event const* events, int count);
 
-    // signalfd 를 FdHandler 로 일원화 (table 경유 디스패치).
+    // transitional signalfd pump. signal source 분리 전까지 fd dispatch 경로를 공유한다.
     struct SignalPump : FdHandler {
         Reactor* r{nullptr};
         void on_io(std::uint32_t events) override;
@@ -78,8 +85,8 @@ private:
     common::Fd signal_fd_{}; // signalfd(SIGINT/SIGTERM). 펌프 태그 = &signal_pump_
     bool running_{false};
 
-    FdDispatchTable handlers_; // fd -> FdHandler* (+gen). epoll data.u64 토큰의 출처/해석
-    TimerQueue timers_;        // 전 소비자 타이머 집계 (heap, lazy-cancel)
+    FdDispatchTable fd_dispatch_; // fd -> FdHandler* (+gen). epoll data.u64 토큰의 출처/해석
+    TimerQueue timers_;           // 전 소비자 타이머 집계 (heap, lazy-cancel)
 
     SignalPump signal_pump_{};
     std::function<void()> signal_cb_{};
