@@ -6,7 +6,7 @@
 #include "ddcs/common/ring_buffer.hpp"
 #include "ddcs/ctrl/infra/transport/endpoint.hpp"
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
-#include "ddcs/io/io_handler.hpp"
+#include "ddcs/io/fd_handler.hpp"
 
 #include <queue>
 #include <span>
@@ -26,9 +26,9 @@ inline constexpr std::size_t inbound_buffer_capacity{1 << 12};
 // 순수 메커니즘: syscall + 버퍼 + IoResult 보고만 한다.
 // 상태 전이는 스스로 하지 않고 ConnectionCoordinator 가 transition() 으로 구동한다.
 //
-// io::IoHandler 로서: Reactor 가 이 conn fd 의 readiness 를 알려오면 on_io 가 호출되고,
+// io::FdHandler 로서: Reactor 가 이 conn fd 의 readiness 를 알려오면 on_io 가 호출되고,
 // 정책은 갖지 않은 채 곧장 coordinator 로 위임한다.
-class Connection : public io::IoHandler {
+class Connection : public io::FdHandler {
 public:
     enum class State : std::uint8_t {
         idle,          // 풀 슬롯 미사용. 재사용 대기. fd 없음
@@ -57,7 +57,7 @@ public:
     Connection(Connection&&) noexcept = delete;
     Connection& operator=(Connection&&) noexcept = delete;
 
-public: // io::IoHandler - 정책 없음. 곧장 coordinator 로 위임.
+public: // io::FdHandler - 정책 없음. 곧장 coordinator 로 위임.
     void on_io(std::uint32_t events) override;
 
 public: // state query

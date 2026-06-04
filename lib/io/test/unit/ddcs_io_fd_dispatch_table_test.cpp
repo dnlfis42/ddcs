@@ -1,6 +1,6 @@
-#include "ddcs/io/handler_table.hpp"
+#include "ddcs/io/fd_dispatch_table.hpp"
 
-#include "ddcs/io/io_handler.hpp"
+#include "ddcs/io/fd_handler.hpp"
 
 #include <gtest/gtest.h>
 
@@ -8,32 +8,32 @@
 
 namespace {
 
-using ddcs::io::HandlerTable;
-using ddcs::io::IoHandler;
+using ddcs::io::FdDispatchTable;
+using ddcs::io::FdHandler;
 
-struct DummyHandler : IoHandler {
+struct DummyHandler : FdHandler {
     void on_io(std::uint32_t /*events*/) override {}
 };
 
 } // namespace
 
-TEST(HandlerTableTest, InsertThenResolveReturnsHandler) {
-    HandlerTable table;
+TEST(FdDispatchTableTest, InsertThenResolveReturnsHandler) {
+    FdDispatchTable table;
     DummyHandler h;
     auto const tok = table.insert(5, &h);
     EXPECT_EQ(table.resolve(tok), &h);
 }
 
-TEST(HandlerTableTest, ResolveStaleTokenAfterEraseReturnsNull) {
-    HandlerTable table;
+TEST(FdDispatchTableTest, ResolveStaleTokenAfterEraseReturnsNull) {
+    FdDispatchTable table;
     DummyHandler h;
     auto const tok = table.insert(5, &h);
     table.erase(5);
     EXPECT_EQ(table.resolve(tok), nullptr);
 }
 
-TEST(HandlerTableTest, DistinguishesReusedFdByGeneration) {
-    HandlerTable table;
+TEST(FdDispatchTableTest, DistinguishesReusedFdByGeneration) {
+    FdDispatchTable table;
     DummyHandler a;
     DummyHandler b;
     auto const tok_a = table.insert(5, &a);
@@ -44,24 +44,24 @@ TEST(HandlerTableTest, DistinguishesReusedFdByGeneration) {
     EXPECT_EQ(table.resolve(tok_b), &b);
 }
 
-TEST(HandlerTableTest, TokenReArmsSameSlot) {
-    HandlerTable table;
+TEST(FdDispatchTableTest, TokenReArmsSameSlot) {
+    FdDispatchTable table;
     DummyHandler h;
     auto const tok = table.insert(7, &h);
     EXPECT_EQ(table.token(7), tok); // MOD 재무장 토큰은 동일
     EXPECT_EQ(table.resolve(table.token(7)), &h);
 }
 
-TEST(HandlerTableTest, ResolveUnknownTokenReturnsNull) {
-    HandlerTable table;
+TEST(FdDispatchTableTest, ResolveUnknownTokenReturnsNull) {
+    FdDispatchTable table;
     EXPECT_EQ(table.resolve(0), nullptr); // 빈 테이블 - 범위 밖
     DummyHandler h;
     table.insert(3, &h);
     EXPECT_EQ(table.resolve(0xABCDEF), nullptr); // 미발급 토큰(범위 밖 fd)
 }
 
-TEST(HandlerTableTest, EraseIsIdempotent) {
-    HandlerTable table;
+TEST(FdDispatchTableTest, EraseIsIdempotent) {
+    FdDispatchTable table;
     table.erase(9); // 미등록
     DummyHandler h;
     auto const tok = table.insert(9, &h);

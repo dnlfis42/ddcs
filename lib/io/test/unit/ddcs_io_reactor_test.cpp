@@ -1,7 +1,7 @@
 #include "ddcs/io/reactor.hpp"
 
 #include "ddcs/common/clock.hpp"
-#include "ddcs/io/io_handler.hpp"
+#include "ddcs/io/fd_handler.hpp"
 #include "ddcs/io/timer_handler.hpp"
 #include "ddcs/io/timer_id.hpp"
 
@@ -18,7 +18,7 @@ using namespace std::chrono_literals;
 
 namespace {
 
-using ddcs::io::IoHandler;
+using ddcs::io::FdHandler;
 using ddcs::io::Reactor;
 using ddcs::io::TimerHandler;
 using ddcs::io::TimerId;
@@ -33,7 +33,7 @@ public:
     }
 };
 
-class FlagIo : public IoHandler {
+class FlagIo : public FdHandler {
 public:
     int count{0};
     std::uint32_t last_events{0};

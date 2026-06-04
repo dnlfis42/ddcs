@@ -73,7 +73,7 @@ void Reactor::setup() {
 
 Reactor::~Reactor() { stop(); }
 
-bool Reactor::add(int fd, std::uint32_t interest, IoHandler* handler) {
+bool Reactor::add(int fd, std::uint32_t interest, FdHandler* handler) {
     epoll_event ev{};
     ev.events = interest;
     ev.data.u64 = handlers_.insert(fd, handler);

@@ -30,7 +30,7 @@ using ddcs::agent::port::TimerId;
 // app 과는 Outbound(송신/타이머/close) / Inbound(통지) 포트로만 통신.
 //  - Outbound 구현: payload_buffer/send/schedule_timer/cancel_timer/close
 //  - io::TimerHandler: app 타이머 + reconnect 타이머 만료 수신
-//  - Connection(io::IoHandler)의 on_io 위임을 on_connection_event 로 받음
+//  - Connection(io::FdHandler)의 on_io 위임을 on_connection_event 로 받음
 // Reactor 는 이 클래스를 모른다. 재연결/framing 은 전부 여기 산다.
 class Connector : public Outbound, public io::TimerHandler {
 public:

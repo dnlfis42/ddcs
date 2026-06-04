@@ -8,9 +8,9 @@ namespace ddcs::io {
  * @brief I/O 이벤트를 처리하는 핸들러 인터페이스
  *
  */
-class IoHandler {
+class FdHandler {
 public:
-    virtual ~IoHandler() = default;
+    virtual ~FdHandler() = default;
     virtual void on_io(std::uint32_t events) = 0;
 };
 

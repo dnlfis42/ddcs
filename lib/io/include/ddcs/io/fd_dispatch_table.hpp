@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ddcs/io/io_handler.hpp"
+#include "ddcs/io/fd_handler.hpp"
 
 #include <vector>
 
@@ -8,23 +8,23 @@
 
 namespace ddcs::io {
 
-// fd -> IoHandler* 매핑 + per-fd generation. epoll data.u64 에 pack(fd,gen) 토큰을 싣는다.
+// fd -> FdHandler* 매핑 + per-fd generation. epoll data.u64 에 pack(fd,gen) 토큰을 싣는다.
 //
-// 목적: 같은 epoll 배치 안에서 이미 닫힌(또는 재사용된) fd 의 stale 이벤트를 걸러낸다.
-// erase 가 gen 을 올리므로, 그 이전에 발급된 토큰은 resolve 에서 gen 불일치로 nullptr 가 된다.
+// 목적: 같은 epoll 배치 안에서 이미 닫힌(또는 재사용된) fd의 stale 이벤트를 걸러낸다.
+// erase 가 gen 을 올리므로, 그 이전에 발급된 토큰은 resolve에서 gen 불일치로 nullptr가 된다.
 // -> 동일 배치 use-after-free 차단(핸들러가 그 자리에서 fd 를 닫아도 안전).
 //
-// fd 로 직접 인덱싱(slots_[fd]). 한 fd 는 add~del 동안 한 핸들러로 고정 - MOD 는 interest 만
-// 바꾸고 핸들러는 그대로이므로, 재무장 토큰은 token(fd) 로 fd 만 가지고 복원한다.
+// fd로 직접 인덱싱(slots_[fd]). 한 fd는 add~del 동안 한 핸들러로 고정 - MOD는 interest만
+// 바꾸고 핸들러는 그대로이므로, 재무장 토큰은 token(fd)로 fd만 가지고 복원한다.
 
 /**
- * @brief fd와 IoHandler*의 매핑을 관리하는 클래스.
+ * @brief fd와 FdHandler*의 매핑을 관리하는 클래스.
  *
  */
-class HandlerTable {
+class FdDispatchTable {
 public:
     // slot[fd].handler = handler (gen 유지). pack(fd, gen) 반환. fd 슬롯이 없으면 grow.
-    std::uint64_t insert(int fd, IoHandler* handler);
+    std::uint64_t insert(int fd, FdHandler* handler);
     // 현재 토큰(MOD 재무장용). 전제: insert 된 fd.
     [[nodiscard]]
     std::uint64_t token(int fd) const noexcept;
@@ -32,11 +32,11 @@ public:
     void erase(int fd) noexcept;
     // gen 일치 && non-null -> handler, 아니면 nullptr.
     [[nodiscard]]
-    IoHandler* resolve(std::uint64_t tok) const noexcept;
+    FdHandler* resolve(std::uint64_t tok) const noexcept;
 
 private:
     struct Slot {
-        IoHandler* handler{nullptr};
+        FdHandler* handler{nullptr};
         std::uint32_t gen{0};
     };
 
