@@ -20,8 +20,8 @@ struct GroupRule {
 };
 
 // 그룹->룰 정책. 부팅 시 policy.json에서 빌드(app 의 parse_policy), PolicyService가 평가에 사용.
-// 순수 값객체(json 무지). 핫스왑 단위(set_policy 로 통째 교체).
-class Policy {
+// 순수 값객체(json 무지). 핫스왑 단위(set_policy로 통째 교체).
+class GroupPolicy {
 public:
     void set(std::string group, GroupRule rule) { // 빌드(있으면 갱신, 없으면 append - 삽입순 유지)
         for (auto& [g, r] : rules_) {
@@ -44,7 +44,7 @@ public:
     }
 
 private:
-    std::vector<std::pair<std::string, GroupRule>> rules_; // 삽입순, 그룹 적어 선형 검색
+    std::vector<std::pair<std::string, GroupRule>> rules_;
 };
 
 } // namespace ddcs::ctrl::domain

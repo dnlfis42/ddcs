@@ -13,12 +13,12 @@ namespace ddcs::ctrl::app::policy {
 using ddcs::ctrl::app::session::Session;
 using ddcs::ctrl::app::session::State;
 
-std::optional<domain::Policy> parse_policy(json::Value const& root) {
+std::optional<domain::GroupPolicy> parse_policy(json::Value const& root) {
     auto const* groups = root.find("groups");
     if (groups == nullptr || !groups->is_object()) {
         return std::nullopt;
     }
-    domain::Policy policy;
+    domain::GroupPolicy policy;
     bool ok = true;
     groups->for_each_member([&](std::string_view name, json::Value const& g) {
         auto const* high = g.find("high_load");
@@ -53,7 +53,7 @@ std::optional<domain::Policy> parse_policy(json::Value const& root) {
     return policy;
 }
 
-void PolicyService::set_policy(domain::Policy policy) {
+void PolicyService::set_policy(domain::GroupPolicy policy) {
     policy_ = std::move(policy);
     regime_.clear(); // 새 정책 -> 재평가(이전 regime 무효)
 }

@@ -8,7 +8,7 @@
 #include "ddcs/ctrl/app/ops/operator_service.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
-#include "ddcs/ctrl/domain/policy.hpp"
+#include "ddcs/ctrl/domain/group_policy.hpp"
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/outbound.hpp"
 #include "ddcs/device/mode.hpp"
@@ -41,8 +41,8 @@ using ddcs::ctrl::app::policy::PolicyService;
 using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::domain::DeviceRegistry;
+using ddcs::ctrl::domain::GroupPolicy;
 using ddcs::ctrl::domain::GroupRule;
-using ddcs::ctrl::domain::Policy;
 using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
@@ -104,7 +104,7 @@ struct Fixture {
     }
 
     void set_single_group_policy() {
-        Policy p;
+        GroupPolicy p;
         p.set("sensors", sensors_rule());
         policy.set_policy(std::move(p));
     }
@@ -192,7 +192,9 @@ TEST(PolicyServiceTest, ReturnsToIdleModeAfterRecovery) {
     f.policy.evaluate(); // busy
     f.outbound.sends.clear();
 
-    f.registry.update_status(id, ddcs::device::Status{.mode = Mode::performance, .load = 30.0, .temp = 0.0}); // load 30 < 40 -> 회복
+    f.registry.update_status(
+        id, ddcs::device::Status{.mode = Mode::performance, .load = 30.0, .temp = 0.0}
+    ); // load 30 < 40 -> 회복
     f.policy.evaluate();
 
     ASSERT_EQ(f.outbound.sends.size(), 1u);

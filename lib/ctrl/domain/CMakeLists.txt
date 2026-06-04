@@ -11,7 +11,7 @@ target_sources(
                 include/ddcs/ctrl/domain/device.hpp
                 include/ddcs/ctrl/domain/device_id.hpp
                 include/ddcs/ctrl/domain/device_registry.hpp
-                include/ddcs/ctrl/domain/policy.hpp
+                include/ddcs/ctrl/domain/group_policy.hpp
 )
 target_link_libraries(
     ddcs_ctrl_domain
