@@ -27,3 +27,16 @@ target_link_libraries(
     PRIVATE compile_option ddcs::runtime GTest::gtest_main
 )
 add_test(NAME ddcs_runtime_reactor_test COMMAND ddcs_runtime_reactor_test)
+
+add_executable(
+    ddcs_runtime_signal_source_test
+    ddcs_runtime_signal_source_test.cpp
+)
+target_link_libraries(
+    ddcs_runtime_signal_source_test
+    PRIVATE compile_option ddcs::runtime GTest::gtest_main
+)
+add_test(
+    NAME ddcs_runtime_signal_source_test
+    COMMAND ddcs_runtime_signal_source_test
+)

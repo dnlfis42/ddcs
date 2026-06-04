@@ -3,7 +3,11 @@ add_library(ddcs::runtime ALIAS ddcs_runtime)
 
 target_sources(
     ddcs_runtime
-    PRIVATE src/fd_dispatch_table.cpp src/reactor.cpp src/timer_queue.cpp
+    PRIVATE
+        src/fd_dispatch_table.cpp
+        src/reactor.cpp
+        src/signal_source.cpp
+        src/timer_queue.cpp
     PUBLIC
         FILE_SET HEADERS
             BASE_DIRS include
@@ -11,6 +15,7 @@ target_sources(
                 include/ddcs/runtime/fd_dispatch_table.hpp
                 include/ddcs/runtime/fd_handler.hpp
                 include/ddcs/runtime/reactor.hpp
+                include/ddcs/runtime/signal_source.hpp
                 include/ddcs/runtime/timer_handler.hpp
                 include/ddcs/runtime/timer_id.hpp
                 include/ddcs/runtime/timer_queue.hpp

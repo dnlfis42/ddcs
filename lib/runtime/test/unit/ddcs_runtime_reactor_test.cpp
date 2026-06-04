@@ -8,7 +8,6 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
-#include <csignal>
 #include <cstdint>
 
 #include <sys/epoll.h>
@@ -77,15 +76,6 @@ TEST(ReactorTest, FdReadableDispatches) {
     r.del(fds[0]);
     ::close(fds[0]);
     ::close(fds[1]);
-}
-
-TEST(ReactorTest, SignalInvokesCallback) {
-    Reactor r; // ctor 가 SIGINT/SIGTERM 블록 -> raise 는 signalfd 로 흐른다
-    bool fired = false;
-    r.on_signal([&fired] { fired = true; });
-    ASSERT_EQ(::raise(SIGINT), 0);
-    r.run_once(1000ms);
-    EXPECT_TRUE(fired);
 }
 
 // ManualClock 주입 -> epoll 실시간 sleep 없이 타이머 발화를 결정적으로 검증.

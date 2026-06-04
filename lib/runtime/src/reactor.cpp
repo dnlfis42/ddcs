@@ -13,10 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include <signal.h>
 #include <sys/epoll.h>
-#include <sys/signalfd.h>
-#include <unistd.h>
 
 namespace ddcs::runtime {
 
@@ -44,31 +41,9 @@ Reactor::Reactor() : clock_{default_clock_} { setup(); }
 Reactor::Reactor(common::Clock& clock) : clock_{clock} { setup(); }
 
 void Reactor::setup() {
-    signal_pump_.r = this;
-
     epoll_fd_.reset(::epoll_create1(EPOLL_CLOEXEC));
     if (!epoll_fd_) {
         common::throw_errno(errno, "epoll_create1");
-    }
-
-    // SIGINT/SIGTERM 을 signalfd 로 - 루프 안에서 동기 처리(graceful stop).
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGINT);
-    sigaddset(&mask, SIGTERM);
-    if (::sigprocmask(SIG_BLOCK, &mask, nullptr) < 0) {
-        common::throw_errno(errno, "sigprocmask");
-    }
-    signal_fd_.reset(::signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC));
-    if (!signal_fd_) {
-        common::throw_errno(errno, "signalfd");
-    }
-    // signalfd 도 fd 디스패치 일원화: table 등록 후 토큰을 epoll data 에 싣는다.
-    epoll_event sev{};
-    sev.events = EPOLLIN | EPOLLET;
-    sev.data.u64 = fd_dispatch_.insert(signal_fd_.get(), &signal_pump_);
-    if (::epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, signal_fd_.get(), &sev) < 0) {
-        common::throw_errno(errno, "epoll_ctl ADD signal_fd");
     }
 }
 
@@ -102,20 +77,6 @@ TimerId Reactor::schedule(std::chrono::nanoseconds delay, TimerHandler* handler)
 }
 
 void Reactor::cancel(TimerId id) noexcept { timers_.cancel(id); }
-
-void Reactor::drain_signal() {
-    signalfd_siginfo si{};
-    while (::read(signal_fd_.get(), &si, sizeof(si)) > 0) {
-        // ET 드레인. 어떤 시그널이든 hook 트리거.
-    }
-    if (signal_cb_) {
-        signal_cb_();
-    } else {
-        stop(); // default: graceful stop
-    }
-}
-
-void Reactor::SignalPump::on_io(std::uint32_t /*events*/) { r->drain_signal(); }
 
 void Reactor::run() {
     running_ = true;

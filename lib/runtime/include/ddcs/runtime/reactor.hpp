@@ -9,9 +9,7 @@
 #include "ddcs/runtime/timer_queue.hpp"
 
 #include <chrono>
-#include <functional>
 #include <optional>
-#include <utility>
 
 #include <cstddef>
 #include <cstdint>
@@ -23,13 +21,13 @@ namespace ddcs::runtime {
 // Edge-Triggered epoll 기반, single-thread fd readiness reactor.
 //
 // 핵심 책임: fd add/mod/del, epoll_wait, FdHandler dispatch, loop stop.
-// timer/signal 은 아직 분리 전 호환 서비스로 이 클래스 안에 남아 있다.
+// timer 는 아직 분리 전 호환 서비스로 이 클래스 안에 남아 있다.
 // 모르는 것: Connection / frame / FSM / SessionId / 그 무엇이든 transport/app 개념.
 //
 // fd 디스패치는 FdDispatchTable(gen-token)로 일원화 - epoll data.u64 에 토큰을 싣고 resolve 로 되찾는다.
 // 같은 배치 안에서 닫힌 fd 의 stale 이벤트는 gen 불일치로 걸러져 use-after-free 가 없다(손님이 자기
 // fd 를 그 자리에서 닫아도 안전). 타이머는 TimerQueue(heap)에 모여 epoll_wait 타임아웃 하나로
-// 구동된다(무장 syscall 0). signalfd 도 동일 경로(table)를 탄다.
+// 구동된다(무장 syscall 0).
 class Reactor {
 public:                                     // special functions
     Reactor();                              // 내부 SystemClock 사용 (프로덕션 기본)
@@ -55,9 +53,6 @@ public: // transitional timer service - opaque TimerId. 취소된 타이머는 �
     TimerId schedule(std::chrono::nanoseconds delay, TimerHandler* handler);
     void cancel(TimerId id) noexcept; // O(1). heap 은 안 건드림(lazy). 멱등.
 
-public: // transitional signal hook - SIGINT/SIGTERM 수신 시 호출. 미설정 시 stop().
-    void on_signal(std::function<void()> cb) { signal_cb_ = std::move(cb); }
-
 public: // loop
     void run();
     // 음수 = 무한블록. timer 분리 전까지 가장 이른 timer deadline 이 wait 상한을 낮춘다.
@@ -66,30 +61,19 @@ public: // loop
     bool running() const noexcept { return running_; }
 
 private:
-    void setup(); // 두 ctor 공통 1회 기동: epoll 생성 + transitional signalfd 등록
+    void setup(); // 두 ctor 공통 1회 기동: epoll 생성
     [[nodiscard]]
     std::optional<int> wait(std::chrono::milliseconds timeout, epoll_event* events, std::size_t capacity);
     void dispatch(epoll_event const* events, int count);
-
-    // transitional signalfd pump. signal source 분리 전까지 fd dispatch 경로를 공유한다.
-    struct SignalPump : FdHandler {
-        Reactor* r{nullptr};
-        void on_io(std::uint32_t events) override;
-    };
-    void drain_signal(); // signalfd ET 드레인 + signal_cb_ (없으면 stop)
 
     common::SystemClock default_clock_; // Reactor() 일 때의 기본 시계
     common::Clock& clock_;              // 타이머 기준 시계(주입 가능). default_clock_ 보다 뒤에 선언
 
     common::Fd epoll_fd_{};
-    common::Fd signal_fd_{}; // signalfd(SIGINT/SIGTERM). 펌프 태그 = &signal_pump_
     bool running_{false};
 
     FdDispatchTable fd_dispatch_; // fd -> FdHandler* (+gen). epoll data.u64 토큰의 출처/해석
     TimerQueue timers_;           // 전 소비자 타이머 집계 (heap, lazy-cancel)
-
-    SignalPump signal_pump_{};
-    std::function<void()> signal_cb_{};
 };
 
 } // namespace ddcs::runtime

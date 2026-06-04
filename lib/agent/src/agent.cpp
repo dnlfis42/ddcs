@@ -1,11 +1,13 @@
 #include "ddcs/agent/agent.hpp"
 
+#include <csignal>
 #include <utility>
 
 namespace ddcs::agent {
 
 Agent::Agent(Config cfg)
-    : device_{std::move(cfg.device)}, connector_{reactor_, cfg.controller_host, cfg.controller_port},
+    : device_{std::move(cfg.device)}, signal_source_{reactor_, {SIGINT, SIGTERM}, [this] { stop(); }},
+      connector_{reactor_, cfg.controller_host, cfg.controller_port},
       session_{cfg.agent_uuid, *device_, connector_, cfg.session} {
     auto& lg = logger::Logger::instance();
     lg.set_level(cfg.log_level);
@@ -19,15 +21,21 @@ Agent::Agent(Config cfg)
 
 Agent::~Agent() {
     stop();
-    // 멤버 dtor 역순: session_ -> connector_ -> reactor_ -> device_. reactor 가 connector 보다 나중 소멸.
+    // 멤버 dtor 역순: session_ -> connector_ -> signal_source_ -> reactor_ -> device_.
 }
 
-void Agent::start() { connector_.start(); }
+void Agent::start() {
+    signal_source_.start();
+    connector_.start();
+}
 
 void Agent::run() { reactor_.run(); }
 
 void Agent::run_once(std::chrono::milliseconds timeout) { reactor_.run_once(timeout); }
 
-void Agent::stop() { reactor_.stop(); }
+void Agent::stop() {
+    signal_source_.stop();
+    reactor_.stop();
+}
 
 } // namespace ddcs::agent
