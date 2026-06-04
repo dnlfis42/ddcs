@@ -1,4 +1,4 @@
-#include "ddcs/io/reactor.hpp"
+#include "ddcs/runtime/reactor.hpp"
 
 #include "ddcs/common/throw_errno.hpp"
 #include "ddcs/logger/log.hpp"
@@ -18,7 +18,7 @@
 #include <sys/signalfd.h>
 #include <unistd.h>
 
-namespace ddcs::io {
+namespace ddcs::runtime {
 
 namespace {
 
@@ -94,7 +94,7 @@ bool Reactor::mod(int fd, std::uint32_t interest) {
 
 void Reactor::del(int fd) {
     ::epoll_ctl(epoll_fd_.get(), EPOLL_CTL_DEL, fd, nullptr); // best-effort
-    fd_dispatch_.erase(fd);                                  // gen++ -> 진행 중 배치의 stale 토큰 무효화
+    fd_dispatch_.erase(fd);                                   // gen++ -> 진행 중 배치의 stale 토큰 무효화
 }
 
 TimerId Reactor::schedule(std::chrono::nanoseconds delay, TimerHandler* handler) {
@@ -119,7 +119,7 @@ void Reactor::SignalPump::on_io(std::uint32_t /*events*/) { r->drain_signal(); }
 
 void Reactor::run() {
     running_ = true;
-    LOG_INFO("io.reactor.start");
+    LOG_INFO("runtime.reactor.start");
     while (running_) {
         run_once(std::chrono::milliseconds{-1}); // 무기한 블록
     }
@@ -173,7 +173,7 @@ void Reactor::stop() noexcept {
         return; // 멱등
     }
     running_ = false;
-    LOG_INFO("io.reactor.stop");
+    LOG_INFO("runtime.reactor.stop");
 }
 
-} // namespace ddcs::io
+} // namespace ddcs::runtime

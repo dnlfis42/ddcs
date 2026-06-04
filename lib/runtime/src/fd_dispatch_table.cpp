@@ -1,9 +1,9 @@
-#include "ddcs/io/fd_dispatch_table.hpp"
+#include "ddcs/runtime/fd_dispatch_table.hpp"
 
 #include <cstddef>
 #include <cstdint>
 
-namespace ddcs::io {
+namespace ddcs::runtime {
 
 std::uint64_t FdDispatchTable::insert(int fd, FdHandler* handler) {
     auto const idx = static_cast<std::size_t>(fd);
@@ -42,4 +42,4 @@ FdHandler* FdDispatchTable::resolve(std::uint64_t tok) const noexcept {
     return nullptr;
 }
 
-} // namespace ddcs::io
+} // namespace ddcs::runtime

@@ -3,7 +3,7 @@
 #include "ddcs/common/fd.hpp"
 #include "ddcs/common/object_pool.hpp"
 #include "ddcs/ctrl/infra/metrics/connection.hpp"
-#include "ddcs/io/fd_handler.hpp"
+#include "ddcs/runtime/fd_handler.hpp"
 
 #include <unordered_map>
 #include <vector>
@@ -11,7 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace ddcs::io {
+namespace ddcs::runtime {
 class Reactor;
 }
 namespace ddcs::ctrl::port::metrics {
@@ -25,9 +25,9 @@ using ddcs::ctrl::port::metrics::Inbound;
 // metrics 스크레이프 listen 엔드포인트 - reactor 의 두 번째 guest.
 // listen fd 의 FdHandler(accept) + per-conn Connection 오케스트레이션. HTTP read -> respond -> close.
 // gen-token reactor 가 디스패치 안전을 보장; self-close 는 entry-point 끝 reap 으로(coordinator 미러).
-class Server final : public io::FdHandler {
+class Server final : public runtime::FdHandler {
 public:
-    Server(io::Reactor& reactor, Inbound& provider, std::uint16_t port, int backlog);
+    Server(runtime::Reactor& reactor, Inbound& provider, std::uint16_t port, int backlog);
     ~Server() override;
 
     Server(Server const&) = delete;
@@ -51,7 +51,7 @@ private:
     void reap();
     Connection* find(int fd);
 
-    io::Reactor& reactor_;
+    runtime::Reactor& reactor_;
     Inbound& provider_;
     std::uint16_t listen_port_;
     int const backlog_;

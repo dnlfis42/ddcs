@@ -3,7 +3,7 @@
 #include "ddcs/common/throw_errno.hpp"
 #include "ddcs/ctrl/infra/transport/connection_coordinator.hpp"
 #include "ddcs/ctrl/infra/transport/endpoint.hpp"
-#include "ddcs/io/reactor.hpp"
+#include "ddcs/runtime/reactor.hpp"
 #include "ddcs/logger/log.hpp"
 
 #include <utility>
@@ -45,7 +45,7 @@ Endpoint from_sockaddr(sockaddr const& sa, socklen_t len) noexcept {
 } // namespace
 
 Acceptor::Acceptor(
-    io::Reactor& reactor, ConnectionCoordinator& coordinator, std::uint16_t listen_port, int accept_backlog
+    runtime::Reactor& reactor, ConnectionCoordinator& coordinator, std::uint16_t listen_port, int accept_backlog
 )
     : reactor_{reactor}, coordinator_{coordinator}, listen_port_{listen_port}, accept_backlog_{accept_backlog} {}
 

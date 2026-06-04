@@ -22,7 +22,7 @@ target_link_libraries(
         ddcs::ctrl::app
         ddcs::ctrl::domain
         ddcs::ctrl::infra
-        ddcs::io
+        ddcs::runtime
         ddcs::json
     PUBLIC ddcs::common ddcs::device ddcs::logger
 )

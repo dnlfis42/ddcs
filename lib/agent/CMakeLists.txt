@@ -18,7 +18,7 @@ target_link_libraries(
     PUBLIC
         ddcs::common
         ddcs::logger
-        ddcs::io
+        ddcs::runtime
         ddcs::agent::domain
         ddcs::agent::app
         ddcs::agent::infra

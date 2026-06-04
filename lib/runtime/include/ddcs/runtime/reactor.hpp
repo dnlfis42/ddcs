@@ -2,11 +2,11 @@
 
 #include "ddcs/common/clock.hpp"
 #include "ddcs/common/fd.hpp"
-#include "ddcs/io/fd_dispatch_table.hpp"
-#include "ddcs/io/fd_handler.hpp"
-#include "ddcs/io/timer_handler.hpp"
-#include "ddcs/io/timer_id.hpp"
-#include "ddcs/io/timer_queue.hpp"
+#include "ddcs/runtime/fd_dispatch_table.hpp"
+#include "ddcs/runtime/fd_handler.hpp"
+#include "ddcs/runtime/timer_handler.hpp"
+#include "ddcs/runtime/timer_id.hpp"
+#include "ddcs/runtime/timer_queue.hpp"
 
 #include <chrono>
 #include <functional>
@@ -18,7 +18,7 @@
 
 struct epoll_event;
 
-namespace ddcs::io {
+namespace ddcs::runtime {
 
 // Edge-Triggered epoll 기반, single-thread fd readiness reactor.
 //
@@ -31,7 +31,7 @@ namespace ddcs::io {
 // fd 를 그 자리에서 닫아도 안전). 타이머는 TimerQueue(heap)에 모여 epoll_wait 타임아웃 하나로
 // 구동된다(무장 syscall 0). signalfd 도 동일 경로(table)를 탄다.
 class Reactor {
-public: // special functions
+public:                                     // special functions
     Reactor();                              // 내부 SystemClock 사용 (프로덕션 기본)
     explicit Reactor(common::Clock& clock); // Clock 주입 (테스트 결정성)
     ~Reactor();
@@ -92,4 +92,4 @@ private:
     std::function<void()> signal_cb_{};
 };
 
-} // namespace ddcs::io
+} // namespace ddcs::runtime

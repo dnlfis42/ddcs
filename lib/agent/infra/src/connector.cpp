@@ -1,6 +1,6 @@
 #include "ddcs/agent/infra/connector.hpp"
 
-#include "ddcs/io/reactor.hpp"
+#include "ddcs/runtime/reactor.hpp"
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/frame/frame.hpp"
 
@@ -27,7 +27,7 @@ constexpr std::uint32_t connect_interest{EPOLLOUT | EPOLLET}; // 완료를 EPOLL
 constexpr std::uint32_t read_interest{EPOLLIN | EPOLLET};
 } // namespace
 
-Connector::Connector(io::Reactor& reactor, std::string host, std::uint16_t port)
+Connector::Connector(runtime::Reactor& reactor, std::string host, std::uint16_t port)
     : reactor_{reactor}, host_{std::move(host)}, port_{port},
       payload_pool_{common::make_pool<common::LinearBuffer>(0, pool_chunk, payload_buf_capacity)} {}
 
@@ -79,23 +79,23 @@ void Connector::cancel_timer(TimerId id) {
     auto& slot = app_timer_.at(slot_of(id));
     if (slot.valid()) {
         reactor_.cancel(slot);
-        slot = io::TimerId{};
+        slot = runtime::TimerId{};
     }
 }
 
 void Connector::close() { disconnect_and_reconnect(); }
 
-// --- io::TimerHandler -----------------------------------------------------
+// --- runtime::TimerHandler -----------------------------------------------------
 
-void Connector::on_timer(io::TimerId id) {
+void Connector::on_timer(runtime::TimerId id) {
     if (id == reconnect_timer_) {
-        reconnect_timer_ = io::TimerId{};
+        reconnect_timer_ = runtime::TimerId{};
         try_connect();
         return;
     }
     for (std::size_t i = 0; i < timer_slot_count; ++i) {
         if (app_timer_.at(i) == id) {
-            app_timer_.at(i) = io::TimerId{}; // one-shot 소비 (app 이 on_timer 안에서 재예약 가능)
+            app_timer_.at(i) = runtime::TimerId{}; // one-shot 소비 (app 이 on_timer 안에서 재예약 가능)
             handler_->on_timer(static_cast<TimerId>(i));
             return;
         }
@@ -106,7 +106,7 @@ void Connector::on_timer(io::TimerId id) {
 // --- 연결 수명 ------------------------------------------------------------
 
 void Connector::try_connect() {
-    reconnect_timer_ = io::TimerId{};
+    reconnect_timer_ = runtime::TimerId{};
 
     int const raw = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (raw < 0) {
@@ -304,7 +304,7 @@ void Connector::cancel_app_timers() {
     for (auto& slot : app_timer_) {
         if (slot.valid()) {
             reactor_.cancel(slot);
-            slot = io::TimerId{};
+            slot = runtime::TimerId{};
         }
     }
 }

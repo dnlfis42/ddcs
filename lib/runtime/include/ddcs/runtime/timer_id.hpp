@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-namespace ddcs::io {
+namespace ddcs::runtime {
 
 /**
  * @brief 타이머 식별자 클래스
@@ -12,4 +12,4 @@ namespace ddcs::io {
  */
 using TimerId = common::StrongId<struct TimerIdTag, std::uint64_t>;
 
-} // namespace ddcs::io
+} // namespace ddcs::runtime

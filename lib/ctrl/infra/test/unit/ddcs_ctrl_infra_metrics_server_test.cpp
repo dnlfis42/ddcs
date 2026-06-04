@@ -1,7 +1,7 @@
 #include "ddcs/ctrl/infra/metrics/server.hpp"
 
 #include "ddcs/ctrl/port/metrics/inbound.hpp"
-#include "ddcs/io/reactor.hpp"
+#include "ddcs/runtime/reactor.hpp"
 
 #include <gtest/gtest.h>
 
@@ -18,7 +18,7 @@
 namespace {
 
 using ddcs::ctrl::infra::metrics::Server;
-using ddcs::io::Reactor;
+using ddcs::runtime::Reactor;
 using namespace std::chrono_literals;
 
 class FakeProvider final : public ddcs::ctrl::port::metrics::Inbound {

@@ -1,12 +1,12 @@
 #pragma once
 
-#include "ddcs/io/fd_handler.hpp"
+#include "ddcs/runtime/fd_handler.hpp"
 
 #include <vector>
 
 #include <cstdint>
 
-namespace ddcs::io {
+namespace ddcs::runtime {
 
 // fd -> FdHandler* 매핑 + per-fd generation. epoll data.u64 에 pack(fd,gen) 토큰을 싣는다.
 //
@@ -48,4 +48,4 @@ private:
     std::vector<Slot> slots_; // index = fd, lazy grow
 };
 
-} // namespace ddcs::io
+} // namespace ddcs::runtime

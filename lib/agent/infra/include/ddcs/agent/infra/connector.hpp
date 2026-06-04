@@ -7,8 +7,8 @@
 #include "ddcs/agent/port/timer_id.hpp"
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
-#include "ddcs/io/timer_handler.hpp"
-#include "ddcs/io/timer_id.hpp"
+#include "ddcs/runtime/timer_handler.hpp"
+#include "ddcs/runtime/timer_id.hpp"
 
 #include <array>
 #include <chrono>
@@ -16,7 +16,7 @@
 
 #include <cstdint>
 
-namespace ddcs::io {
+namespace ddcs::runtime {
 class Reactor;
 }
 
@@ -29,12 +29,12 @@ using ddcs::agent::port::TimerId;
 // agent 측 transport. 단일 connection 을 유지하고 끊기면 backoff 후 재연결.
 // app 과는 Outbound(송신/타이머/close) / Inbound(통지) 포트로만 통신.
 //  - Outbound 구현: payload_buffer/send/schedule_timer/cancel_timer/close
-//  - io::TimerHandler: app 타이머 + reconnect 타이머 만료 수신
-//  - Connection(io::FdHandler)의 on_io 위임을 on_connection_event 로 받음
+//  - runtime::TimerHandler: app 타이머 + reconnect 타이머 만료 수신
+//  - Connection(runtime::FdHandler)의 on_io 위임을 on_connection_event 로 받음
 // Reactor 는 이 클래스를 모른다. 재연결/framing 은 전부 여기 산다.
-class Connector : public Outbound, public io::TimerHandler {
+class Connector : public Outbound, public runtime::TimerHandler {
 public:
-    Connector(io::Reactor& reactor, std::string host, std::uint16_t port);
+    Connector(runtime::Reactor& reactor, std::string host, std::uint16_t port);
     ~Connector() override;
 
     Connector(Connector const&) = delete;
@@ -52,8 +52,8 @@ public: // Outbound (app -> transport)
     void cancel_timer(TimerId id) override;
     void close() override;
 
-public: // io::TimerHandler - Reactor 가 만료 통지
-    void on_timer(io::TimerId id) override;
+public: // runtime::TimerHandler - Reactor 가 만료 통지
+    void on_timer(runtime::TimerId id) override;
 
 public: // Connection::on_io -> 위임
     void on_connection_event(Connection& conn, std::uint32_t events);
@@ -74,7 +74,7 @@ private:
     static constexpr std::size_t timer_slot_count{3}; // port::TimerId 종류 수
     static std::size_t slot_of(TimerId id) noexcept { return static_cast<std::size_t>(id); }
 
-    io::Reactor& reactor_;
+    runtime::Reactor& reactor_;
     std::string host_;
     std::uint16_t port_;
     Inbound* handler_{nullptr};
@@ -83,8 +83,8 @@ private:
     common::ObjectPool<common::LinearBuffer> payload_pool_;
     Connection connection_;
     BackoffSchedule backoff_;
-    std::array<io::TimerId, timer_slot_count> app_timer_{}; // port::TimerId -> io::TimerId
-    io::TimerId reconnect_timer_{};
+    std::array<runtime::TimerId, timer_slot_count> app_timer_{}; // port::TimerId -> runtime::TimerId
+    runtime::TimerId reconnect_timer_{};
 };
 
 } // namespace ddcs::agent::infra

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "ddcs/io/timer_handler.hpp"
-#include "ddcs/io/timer_id.hpp"
+#include "ddcs/runtime/timer_handler.hpp"
+#include "ddcs/runtime/timer_id.hpp"
 
 #include <chrono>
 #include <optional>
@@ -11,7 +11,7 @@
 
 #include <cstdint>
 
-namespace ddcs::io {
+namespace ddcs::runtime {
 
 // 절대-deadline min-heap + live_ 셋(lazy cancel). Clock 을 모른다 - '지금'은 호출자(Reactor)가 준다.
 //
@@ -55,4 +55,4 @@ private:
     std::unordered_set<TimerId> live_; // 존재 = 살아있음. erase = 취소.
 };
 
-} // namespace ddcs::io
+} // namespace ddcs::runtime

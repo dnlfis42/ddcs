@@ -33,7 +33,7 @@ target_link_libraries(
     PRIVATE
         compile_option
         ddcs::ctrl::infra
-        ddcs::io
+        ddcs::runtime
         ddcs::proto::frame
         GTest::gtest_main
 )
@@ -51,7 +51,7 @@ target_link_libraries(
     PRIVATE
         compile_option
         ddcs::ctrl::infra
-        ddcs::io
+        ddcs::runtime
         ddcs::proto::frame
         GTest::gtest_main
 )
@@ -66,7 +66,7 @@ add_executable(
 )
 target_link_libraries(
     ddcs_ctrl_infra_metrics_server_test
-    PRIVATE compile_option ddcs::ctrl::infra ddcs::io GTest::gtest_main
+    PRIVATE compile_option ddcs::ctrl::infra ddcs::runtime GTest::gtest_main
 )
 add_test(
     NAME ddcs_ctrl_infra_metrics_server_test

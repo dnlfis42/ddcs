@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace ddcs::io {
+namespace ddcs::runtime {
 
 /**
  * @brief I/O 이벤트를 처리하는 핸들러 인터페이스
@@ -14,4 +14,4 @@ public:
     virtual void on_io(std::uint32_t events) = 0;
 };
 
-} // namespace ddcs::io
+} // namespace ddcs::runtime

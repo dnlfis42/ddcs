@@ -1,6 +1,6 @@
-#include "ddcs/io/timer_queue.hpp"
+#include "ddcs/runtime/timer_queue.hpp"
 
-namespace ddcs::io {
+namespace ddcs::runtime {
 
 TimerId TimerQueue::schedule(time_point deadline, TimerHandler* handler) {
     TimerId const id{++next_id_};
@@ -41,4 +41,4 @@ void TimerQueue::expire(time_point now) {
     }
 }
 
-} // namespace ddcs::io
+} // namespace ddcs::runtime

@@ -2,7 +2,7 @@
 
 #include "ddcs/common/throw_errno.hpp"
 #include "ddcs/ctrl/port/metrics/inbound.hpp"
-#include "ddcs/io/reactor.hpp"
+#include "ddcs/runtime/reactor.hpp"
 #include "ddcs/logger/log.hpp"
 
 #include <string>
@@ -38,7 +38,7 @@ std::string http_ok(std::string const& body) {
 
 } // namespace
 
-Server::Server(io::Reactor& reactor, Inbound& provider, std::uint16_t port, int backlog)
+Server::Server(runtime::Reactor& reactor, Inbound& provider, std::uint16_t port, int backlog)
     : reactor_{reactor}, provider_{provider}, listen_port_{port}, backlog_{backlog},
       pool_{common::make_pool<Connection>(0, pool_chunk)} {}
 

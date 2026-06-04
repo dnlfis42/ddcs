@@ -1,7 +1,7 @@
-#include "ddcs/io/timer_queue.hpp"
+#include "ddcs/runtime/timer_queue.hpp"
 
-#include "ddcs/io/timer_handler.hpp"
-#include "ddcs/io/timer_id.hpp"
+#include "ddcs/runtime/timer_handler.hpp"
+#include "ddcs/runtime/timer_id.hpp"
 
 #include <gtest/gtest.h>
 
@@ -10,9 +10,9 @@
 
 namespace {
 
-using ddcs::io::TimerHandler;
-using ddcs::io::TimerId;
-using ddcs::io::TimerQueue;
+using ddcs::runtime::TimerHandler;
+using ddcs::runtime::TimerId;
+using ddcs::runtime::TimerQueue;
 using time_point = TimerQueue::time_point;
 using namespace std::chrono_literals;
 

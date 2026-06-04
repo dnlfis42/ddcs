@@ -6,8 +6,8 @@
 #include "ddcs/ctrl/infra/transport/connection_coordinator.hpp"
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/inbound.hpp"
-#include "ddcs/io/reactor.hpp"
 #include "ddcs/proto/frame/frame.hpp"
+#include "ddcs/runtime/reactor.hpp"
 
 #include <gtest/gtest.h>
 
@@ -31,7 +31,7 @@ using ddcs::ctrl::infra::transport::ConnectionCoordinator;
 using ddcs::ctrl::port::transport::CloseReason;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Inbound;
-using ddcs::io::Reactor;
+using ddcs::runtime::Reactor;
 using namespace std::chrono_literals;
 
 class MockInbound : public Inbound {

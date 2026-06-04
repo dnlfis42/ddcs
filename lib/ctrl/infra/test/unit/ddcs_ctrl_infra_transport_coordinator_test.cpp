@@ -8,8 +8,8 @@
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/inbound.hpp"
 #include "ddcs/ctrl/port/transport/outbound.hpp"
-#include "ddcs/io/reactor.hpp"
 #include "ddcs/proto/frame/frame.hpp"
+#include "ddcs/runtime/reactor.hpp"
 
 #include <gtest/gtest.h>
 
@@ -36,7 +36,7 @@ using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::CloseReason;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Inbound;
-using ddcs::io::Reactor;
+using ddcs::runtime::Reactor;
 using namespace std::chrono_literals;
 
 // 이벤트 기록용 mock Inbound (app 측 대역).

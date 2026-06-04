@@ -1,6 +1,6 @@
-#include "ddcs/io/fd_dispatch_table.hpp"
+#include "ddcs/runtime/fd_dispatch_table.hpp"
 
-#include "ddcs/io/fd_handler.hpp"
+#include "ddcs/runtime/fd_handler.hpp"
 
 #include <gtest/gtest.h>
 
@@ -8,8 +8,8 @@
 
 namespace {
 
-using ddcs::io::FdDispatchTable;
-using ddcs::io::FdHandler;
+using ddcs::runtime::FdDispatchTable;
+using ddcs::runtime::FdHandler;
 
 struct DummyHandler : FdHandler {
     void on_io(std::uint32_t /*events*/) override {}

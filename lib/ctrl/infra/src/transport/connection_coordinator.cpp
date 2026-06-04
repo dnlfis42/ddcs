@@ -1,6 +1,6 @@
 #include "ddcs/ctrl/infra/transport/connection_coordinator.hpp"
 
-#include "ddcs/io/reactor.hpp"
+#include "ddcs/runtime/reactor.hpp"
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/frame/frame.hpp"
 
@@ -25,7 +25,7 @@ constexpr std::chrono::nanoseconds handshake_timeout{std::chrono::seconds{3}}; /
 
 } // namespace
 
-ConnectionCoordinator::ConnectionCoordinator(io::Reactor& reactor)
+ConnectionCoordinator::ConnectionCoordinator(runtime::Reactor& reactor)
     : reactor_{reactor}, connection_pool_{common::make_pool<Connection>(0, pool_chunk)},
       payload_pool_{common::make_pool<common::LinearBuffer>(0, pool_chunk, payload_buf_capacity)} {}
 
@@ -90,7 +90,7 @@ void ConnectionCoordinator::close(ConnectionId id, CloseMode mode) {
     schedule_close(conn);
 }
 
-void ConnectionCoordinator::handle_timer(io::TimerId id) {
+void ConnectionCoordinator::handle_timer(runtime::TimerId id) {
     auto const it = timer_slot_.find(id);
     if (it == timer_slot_.end()) {
         return; // 방어 (Reactor 가 취소분은 거르므로 정상 경로엔 없음)
@@ -138,7 +138,7 @@ void ConnectionCoordinator::handle_accept(common::Fd fd, Endpoint peer) {
         LOG_DEBUG("transport.accept", ddcs::logger::kv("id", id.value()), ddcs::logger::kv("peer_port", peer.port));
         handler_->on_connect(id);
         // handshake 한도: 3초 내 첫 프레임이 없으면 close. 첫 on_recv 가 cancel.
-        io::TimerId const tid = reactor_.schedule(handshake_timeout, this);
+        runtime::TimerId const tid = reactor_.schedule(handshake_timeout, this);
         timer_slot_[tid] = TimerSlot{id, TimerKind::handshake};
         handshake_timer_id_[id] = tid;
     } else {
@@ -335,7 +335,7 @@ void ConnectionCoordinator::epoll_del(Connection* conn) {
 void ConnectionCoordinator::to_passive_wait(Connection* conn) {
     conn->shutdown_write();
     (void)conn->transition(Connection::State::passive_wait);
-    io::TimerId const tid = reactor_.schedule(pw_timeout, this);
+    runtime::TimerId const tid = reactor_.schedule(pw_timeout, this);
     timer_slot_[tid] = TimerSlot{conn->id(), TimerKind::pw};
     pw_timer_id_[conn->id()] = tid; // 정상 close 시 close_connections 가 cancel
     update_interest(conn);          // pw -> EPOLLIN 만

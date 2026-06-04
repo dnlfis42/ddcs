@@ -1,9 +1,9 @@
-#include "ddcs/io/reactor.hpp"
+#include "ddcs/runtime/reactor.hpp"
 
 #include "ddcs/common/clock.hpp"
-#include "ddcs/io/fd_handler.hpp"
-#include "ddcs/io/timer_handler.hpp"
-#include "ddcs/io/timer_id.hpp"
+#include "ddcs/runtime/fd_handler.hpp"
+#include "ddcs/runtime/timer_handler.hpp"
+#include "ddcs/runtime/timer_id.hpp"
 
 #include <gtest/gtest.h>
 
@@ -18,10 +18,10 @@ using namespace std::chrono_literals;
 
 namespace {
 
-using ddcs::io::FdHandler;
-using ddcs::io::Reactor;
-using ddcs::io::TimerHandler;
-using ddcs::io::TimerId;
+using ddcs::runtime::FdHandler;
+using ddcs::runtime::Reactor;
+using ddcs::runtime::TimerHandler;
+using ddcs::runtime::TimerId;
 
 class FlagTimer : public TimerHandler {
 public:

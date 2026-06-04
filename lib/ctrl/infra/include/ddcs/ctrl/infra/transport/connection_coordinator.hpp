@@ -7,8 +7,8 @@
 #include "ddcs/ctrl/infra/transport/endpoint.hpp"
 #include "ddcs/ctrl/port/transport/inbound.hpp"
 #include "ddcs/ctrl/port/transport/outbound.hpp"
-#include "ddcs/io/timer_handler.hpp"
-#include "ddcs/io/timer_id.hpp"
+#include "ddcs/runtime/timer_handler.hpp"
+#include "ddcs/runtime/timer_id.hpp"
 
 #include <unordered_map>
 #include <vector>
@@ -16,7 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace ddcs::io {
+namespace ddcs::runtime {
 class Reactor;
 }
 
@@ -29,11 +29,11 @@ using ddcs::ctrl::port::transport::Outbound;
 
 // transport 의 정책/오케스트레이션 중심.
 //  - app 쪽: Outbound 구현(payload_buffer/send/close/timer).
-//  - io 쪽: io::TimerHandler(타이머 만료 수신), Connection 의 per-conn 이벤트 구동.
-// Reactor(io)는 이 클래스를 모른다. 연결 수명/FSM/framing 은 전부 여기 산다.
-class ConnectionCoordinator final : public Outbound, public io::TimerHandler {
+//  - runtime 쪽: runtime::TimerHandler(타이머 만료 수신), Connection 의 per-conn 이벤트 구동.
+// Reactor(runtime)는 이 클래스를 모른다. 연결 수명/FSM/framing 은 전부 여기 산다.
+class ConnectionCoordinator final : public Outbound, public runtime::TimerHandler {
 public:
-    explicit ConnectionCoordinator(io::Reactor& reactor);
+    explicit ConnectionCoordinator(runtime::Reactor& reactor);
     ~ConnectionCoordinator() override { connection_map_.clear(); }
 
     ConnectionCoordinator(ConnectionCoordinator const&) = delete;
@@ -53,7 +53,7 @@ public: // Outbound (app -> transport)
     void close(ConnectionId id, CloseMode mode) override;
 
 public:
-    void on_timer(io::TimerId id) override {
+    void on_timer(runtime::TimerId id) override {
         handle_timer(id);
         close_connections();
     }
@@ -70,7 +70,7 @@ public:
     void close_connections(); // pending close 일괄 정리(reap). 위 on_* 래퍼도 호출.
 
 private:
-    void handle_timer(io::TimerId id);
+    void handle_timer(runtime::TimerId id);
     void handle_accept(common::Fd fd, Endpoint peer);
     void handle_event(Connection& conn, std::uint32_t events);
 
@@ -103,16 +103,16 @@ private: // 타이머 장부 (opaque TimerId -> 의미)
     void cancel_handshake(ConnectionId id); // 첫 프레임 도착/close 시 handshake 타이머 취소(멱등)
 
 private:
-    io::Reactor& reactor_;
+    runtime::Reactor& reactor_;
     Inbound* handler_{nullptr};
     std::uint64_t next_id_{0}; // ConnectionId 발급 카운터(transport mint). 1 부터
     common::ObjectPool<Connection> connection_pool_;
     common::ObjectPool<common::LinearBuffer> payload_pool_;
     std::unordered_map<ConnectionId, common::PoolHandle<Connection>> connection_map_;
     std::vector<ConnectionId> pending_close_;
-    std::unordered_map<io::TimerId, TimerSlot> timer_slot_;            // 발화 TimerId -> (conn, kind)
-    std::unordered_map<ConnectionId, io::TimerId> handshake_timer_id_; // accept->첫 프레임 한도(3s)
-    std::unordered_map<ConnectionId, io::TimerId> pw_timer_id_;        // passive_wait 한도(5s)
+    std::unordered_map<runtime::TimerId, TimerSlot> timer_slot_;            // 발화 TimerId -> (conn, kind)
+    std::unordered_map<ConnectionId, runtime::TimerId> handshake_timer_id_; // accept->첫 프레임 한도(3s)
+    std::unordered_map<ConnectionId, runtime::TimerId> pw_timer_id_;        // passive_wait 한도(5s)
 };
 
 } // namespace ddcs::ctrl::infra::transport

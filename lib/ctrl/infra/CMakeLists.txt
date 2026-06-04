@@ -25,7 +25,7 @@ target_sources(
 target_link_libraries(
     ddcs_ctrl_infra
     PRIVATE compile_option ddcs::logger ddcs::proto::frame
-    PUBLIC ddcs::common ddcs::ctrl::port ddcs::io
+    PUBLIC ddcs::common ddcs::ctrl::port ddcs::runtime
 )
 
 # 테스트 경로

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ddcs/common/fd.hpp"
-#include "ddcs/io/fd_handler.hpp"
+#include "ddcs/runtime/fd_handler.hpp"
 
 #include <string>
 
@@ -14,7 +14,7 @@ class Server; // on_io 위임 대상 (순환 의존 회피)
 
 // 단일 스크레이프 연결. 순수 메커니즘: recv/send + 버퍼 + IoResult 보고.
 // 요청 완료 판정/응답 빌드/reap 은 Server 가 구동(정책 없음). HTTP read -> respond -> close.
-class Connection final : public io::FdHandler {
+class Connection final : public runtime::FdHandler {
 public:
     enum class State : std::uint8_t { idle, reading, writing, done };
     enum class IoResult : std::uint8_t { ok, would_block, peer_closed, error };

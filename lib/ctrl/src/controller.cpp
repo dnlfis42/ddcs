@@ -14,10 +14,10 @@
 #include "ddcs/ctrl/infra/metrics/server.hpp"
 #include "ddcs/ctrl/infra/transport/acceptor.hpp"
 #include "ddcs/ctrl/infra/transport/connection_coordinator.hpp"
-#include "ddcs/io/reactor.hpp"
-#include "ddcs/io/timer_handler.hpp"
-#include "ddcs/io/timer_id.hpp"
 #include "ddcs/json/value.hpp"
+#include "ddcs/runtime/reactor.hpp"
+#include "ddcs/runtime/timer_handler.hpp"
+#include "ddcs/runtime/timer_id.hpp"
 
 #include <fstream>
 #include <iterator>
@@ -28,7 +28,7 @@
 
 namespace ddcs::ctrl {
 
-class Controller::Impl final : public io::TimerHandler {
+class Controller::Impl final : public runtime::TimerHandler {
 public:
     explicit Impl(Config cfg);
     ~Impl() override;
@@ -50,7 +50,7 @@ public:
     }
 
 private:
-    void on_timer(io::TimerId id) override;
+    void on_timer(runtime::TimerId id) override;
     void schedule_sweep();
     void load_policy(); // policy.json load-once (start에서). 파일/파싱 실패는 WARN 후 빈 정책.
 
@@ -58,7 +58,7 @@ private:
     common::SystemClock clock_;
     Config cfg_;
 
-    io::Reactor reactor_;
+    runtime::Reactor reactor_;
     infra::transport::ConnectionCoordinator coordinator_;
     infra::transport::Acceptor acceptor_;
 
@@ -76,7 +76,7 @@ private:
     // metrics_service_ 뒤에 선언 -> 먼저 소멸(Inbound& 참조가 dangling 되지 않도록).
     std::optional<infra::metrics::Server> metrics_server_;
 
-    io::TimerId sweep_timer_{};
+    runtime::TimerId sweep_timer_{};
 };
 
 Controller::Impl::Impl(Config cfg)
@@ -118,7 +118,7 @@ void Controller::Impl::run_once(std::chrono::milliseconds timeout) { reactor_.ru
 
 void Controller::Impl::stop() { reactor_.stop(); }
 
-void Controller::Impl::on_timer(io::TimerId /*id*/) {
+void Controller::Impl::on_timer(runtime::TimerId /*id*/) {
     // 이 핸들러로 오는 타이머는 주기 sweep 뿐이다.
     commands_.sweep();
     liveness_.sweep();                // active 세션 침묵 -> evict(close)
