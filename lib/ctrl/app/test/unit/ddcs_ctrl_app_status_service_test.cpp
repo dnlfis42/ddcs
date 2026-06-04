@@ -68,7 +68,7 @@ TEST(StatusServiceTest, UpdatesAgentTelemetryFromStatus) {
 
     f.svc.handle_status(ConnectionId{1}, make_status_body(R"({"mode":"performance","load":75,"temp":50.5})"));
 
-    auto const* a = f.registry.find_by_id(id);
+    auto const* a = f.registry.find(id);
     ASSERT_NE(a, nullptr);
     EXPECT_EQ(a->status.mode, Mode::performance);
     EXPECT_EQ(a->status.load, 75.0);
@@ -82,7 +82,7 @@ TEST(StatusServiceTest, DropsStatusFromInactiveConnection) {
 
     f.svc.handle_status(ConnectionId{2}, make_status_body(R"({"mode":"normal","load":10,"temp":20})"));
 
-    auto const* a = f.registry.find_by_id(id);
+    auto const* a = f.registry.find(id);
     ASSERT_NE(a, nullptr);
     EXPECT_EQ(a->status.mode, Mode::safe); // 갱신 안 됨(기본값 유지)
     EXPECT_EQ(a->status.load, 0.0);
@@ -103,5 +103,5 @@ TEST(StatusServiceTest, DropsBadJsonSilently) {
     Fixture f;
     auto const id = f.activate(ConnectionId{4}, make_uuid(4));
     f.svc.handle_status(ConnectionId{4}, make_status_body("not json"));
-    EXPECT_EQ(f.registry.find_by_id(id)->status.mode, Mode::safe); // 파싱 실패 -> 갱신 안 됨
+    EXPECT_EQ(f.registry.find(id)->status.mode, Mode::safe); // 파싱 실패 -> 갱신 안 됨
 }

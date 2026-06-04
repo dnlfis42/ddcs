@@ -22,7 +22,7 @@ OperatorService::OperatorService(DeviceRegistry& registry, CommandService& comma
       encode_pool_{common::make_pool<common::LinearBuffer>(0, pool_chunk, cmd_buf_capacity)} {}
 
 std::uint64_t OperatorService::set_mode(common::Uuid const& device_uuid, device::Mode mode) {
-    auto const* device = registry_.find_by_uuid(device_uuid);
+    auto const* device = registry_.find(device_uuid);
     if (device == nullptr) {
         LOG_WARN("operator.set_mode.unknown_agent", ddcs::logger::kv("uuid", device_uuid.to_string()));
         return 0; // 등록된 적 없는 device
@@ -38,7 +38,7 @@ std::uint64_t OperatorService::set_mode(common::Uuid const& device_uuid, device:
     auto const command_id =
         commands_.dispatch(device->id, static_cast<std::uint8_t>(proto::cmd::CommandType::SetMode), std::move(payload));
     LOG_INFO(
-        "operator.set_mode", ddcs::logger::kv("agent", device->id.value()),
+        "operator.set_mode", ddcs::logger::kv("agent", device->id.to_string()),
         ddcs::logger::kv("mode", static_cast<std::uint64_t>(mode)), ddcs::logger::kv("command", command_id)
     );
     return command_id;

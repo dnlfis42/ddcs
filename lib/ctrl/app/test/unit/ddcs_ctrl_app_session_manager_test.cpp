@@ -154,8 +154,8 @@ TEST(SessionManagerTest, RoutesStatusAsTelemetry) {
 TEST(SessionManagerTest, RoutesCommandOutcomeResolvesPending) {
     Harness h;
     h.sessions.open(ConnectionId{1});
-    h.sessions.bind(ConnectionId{1}, DeviceId{1}, h.clock.now());
-    auto const command_id = h.commands.dispatch(DeviceId{1}, 0x01, "payload");
+    h.sessions.bind(ConnectionId{1}, make_uuid(1), h.clock.now());
+    auto const command_id = h.commands.dispatch(make_uuid(1), 0x01, "payload");
     ASSERT_EQ(h.commands.pending_count(), 1u);
 
     h.mgr.on_recv(
@@ -168,8 +168,8 @@ TEST(SessionManagerTest, RoutesCommandOutcomeResolvesPending) {
 TEST(SessionManagerTest, RoutesCommandAckExtendsDeadline) {
     Harness h;
     h.sessions.open(ConnectionId{1});
-    h.sessions.bind(ConnectionId{1}, DeviceId{1}, h.clock.now());
-    auto const command_id = h.commands.dispatch(DeviceId{1}, 0x01, "payload"); // deadline t0+5s
+    h.sessions.bind(ConnectionId{1}, make_uuid(1), h.clock.now());
+    auto const command_id = h.commands.dispatch(make_uuid(1), 0x01, "payload"); // deadline t0+5s
 
     h.clock.advance(std::chrono::seconds{4});
     h.mgr.on_recv(
@@ -245,7 +245,7 @@ TEST(SessionManagerTest, KicksOldConnectionOnSameUuidReRegister) {
     ASSERT_EQ(h.outbound.closes.size(), 1u);
     EXPECT_EQ(h.outbound.closes[0].first, ConnectionId{1}); // 옛 conn force close
     EXPECT_EQ(h.outbound.closes[0].second, CloseMode::force);
-    EXPECT_EQ(h.sessions.resolve(DeviceId{1}), ConnectionId{2}); // 현재 바인딩 = 새 conn
+    EXPECT_EQ(h.sessions.resolve(make_uuid(1)), ConnectionId{2}); // 현재 바인딩 = 새 conn
 }
 
 TEST(SessionManagerTest, RegisterDecodeFailClosesConnection) {

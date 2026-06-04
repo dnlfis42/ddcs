@@ -1,12 +1,10 @@
 #pragma once
 
-#include "ddcs/common/strong_id.hpp"
-
-#include <cstdint>
+#include "ddcs/common/uuid.hpp"
 
 namespace ddcs::ctrl::domain {
 
-// Device의 영속 식별자(재접속 가로질러 안정).
-using DeviceId = common::StrongId<struct DeviceIdTag, std::uint64_t>;
+// Device의 영속 식별자
+using DeviceId = common::Uuid;
 
 } // namespace ddcs::ctrl::domain

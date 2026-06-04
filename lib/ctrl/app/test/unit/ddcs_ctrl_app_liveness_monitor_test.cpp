@@ -11,10 +11,12 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <chrono>
 #include <utility>
 #include <vector>
 
+#include <cstddef>
 #include <cstdint>
 
 namespace {
@@ -29,6 +31,14 @@ using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
+
+DeviceId make_uuid(std::uint8_t seed) {
+    std::array<std::byte, 16> b{};
+    for (auto& x : b) {
+        x = std::byte{seed};
+    }
+    return DeviceId{b};
+}
 
 class MockOutbound : public Outbound {
 public:
@@ -54,7 +64,7 @@ struct Fixture {
 
 TEST(LivenessMonitorTest, KeepsFreshActiveSession) {
     Fixture f;
-    f.make_active(ConnectionId{1}, DeviceId{1});
+    f.make_active(ConnectionId{1}, make_uuid(1));
     f.clock.advance(std::chrono::seconds{2}); // < 3s
     f.mon.sweep();
     EXPECT_TRUE(f.outbound.closes.empty());
@@ -63,7 +73,7 @@ TEST(LivenessMonitorTest, KeepsFreshActiveSession) {
 
 TEST(LivenessMonitorTest, EvictsSilentActiveSession) {
     Fixture f;
-    f.make_active(ConnectionId{1}, DeviceId{1});
+    f.make_active(ConnectionId{1}, make_uuid(1));
     f.clock.advance(std::chrono::seconds{4}); // > 3s 침묵
     f.mon.sweep();
     ASSERT_EQ(f.outbound.closes.size(), 1u);
@@ -82,7 +92,7 @@ TEST(LivenessMonitorTest, IgnoresHandshakingSession) {
 
 TEST(LivenessMonitorTest, IgnoresClosingSession) {
     Fixture f;
-    f.make_active(ConnectionId{1}, DeviceId{1});
+    f.make_active(ConnectionId{1}, make_uuid(1));
     f.sessions.find(ConnectionId{1})->state = State::closing; // 드레인 중
     f.clock.advance(std::chrono::seconds{10});
     f.mon.sweep();
@@ -91,7 +101,7 @@ TEST(LivenessMonitorTest, IgnoresClosingSession) {
 
 TEST(LivenessMonitorTest, FreshenedSessionSurvives) {
     Fixture f;
-    f.make_active(ConnectionId{1}, DeviceId{1});
+    f.make_active(ConnectionId{1}, make_uuid(1));
     f.clock.advance(std::chrono::seconds{2});
     f.sessions.find(ConnectionId{1})->update_seen(f.clock.now()); // 트래픽 도착 -> 갱신
     f.clock.advance(std::chrono::seconds{2});                     // 마지막 관측 후 2s

@@ -28,7 +28,7 @@ TEST(DeviceRegistryTest, CreatesNewDeviceForUnknownUuid) {
     DeviceRegistry reg;
     auto const u = make_uuid(1);
     Device const& d = reg.find_or_create(u);
-    EXPECT_EQ(d.uuid, u);
+    EXPECT_EQ(d.id, u);
     EXPECT_TRUE(d.id.valid());
     EXPECT_EQ(reg.size(), 1u);
 }
@@ -54,19 +54,19 @@ TEST(DeviceRegistryTest, FindsByUuid) {
     DeviceRegistry reg;
     auto const u = make_uuid(5);
     reg.find_or_create(u);
-    Device const* found = reg.find_by_uuid(u);
+    Device const* found = reg.find(u);
     ASSERT_NE(found, nullptr);
-    EXPECT_EQ(found->uuid, u);
-    EXPECT_EQ(reg.find_by_uuid(make_uuid(6)), nullptr);
+    EXPECT_EQ(found->id, u);
+    EXPECT_EQ(reg.find(make_uuid(6)), nullptr);
 }
 
 TEST(DeviceRegistryTest, FindsById) {
     DeviceRegistry reg;
     DeviceId const id = reg.find_or_create(make_uuid(7)).id;
-    Device const* found = reg.find_by_id(id);
+    Device const* found = reg.find(id);
     ASSERT_NE(found, nullptr);
     EXPECT_EQ(found->id, id);
-    EXPECT_EQ(reg.find_by_id(DeviceId{9999}), nullptr);
+    EXPECT_EQ(reg.find(make_uuid(99)), nullptr);
 }
 
 TEST(DeviceRegistryTest, SetAttributesUpdatesGroupAndVersion) {
@@ -74,7 +74,7 @@ TEST(DeviceRegistryTest, SetAttributesUpdatesGroupAndVersion) {
     auto const u = make_uuid(8);
     DeviceId const id = reg.find_or_create(u).id;
     reg.set_attributes(id, "sensors", "1.2.3");
-    Device const* d = reg.find_by_uuid(u);
+    Device const* d = reg.find(u);
     ASSERT_NE(d, nullptr);
     EXPECT_EQ(d->group, "sensors");
     EXPECT_EQ(d->version, "1.2.3");
@@ -86,7 +86,7 @@ TEST(DeviceRegistryTest, SetAttributesRefreshesOnReRegister) {
     DeviceId const id = reg.find_or_create(u).id;
     reg.set_attributes(id, "g1", "v1");
     reg.set_attributes(id, "g2", "v2"); // 재등록 -> 갱신
-    Device const* d = reg.find_by_uuid(u);
+    Device const* d = reg.find(u);
     ASSERT_NE(d, nullptr);
     EXPECT_EQ(d->group, "g2");
     EXPECT_EQ(d->version, "v2");
@@ -94,6 +94,6 @@ TEST(DeviceRegistryTest, SetAttributesRefreshesOnReRegister) {
 
 TEST(DeviceRegistryTest, SetAttributesIgnoresUnknownId) {
     DeviceRegistry reg;
-    reg.set_attributes(DeviceId{4242}, "g", "v"); // 미지 id -> no-op (크래시 없음)
+    reg.set_attributes(make_uuid(200), "g", "v"); // 미지 id -> no-op (크래시 없음)
     EXPECT_EQ(reg.size(), 0u);
 }

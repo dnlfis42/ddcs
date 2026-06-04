@@ -72,7 +72,7 @@ void PolicyService::evaluate() {
         if (s.state != State::active) {
             return;
         }
-        auto const* agent = registry_.find_by_id(s.agent);
+        auto const* agent = registry_.find(s.agent);
         if (agent == nullptr || agent->group.empty()) {
             return;
         }
@@ -105,11 +105,11 @@ void PolicyService::command_group(std::string const& group, device::Mode mode) {
         if (s.state != State::active) {
             return;
         }
-        auto const* agent = registry_.find_by_id(s.agent);
+        auto const* agent = registry_.find(s.agent);
         if (agent == nullptr || agent->group != group) {
             return;
         }
-        ops_.set_mode(agent->uuid, mode); // #8 에서 부분실패 보상(재시도/백오프) 추가 예정
+        ops_.set_mode(agent->id, mode); // #8 에서 부분실패 보상(재시도/백오프) 추가 예정
     });
 }
 

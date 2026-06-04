@@ -80,7 +80,7 @@ TEST(RegisterServiceTest, ResolveCreatesAgentAndReturnsValidId) {
     Fixture f;
     auto const id = f.svc.resolve(ConnectionId{1}, make_register_body(make_uuid(1)));
     EXPECT_TRUE(id.valid());
-    EXPECT_NE(f.registry.find_by_uuid(make_uuid(1)), nullptr);
+    EXPECT_NE(f.registry.find(make_uuid(1)), nullptr);
 }
 
 TEST(RegisterServiceTest, ResolveReturnsSameIdForSameUuid) {
@@ -94,7 +94,7 @@ TEST(RegisterServiceTest, ResolveReturnsSameIdForSameUuid) {
 TEST(RegisterServiceTest, ResolveStoresDeclaredGroupAndVersion) {
     Fixture f;
     f.svc.resolve(ConnectionId{1}, make_register_body(make_uuid(1), "sensors", "1.2.3"));
-    auto const* a = f.registry.find_by_uuid(make_uuid(1));
+    auto const* a = f.registry.find(make_uuid(1));
     ASSERT_NE(a, nullptr);
     EXPECT_EQ(a->group, "sensors");
     EXPECT_EQ(a->version, "1.2.3");

@@ -51,7 +51,8 @@ void StatusService::handle_status(ConnectionId conn, common::PoolHandle<common::
         device::Status{.mode = mode_of(*parsed), .load = double_of(*parsed, "load"), .temp = double_of(*parsed, "temp")}
     );
     LOG_DEBUG(
-        "agent.status", ddcs::logger::kv("agent", session->agent.value()), ddcs::logger::kv("status", st.status_json)
+        "agent.status", ddcs::logger::kv("agent", session->agent.to_string()),
+        ddcs::logger::kv("status", st.status_json)
     );
 }
 

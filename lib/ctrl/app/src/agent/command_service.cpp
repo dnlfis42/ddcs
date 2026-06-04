@@ -42,13 +42,13 @@ bool CommandService::send_command(
 std::uint64_t CommandService::dispatch(DeviceId agent, std::uint8_t type, std::string payload) {
     ConnectionId const conn = sessions_.resolve(agent);
     if (!conn.valid()) {
-        LOG_WARN("command.dispatch.offline", ddcs::logger::kv("agent", agent.value()));
+        LOG_WARN("command.dispatch.offline", ddcs::logger::kv("agent", agent.to_string()));
         return 0; // agent 미연결 -> 무효
     }
 
     std::uint64_t const command_id = next_command_id_++;
     if (!send_command(conn, command_id, type, payload)) {
-        return 0; // 방어 (command_id gap 은 무해)
+        return 0; // 방어 (command_id gap은 무해)
     }
 
     auto const now = clock_.now();
@@ -67,7 +67,7 @@ std::uint64_t CommandService::dispatch(DeviceId agent, std::uint8_t type, std::s
     );
     ++dispatched_total_;
     LOG_INFO(
-        "command.dispatch", ddcs::logger::kv("agent", agent.value()), ddcs::logger::kv("conn", conn.value()),
+        "command.dispatch", ddcs::logger::kv("agent", agent.to_string()), ddcs::logger::kv("conn", conn.value()),
         ddcs::logger::kv("command", command_id)
     );
     return command_id;
@@ -85,7 +85,7 @@ void CommandService::handle_ack(ConnectionId conn, common::PoolHandle<common::Li
     }
     p->acked = true;
     p->phase = Phase::in_flight;
-    p->next_at = after(clock_.now(), command_timeout_); // 작동 확인 -> outcome 까지 연장
+    p->next_at = after(clock_.now(), command_timeout_); // 작동 확인 -> outcome까지 연장
     LOG_INFO("command.ack", ddcs::logger::kv("command", ack.command_id));
 }
 
@@ -127,7 +127,8 @@ void CommandService::sweep() {
         if (it->second.phase == Phase::in_flight) {
             ++timed_out_total_;
             LOG_WARN(
-                "command.timeout", ddcs::logger::kv("command", id), ddcs::logger::kv("agent", it->second.agent.value())
+                "command.timeout", ddcs::logger::kv("command", id),
+                ddcs::logger::kv("agent", it->second.agent.to_string())
             );
             fail_attempt(id);
         } else {
@@ -145,7 +146,7 @@ void CommandService::fail_attempt(std::uint64_t command_id) {
     if (p.attempts >= max_attempts_) {
         ++gave_up_total_;
         LOG_WARN(
-            "command.gave_up", ddcs::logger::kv("command", command_id), ddcs::logger::kv("agent", p.agent.value()),
+            "command.gave_up", ddcs::logger::kv("command", command_id), ddcs::logger::kv("agent", p.agent.to_string()),
             ddcs::logger::kv("attempts", p.attempts)
         );
         pending_.erase(it);
@@ -166,7 +167,9 @@ void CommandService::redispatch(std::uint64_t command_id) {
     ConnectionId const conn = sessions_.resolve(p.agent); // 재연결되었을 수 있음
     if (!conn.valid()) {
         ++gave_up_total_;
-        LOG_WARN("command.gave_up", ddcs::logger::kv("agent", p.agent.value()), ddcs::logger::kv("reason", "offline"));
+        LOG_WARN(
+            "command.gave_up", ddcs::logger::kv("agent", p.agent.to_string()), ddcs::logger::kv("reason", "offline")
+        );
         return;
     }
     std::uint64_t const new_id = next_command_id_++;
@@ -181,7 +184,7 @@ void CommandService::redispatch(std::uint64_t command_id) {
     p.phase = Phase::in_flight;
     p.next_at = after(clock_.now(), command_timeout_);
     LOG_INFO(
-        "command.retry", ddcs::logger::kv("command", new_id), ddcs::logger::kv("agent", p.agent.value()),
+        "command.retry", ddcs::logger::kv("command", new_id), ddcs::logger::kv("agent", p.agent.to_string()),
         ddcs::logger::kv("attempt", p.attempts)
     );
     pending_.emplace(new_id, std::move(p));

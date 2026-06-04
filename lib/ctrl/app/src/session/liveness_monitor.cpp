@@ -24,8 +24,8 @@ void LivenessMonitor::sweep() {
             ++evicted_total_;
             auto const silent_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - s.last_seen).count();
             LOG_WARN(
-                "agent.unhealthy", ddcs::logger::kv("agent", s.agent.value()), ddcs::logger::kv("conn", conn.value()),
-                ddcs::logger::kv("silent_ms", silent_ms)
+                "agent.unhealthy", ddcs::logger::kv("agent", s.agent.to_string()),
+                ddcs::logger::kv("conn", conn.value()), ddcs::logger::kv("silent_ms", silent_ms)
             );
         }
     });

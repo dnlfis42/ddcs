@@ -92,12 +92,12 @@ void SessionManager::handle_register(ConnectionId conn, common::PoolHandle<commo
     if (kicked.valid()) {
         ++kicked_total_;
         LOG_INFO(
-            "agent.kick_old", ddcs::logger::kv("agent", agent.value()), ddcs::logger::kv("old_conn", kicked.value()),
-            ddcs::logger::kv("new_conn", conn.value())
+            "agent.kick_old", ddcs::logger::kv("agent", agent.to_string()),
+            ddcs::logger::kv("old_conn", kicked.value()), ddcs::logger::kv("new_conn", conn.value())
         );
         outbound_.close(kicked, CloseMode::force); // 옛 연결 축출
     }
-    LOG_INFO("agent.register", ddcs::logger::kv("agent", agent.value()), ddcs::logger::kv("conn", conn.value()));
+    LOG_INFO("agent.register", ddcs::logger::kv("agent", agent.to_string()), ddcs::logger::kv("conn", conn.value()));
     registrar_.send_register_response(conn, true);
 }
 
