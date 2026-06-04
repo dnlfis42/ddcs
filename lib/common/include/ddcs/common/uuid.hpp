@@ -36,6 +36,9 @@ public:
     constexpr bool operator==(Uuid const&) const noexcept = default;
     constexpr auto operator<=>(Uuid const&) const noexcept = default;
 
+    // nil(전부 0) = 무효/부재 센티넬. default-constructed Uuid{} 가 nil.
+    constexpr bool valid() const noexcept { return *this != Uuid{}; }
+
 private:
     std::array<std::byte, 16> bytes_{};
 };
