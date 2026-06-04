@@ -1,38 +1,20 @@
 #pragma once
 
-#include "ddcs/common/clock.hpp"
 #include "ddcs/common/uuid.hpp"
-#include "ddcs/ctrl/app/agent/command_service.hpp"
-#include "ddcs/ctrl/app/agent/register_service.hpp"
-#include "ddcs/ctrl/app/agent/status_service.hpp"
-#include "ddcs/ctrl/app/metrics/metrics_service.hpp"
-#include "ddcs/ctrl/app/ops/operator_service.hpp"
-#include "ddcs/ctrl/app/policy/policy_service.hpp"
-#include "ddcs/ctrl/app/session/liveness_monitor.hpp"
-#include "ddcs/ctrl/app/session/session_manager.hpp"
-#include "ddcs/ctrl/app/session/session_registry.hpp"
-#include "ddcs/ctrl/domain/device_registry.hpp"
-#include "ddcs/ctrl/infra/metrics/server.hpp"
-#include "ddcs/ctrl/infra/transport/acceptor.hpp"
-#include "ddcs/ctrl/infra/transport/connection_coordinator.hpp"
 #include "ddcs/device/mode.hpp"
-#include "ddcs/io/reactor.hpp"
-#include "ddcs/io/timer_handler.hpp"
-#include "ddcs/io/timer_id.hpp"
 #include "ddcs/logger/log.hpp"
 
 #include <chrono>
 #include <filesystem>
+#include <memory>
 #include <optional>
 
 #include <cstdint>
 
 namespace ddcs::ctrl {
 
-// Controller 조립 루트: io(Reactor) + infra(Coordinator/Acceptor) + app(Session/Device/Command/SessionManager)
-// + domain(DeviceRegistry)을 한데 묶는다. 외부(main, 통합 테스트)는 이 클래스만 다룬다.
-// CommandService.sweep()의 주기 구동을 위해 io::TimerHandler를 구현한다.
-class Controller : public io::TimerHandler {
+// Controller 조립 루트 facade. 외부(main, 통합 테스트)는 이 클래스만 다룬다.
+class Controller {
 public:
     struct Config {
         std::uint16_t listen_port{0}; // 0 = ephemeral
@@ -53,7 +35,7 @@ public:
     };
 
     explicit Controller(Config cfg);
-    ~Controller() override;
+    ~Controller();
 
     Controller(Controller const&) = delete;
     Controller& operator=(Controller const&) = delete;
@@ -65,45 +47,16 @@ public:
     void run_once(std::chrono::milliseconds timeout); // 1회 디스패치
     void stop();                                      // 멱등
 
-    std::uint16_t port() const { return acceptor_.port(); }
+    std::uint16_t port() const;
     // metrics 엔드포인트 바인드 포트. 비활성이면 0.
-    std::uint16_t metrics_port() const { return metrics_server_ ? metrics_server_->port() : 0; }
+    std::uint16_t metrics_port() const;
 
     // operator API (driving): agent 에게 SetMode 명령 발신. 반환 command_id(미지/미연결 0).
-    std::uint64_t set_mode(common::Uuid const& agent_uuid, device::Mode mode) {
-        return operator_service_.set_mode(agent_uuid, mode);
-    }
-
-public: // io::TimerHandler - sweep 타이머 만료
-    void on_timer(io::TimerId id) override;
+    std::uint64_t set_mode(common::Uuid const& agent_uuid, device::Mode mode);
 
 private:
-    void schedule_sweep();
-    void load_policy(); // policy.json load-once (start에서). 파일/파싱 실패는 WARN 후 빈 정책.
-
-    logger::StdoutSink default_sink_;
-    common::SystemClock clock_;
-    Config cfg_;
-
-    io::Reactor reactor_;
-    infra::transport::ConnectionCoordinator coordinator_;
-    infra::transport::Acceptor acceptor_;
-
-    app::session::SessionRegistry sessions_;
-    domain::DeviceRegistry registry_;
-    app::agent::RegisterService registrar_;
-    app::agent::StatusService status_;
-    app::agent::CommandService commands_;
-    app::session::SessionManager session_manager_;
-    app::ops::OperatorService operator_service_;
-    app::policy::PolicyService policy_;
-    app::session::LivenessMonitor liveness_;
-    app::metrics::MetricsService metrics_service_;
-    // reactor의 2nd guest. Config.metrics_port 있을 때만 start()에서 emplace.
-    // metrics_service_ 뒤에 선언 -> 먼저 소멸(Inbound& 참조가 dangling 되지 않도록).
-    std::optional<infra::metrics::Server> metrics_server_;
-
-    io::TimerId sweep_timer_{};
+    class Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace ddcs::ctrl

@@ -17,15 +17,14 @@ target_sources(
 )
 target_link_libraries(
     ddcs_ctrl
-    PRIVATE compile_option
-    PUBLIC
-        ddcs::common
-        ddcs::device
-        ddcs::logger
-        ddcs::io
-        ddcs::ctrl::domain
+    PRIVATE
+        compile_option
         ddcs::ctrl::app
+        ddcs::ctrl::domain
         ddcs::ctrl::infra
+        ddcs::io
+        ddcs::json
+    PUBLIC ddcs::common ddcs::device ddcs::logger
 )
 
 # 테스트 경로
