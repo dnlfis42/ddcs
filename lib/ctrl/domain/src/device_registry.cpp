@@ -26,15 +26,12 @@ void DeviceRegistry::set_attributes(DeviceId id, std::string group, std::string 
     device.version = std::move(version);
 }
 
-void DeviceRegistry::update_telemetry(DeviceId id, device::Mode mode, double load, double temp) {
+void DeviceRegistry::update_status(DeviceId id, device::Status status) {
     auto const idx = id_to_uuid_.find(id);
     if (idx == id_to_uuid_.end()) {
         return; // 미지의 id - 방어적 무시
     }
-    auto& device = by_uuid_.at(idx->second);
-    device.mode = mode;
-    device.load = load;
-    device.temp = temp;
+    by_uuid_.at(idx->second).status = status;
 }
 
 Device const* DeviceRegistry::find_by_uuid(common::Uuid const& uuid) const {

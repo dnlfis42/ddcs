@@ -12,6 +12,7 @@
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/outbound.hpp"
 #include "ddcs/device/mode.hpp"
+#include "ddcs/device/status.hpp"
 #include "ddcs/json/value.hpp"
 #include "ddcs/proto/cmd/command.hpp"
 #include "ddcs/proto/msg/message.hpp"
@@ -96,7 +97,7 @@ struct Fixture {
     DeviceId add_agent(std::uint8_t seed, ConnectionId conn, std::string const& group, double load) {
         auto const id = registry.find_or_create(make_uuid(seed)).id;
         registry.set_attributes(id, group, "v");
-        registry.update_telemetry(id, Mode::normal, load, 0.0);
+        registry.update_status(id, ddcs::device::Status{.mode = Mode::normal, .load = load, .temp = 0.0});
         sessions.open(conn);
         sessions.bind(conn, id, {});
         return id;
@@ -191,7 +192,7 @@ TEST(PolicyServiceTest, ReturnsToIdleModeAfterRecovery) {
     f.policy.evaluate(); // busy
     f.outbound.sends.clear();
 
-    f.registry.update_telemetry(id, Mode::performance, 30.0, 0.0); // load 30 < 40 -> 회복
+    f.registry.update_status(id, ddcs::device::Status{.mode = Mode::performance, .load = 30.0, .temp = 0.0}); // load 30 < 40 -> 회복
     f.policy.evaluate();
 
     ASSERT_EQ(f.outbound.sends.size(), 1u);

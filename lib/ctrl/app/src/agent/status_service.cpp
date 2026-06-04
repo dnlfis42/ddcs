@@ -2,6 +2,7 @@
 
 #include "ddcs/ctrl/app/session/session.hpp"
 #include "ddcs/device/mode.hpp"
+#include "ddcs/device/status.hpp"
 #include "ddcs/json/value.hpp"
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/msg/message.hpp"
@@ -45,8 +46,9 @@ void StatusService::handle_status(ConnectionId conn, common::PoolHandle<common::
         return;
     }
 
-    registry_.update_telemetry(
-        session->agent, mode_of(*parsed), double_of(*parsed, "load"), double_of(*parsed, "temp")
+    registry_.update_status(
+        session->agent,
+        device::Status{.mode = mode_of(*parsed), .load = double_of(*parsed, "load"), .temp = double_of(*parsed, "temp")}
     );
     LOG_DEBUG(
         "agent.status", ddcs::logger::kv("agent", session->agent.value()), ddcs::logger::kv("status", st.status_json)

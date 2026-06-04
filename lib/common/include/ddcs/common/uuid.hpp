@@ -13,9 +13,9 @@ namespace ddcs::common {
 class Uuid {
 public:
     constexpr Uuid() noexcept = default;
-
     constexpr explicit Uuid(std::array<std::byte, 16> const& bytes) noexcept : bytes_{bytes} {}
 
+public:
     std::string to_string() const {
         constexpr char hex[] = "0123456789abcdef";
         std::string out(36, '-');

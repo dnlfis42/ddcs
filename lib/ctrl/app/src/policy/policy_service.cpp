@@ -77,7 +77,7 @@ void PolicyService::evaluate() {
             return;
         }
         auto& a = agg[agent->group];
-        a.sum += agent->load;
+        a.sum += agent->status.load;
         ++a.count;
     });
     // 2. 정책 그룹별 히스테리시스 평가 -> regime 전환 시에만 명령.

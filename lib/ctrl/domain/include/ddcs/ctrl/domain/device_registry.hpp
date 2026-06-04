@@ -3,6 +3,7 @@
 #include "ddcs/common/uuid.hpp"
 #include "ddcs/ctrl/domain/device.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
+#include "ddcs/device/status.hpp"
 
 #include <string>
 #include <unordered_map>
@@ -32,8 +33,8 @@ public:
     // 등록 시 선언된 가변 속성(group/version) 갱신. identity(id/uuid)는 불변. 미지의 id는 무시.
     void set_attributes(DeviceId id, std::string group, std::string version);
 
-    // 최근 Status 텔레메트리(mode/load/temp) 반영. 미지의 id는 무시.
-    void update_telemetry(DeviceId id, device::Mode mode, double load, double temp);
+    // 최근 관측 상태(device::Status) 반영. 미지의 id는 무시.
+    void update_status(DeviceId id, device::Status status);
 
     // 조회 (없으면 nullptr).
     Device const* find_by_uuid(common::Uuid const& uuid) const;
