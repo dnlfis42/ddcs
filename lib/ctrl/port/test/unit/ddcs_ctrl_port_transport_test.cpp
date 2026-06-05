@@ -15,17 +15,17 @@ using namespace ddcs::ctrl::port::transport;
 // 인터페이스가 self-contained + implementable 한지 확인용 mock.
 class MockInbound : public Inbound {
 public:
-    void on_connect(ConnectionId) override {}
+    void on_connected(ConnectionId) override {}
     void on_recv(ConnectionId, std::uint8_t, PoolHandle<LinearBuffer>) override {}
-    void on_close_request(ConnectionId, CloseReason) override {}
-    void on_disconnect(ConnectionId) override {}
+    void on_disconnecting(ConnectionId, DisconnectReason) override {}
+    void on_disconnected(ConnectionId) override {}
 };
 
 class MockOutbound : public Outbound {
 public:
-    PoolHandle<LinearBuffer> payload_buffer() override { return {}; }
+    PoolHandle<LinearBuffer> send_buffer() override { return {}; }
     void send(ConnectionId, std::uint8_t, PoolHandle<LinearBuffer>) override {}
-    void close(ConnectionId, CloseMode) override {}
+    void drop(ConnectionId) override {}
 };
 
 } // namespace
@@ -33,14 +33,14 @@ public:
 TEST(PortTransportTest, InboundIsImplementable) {
     MockInbound mock;
     Inbound& port = mock;
-    port.on_connect(ConnectionId{1});
+    port.on_connected(ConnectionId{1});
     SUCCEED();
 }
 
 TEST(PortTransportTest, OutboundIsImplementable) {
     MockOutbound mock;
     Outbound& port = mock;
-    port.close(ConnectionId{1}, CloseMode::graceful);
+    port.drop(ConnectionId{1});
     SUCCEED();
 }
 

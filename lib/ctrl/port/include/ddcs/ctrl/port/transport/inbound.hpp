@@ -8,12 +8,13 @@
 
 namespace ddcs::ctrl::port::transport {
 
-// transport 가 감지해 app 에게 통지하는 종료 사유.
-// 항상 on_close_request 뒤에 app 의 Outbound::close() 가 따른다.
-enum class CloseReason : std::uint8_t {
-    peer_closed,    // FIN 수신 (정상 half-close)
-    conn_error,     // RST 등 복구 불가한 소켓 오류
-    protocol_error, // framing/decode 검증 실패
+// transport가 감지해 app에게 통지하는 연결 종료 사유.
+enum class DisconnectReason : std::uint8_t {
+    local_drop,          // app이 drop 요청
+    peer_closed,         // FIN 수신
+    transport_error,     // RST 등 복구 불가한 소켓 오류
+    protocol_error,      // framing/decode 검증 실패
+    first_frame_timeout, // accept 뒤 첫 frame 미수신
 };
 
 // inbound (driving) port: infra(transport) -> app.
@@ -22,10 +23,10 @@ class Inbound {
 public:
     virtual ~Inbound() = default;
 
-    virtual void on_connect(ConnectionId id) = 0;
+    virtual void on_connected(ConnectionId id) = 0;
     virtual void on_recv(ConnectionId id, std::uint8_t type, common::PoolHandle<common::LinearBuffer> body) = 0;
-    virtual void on_close_request(ConnectionId id, CloseReason reason) = 0;
-    virtual void on_disconnect(ConnectionId id) = 0;
+    virtual void on_disconnecting(ConnectionId id, DisconnectReason reason) = 0;
+    virtual void on_disconnected(ConnectionId id) = 0;
 };
 
 } // namespace ddcs::ctrl::port::transport

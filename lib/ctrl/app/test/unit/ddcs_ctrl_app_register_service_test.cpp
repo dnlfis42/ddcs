@@ -26,7 +26,6 @@ using ddcs::common::PoolHandle;
 using ddcs::common::Uuid;
 using ddcs::ctrl::app::agent::RegisterService;
 using ddcs::ctrl::domain::DeviceRegistry;
-using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
 namespace msg = ddcs::proto::msg;
@@ -41,14 +40,13 @@ public:
         std::string body;
     };
     std::vector<Sent> sends;
-    std::vector<std::pair<ConnectionId, CloseMode>> closes;
 
-    PoolHandle<LinearBuffer> payload_buffer() override { return pool.acquire(); }
+    PoolHandle<LinearBuffer> send_buffer() override { return pool.acquire(); }
     void send(ConnectionId id, std::uint8_t type, PoolHandle<LinearBuffer> body) override {
         auto const r = body->readable();
         sends.push_back({id, type, std::string{reinterpret_cast<char const*>(r.data()), r.size()}});
     }
-    void close(ConnectionId id, CloseMode mode) override { closes.emplace_back(id, mode); }
+    void drop(ConnectionId) override {}
 };
 
 Uuid make_uuid(std::uint8_t seed) {

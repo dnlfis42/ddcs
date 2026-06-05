@@ -12,7 +12,6 @@
 namespace ddcs::ctrl::app::session {
 
 using ddcs::ctrl::domain::DeviceId;
-using ddcs::ctrl::port::transport::CloseMode;
 
 SessionManager::SessionManager(
     SessionRegistry& sessions, RegisterService& registrar, StatusService& status, CommandService& commands,
@@ -21,7 +20,7 @@ SessionManager::SessionManager(
     : sessions_{sessions}, registrar_{registrar}, status_{status}, commands_{commands}, outbound_{outbound},
       clock_{clock} {}
 
-void SessionManager::on_connect(ConnectionId conn) {
+void SessionManager::on_connected(ConnectionId conn) {
     sessions_.open(conn); // handshaking 세션 생성 (register 전까지)
 }
 
@@ -35,7 +34,7 @@ void SessionManager::on_recv(ConnectionId conn, std::uint8_t type, common::PoolH
         LOG_WARN(
             "dispatch.pre_register_unexpected", ddcs::logger::kv("conn", conn.value()), ddcs::logger::kv("type", type)
         );
-        outbound_.close(conn, CloseMode::force);
+        outbound_.drop(conn);
         return;
     }
 
@@ -62,21 +61,18 @@ void SessionManager::on_recv(ConnectionId conn, std::uint8_t type, common::PoolH
     default:
         // c->a 전용(RegisterResponse/Command) 또는 미지의 타입 -> 프로토콜 위반.
         LOG_WARN("dispatch.unexpected_type", ddcs::logger::kv("conn", conn.value()), ddcs::logger::kv("type", type));
-        outbound_.close(conn, CloseMode::force);
+        outbound_.drop(conn);
         break;
     }
 }
 
-void SessionManager::on_close_request(ConnectionId conn, CloseReason reason) {
+void SessionManager::on_disconnecting(ConnectionId conn, DisconnectReason /*reason*/) {
     if (Session* const s = sessions_.find(conn); s != nullptr) {
-        s->state = State::closing; // liveness 에서 즉시 제외(드레인 한도는 ConnectionManager pw 소관)
+        s->state = State::closing; // liveness 에서 즉시 제외
     }
-    // peer_closed(정상 half-close)는 graceful 드레인, 오류성(conn/protocol)은 force.
-    CloseMode const mode = (reason == CloseReason::peer_closed) ? CloseMode::graceful : CloseMode::force;
-    outbound_.close(conn, mode);
 }
 
-void SessionManager::on_disconnect(ConnectionId conn) {
+void SessionManager::on_disconnected(ConnectionId conn) {
     sessions_.erase(conn);
     // pending command 는 sweep 타임아웃으로 정리(agent 응답 불가).
 }
@@ -85,7 +81,7 @@ void SessionManager::on_disconnect(ConnectionId conn) {
 void SessionManager::handle_register(ConnectionId conn, common::PoolHandle<common::LinearBuffer> body) {
     DeviceId const agent = registrar_.resolve(conn, std::move(body));
     if (!agent.valid()) {
-        outbound_.close(conn, CloseMode::force); // 식별 불가 -> 응답 없이 종료
+        outbound_.drop(conn); // 식별 불가 -> 응답 없이 종료
         return;
     }
     ConnectionId const kicked = sessions_.bind(conn, agent, clock_.now()); // active(+last_seen) + kick-old 추적
@@ -95,7 +91,7 @@ void SessionManager::handle_register(ConnectionId conn, common::PoolHandle<commo
             "agent.kick_old", ddcs::logger::kv("agent", agent.to_string()),
             ddcs::logger::kv("old_conn", kicked.value()), ddcs::logger::kv("new_conn", conn.value())
         );
-        outbound_.close(kicked, CloseMode::force); // 옛 연결 축출
+        outbound_.drop(kicked); // 옛 연결 축출
     }
     LOG_INFO("agent.register", ddcs::logger::kv("agent", agent.to_string()), ddcs::logger::kv("conn", conn.value()));
     registrar_.send_register_response(conn, true);

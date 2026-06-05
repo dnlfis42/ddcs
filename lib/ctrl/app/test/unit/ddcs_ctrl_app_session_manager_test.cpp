@@ -42,8 +42,7 @@ using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::app::session::State;
 using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::domain::DeviceRegistry;
-using ddcs::ctrl::port::transport::CloseMode;
-using ddcs::ctrl::port::transport::CloseReason;
+using ddcs::ctrl::port::transport::DisconnectReason;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
 namespace msg = ddcs::proto::msg;
@@ -58,14 +57,14 @@ public:
         std::string body;
     };
     std::vector<Sent> sends;
-    std::vector<std::pair<ConnectionId, CloseMode>> closes;
+    std::vector<ConnectionId> drops;
 
-    PoolHandle<LinearBuffer> payload_buffer() override { return pool.acquire(); }
+    PoolHandle<LinearBuffer> send_buffer() override { return pool.acquire(); }
     void send(ConnectionId id, std::uint8_t type, PoolHandle<LinearBuffer> body) override {
         auto const r = body->readable();
         sends.push_back({id, type, std::string{reinterpret_cast<char const*>(r.data()), r.size()}});
     }
-    void close(ConnectionId id, CloseMode mode) override { closes.emplace_back(id, mode); }
+    void drop(ConnectionId id) override { drops.push_back(id); }
 };
 
 Uuid make_uuid(std::uint8_t seed) {
@@ -98,10 +97,10 @@ struct Harness {
     SessionManager mgr{sessions, registrar, status, commands, outbound, clock};
 
     void register_active(ConnectionId conn, Uuid uuid) {
-        mgr.on_connect(conn);
+        mgr.on_connected(conn);
         mgr.on_recv(conn, kType(msg::Type::RegisterRequest), encode_body(msg::RegisterRequest{.agent_uuid = uuid}));
         outbound.sends.clear();
-        outbound.closes.clear();
+        outbound.drops.clear();
     }
 };
 
@@ -109,7 +108,7 @@ struct Harness {
 
 TEST(SessionManagerTest, OnConnectOpensHandshakingSession) {
     Harness h;
-    h.mgr.on_connect(ConnectionId{1});
+    h.mgr.on_connected(ConnectionId{1});
     auto* s = h.sessions.find(ConnectionId{1});
     ASSERT_NE(s, nullptr);
     EXPECT_EQ(s->state, State::handshaking);
@@ -117,7 +116,7 @@ TEST(SessionManagerTest, OnConnectOpensHandshakingSession) {
 
 TEST(SessionManagerTest, RoutesRegisterRequestActivatesSession) {
     Harness h;
-    h.mgr.on_connect(ConnectionId{1});
+    h.mgr.on_connected(ConnectionId{1});
     h.mgr.on_recv(
         ConnectionId{1}, kType(msg::Type::RegisterRequest),
         encode_body(msg::RegisterRequest{.agent_uuid = make_uuid(1)})
@@ -139,7 +138,7 @@ TEST(SessionManagerTest, ActiveRecvUpdatesLastSeen) {
     auto* s = h.sessions.find(ConnectionId{1});
     ASSERT_NE(s, nullptr);
     EXPECT_EQ(s->last_seen, h.clock.now()); // active 면 *어떤* 메시지든 liveness 갱신
-    EXPECT_TRUE(h.outbound.closes.empty());
+    EXPECT_TRUE(h.outbound.drops.empty());
 }
 
 TEST(SessionManagerTest, RoutesStatusAsTelemetry) {
@@ -148,7 +147,7 @@ TEST(SessionManagerTest, RoutesStatusAsTelemetry) {
     h.mgr.on_recv(
         ConnectionId{1}, kType(msg::Type::Status), encode_body(msg::Status{.timestamp_ms = 0, .status_json = "{}"})
     );
-    EXPECT_TRUE(h.outbound.closes.empty()); // 비치명적
+    EXPECT_TRUE(h.outbound.drops.empty()); // 비치명적
 }
 
 TEST(SessionManagerTest, RoutesCommandOutcomeResolvesPending) {
@@ -183,83 +182,72 @@ TEST(SessionManagerTest, RoutesCommandAckExtendsDeadline) {
 
 TEST(SessionManagerTest, UnexpectedTypeClosesConnection) {
     Harness h;
-    h.mgr.on_connect(ConnectionId{1});
+    h.mgr.on_connected(ConnectionId{1});
     // RegisterResponse 는 c->a 전용 -> 수신 시 프로토콜 위반.
     h.mgr.on_recv(
         ConnectionId{1}, kType(msg::Type::RegisterResponse),
         encode_body(msg::RegisterResponse{.result = msg::RegisterResult::success, .reason = {}})
     );
-    ASSERT_EQ(h.outbound.closes.size(), 1u);
-    EXPECT_EQ(h.outbound.closes[0].first, ConnectionId{1});
-    EXPECT_EQ(h.outbound.closes[0].second, CloseMode::force);
+    ASSERT_EQ(h.outbound.drops.size(), 1u);
+    EXPECT_EQ(h.outbound.drops[0], ConnectionId{1});
 }
 
-TEST(SessionManagerTest, CloseRequestMarksClosingAndGracefulOnPeerClosed) {
+TEST(SessionManagerTest, DisconnectingMarksSessionClosing) {
     Harness h;
     h.register_active(ConnectionId{1}, make_uuid(1));
-    h.mgr.on_close_request(ConnectionId{1}, CloseReason::peer_closed);
+    h.mgr.on_disconnecting(ConnectionId{1}, DisconnectReason::peer_closed);
 
     auto* s = h.sessions.find(ConnectionId{1});
     ASSERT_NE(s, nullptr);
     EXPECT_EQ(s->state, State::closing); // liveness 에서 즉시 제외
-    ASSERT_EQ(h.outbound.closes.size(), 1u);
-    EXPECT_EQ(h.outbound.closes[0].second, CloseMode::graceful);
-}
-
-TEST(SessionManagerTest, CloseRequestErrorIsForce) {
-    Harness h;
-    h.mgr.on_close_request(ConnectionId{1}, CloseReason::conn_error);
-    ASSERT_EQ(h.outbound.closes.size(), 1u);
-    EXPECT_EQ(h.outbound.closes[0].second, CloseMode::force);
+    EXPECT_TRUE(h.outbound.drops.empty());
 }
 
 TEST(SessionManagerTest, DisconnectErasesSession) {
     Harness h;
     h.register_active(ConnectionId{1}, make_uuid(1));
-    h.mgr.on_disconnect(ConnectionId{1});
+    h.mgr.on_disconnected(ConnectionId{1});
     EXPECT_EQ(h.sessions.find(ConnectionId{1}), nullptr); // 세션 제거
 }
 
 TEST(SessionManagerTest, PreRegisterUnexpectedTypeCloses) {
     Harness h;
-    h.mgr.on_connect(ConnectionId{1}); // handshaking
+    h.mgr.on_connected(ConnectionId{1}); // handshaking
     // 등록 전 비-Register 프레임 -> 프로토콜 위반 -> close (register-or-die gap-fix).
     h.mgr.on_recv(
         ConnectionId{1}, kType(msg::Type::Status), encode_body(msg::Status{.timestamp_ms = 0, .status_json = "{}"})
     );
-    ASSERT_EQ(h.outbound.closes.size(), 1u);
-    EXPECT_EQ(h.outbound.closes[0].second, CloseMode::force);
+    ASSERT_EQ(h.outbound.drops.size(), 1u);
+    EXPECT_EQ(h.outbound.drops[0], ConnectionId{1});
 }
 
 TEST(SessionManagerTest, KicksOldConnectionOnSameUuidReRegister) {
     Harness h;
-    h.register_active(ConnectionId{1}, make_uuid(1)); // conn1 active (sends/closes cleared)
+    h.register_active(ConnectionId{1}, make_uuid(1)); // conn1 active (sends/drops cleared)
     // 같은 uuid 가 새 conn 으로 재등록 -> 옛 conn 축출.
-    h.mgr.on_connect(ConnectionId{2});
+    h.mgr.on_connected(ConnectionId{2});
     h.mgr.on_recv(
         ConnectionId{2}, kType(msg::Type::RegisterRequest),
         encode_body(msg::RegisterRequest{.agent_uuid = make_uuid(1)})
     );
 
     EXPECT_EQ(h.mgr.kicked_total(), 1u);
-    ASSERT_EQ(h.outbound.closes.size(), 1u);
-    EXPECT_EQ(h.outbound.closes[0].first, ConnectionId{1}); // 옛 conn force close
-    EXPECT_EQ(h.outbound.closes[0].second, CloseMode::force);
+    ASSERT_EQ(h.outbound.drops.size(), 1u);
+    EXPECT_EQ(h.outbound.drops[0], ConnectionId{1}); // 옛 conn drop
     EXPECT_EQ(h.sessions.resolve(make_uuid(1)), ConnectionId{2}); // 현재 바인딩 = 새 conn
 }
 
 TEST(SessionManagerTest, RegisterDecodeFailClosesConnection) {
     Harness h;
-    h.mgr.on_connect(ConnectionId{1}); // handshaking
+    h.mgr.on_connected(ConnectionId{1}); // handshaking
     static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 4, std::size_t{64});
     auto bad = pool.acquire();
     std::array<std::byte, 4> junk{};
     ASSERT_TRUE(bad->write({junk.data(), junk.size()}));
     h.mgr.on_recv(ConnectionId{1}, kType(msg::Type::RegisterRequest), std::move(bad));
 
-    ASSERT_EQ(h.outbound.closes.size(), 1u);
-    EXPECT_EQ(h.outbound.closes[0].first, ConnectionId{1});
-    EXPECT_EQ(h.outbound.closes[0].second, CloseMode::force);
+    ASSERT_EQ(h.outbound.drops.size(), 1u);
+    EXPECT_EQ(h.outbound.drops[0], ConnectionId{1});
     EXPECT_TRUE(h.outbound.sends.empty()); // 응답 없음
     auto* s = h.sessions.find(ConnectionId{1});
     ASSERT_NE(s, nullptr);

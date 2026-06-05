@@ -32,7 +32,7 @@ ConnectionManager::ConnectionManager(runtime::Reactor& reactor, runtime::TimerSc
 
 // --- Outbound (app -> transport) -------------------------------------------
 
-common::PoolHandle<common::LinearBuffer> ConnectionManager::payload_buffer() {
+common::PoolHandle<common::LinearBuffer> ConnectionManager::send_buffer() {
     auto buf = payload_pool_.acquire();
     buf->reserve(proto::frame::header_size); // frame header 자리 미리 확보
     return buf;
@@ -51,45 +51,19 @@ void ConnectionManager::send(ConnectionId id, std::uint8_t type, common::PoolHan
         {.magic = proto::frame::magic, .type = type, .length = static_cast<std::uint16_t>(body->size())}
     );
     if (!body->write_front({hdr.data(), hdr.size()})) {
-        assert(false && "payload_buffer() 로 받지 않은 버퍼 - headroom 없음");
+        assert(false && "send_buffer() 로 받지 않은 버퍼 - headroom 없음");
         return;
     }
     conn->tx_enqueue(std::move(body));
     update_interest(conn); // EPOLLOUT 무장
 }
 
-void ConnectionManager::close(ConnectionId id, CloseMode mode) {
+void ConnectionManager::drop(ConnectionId id) {
     auto* conn = find(id);
     if (conn == nullptr || conn->state() == Connection::State::closing) {
         return; // 없거나 이미 예약됨 (멱등)
     }
-    if (mode == CloseMode::force) {
-        conn->latch_rst(); // 즉시 RST
-        schedule_close(conn);
-        reap_if_idle();
-        return;
-    }
-    // graceful
-    auto const s = conn->state();
-    if (s == Connection::State::open) {
-        // active close: 새 send 거부(send 가 state!=open 이면 드롭) -> 큐 드레인 -> shutdown(WR) -> passive_wait.
-        conn->request_close();
-        (void)conn->transition(Connection::State::active_close);
-        if (conn->tx_empty()) {
-            to_passive_wait(conn); // 드레인 즉시 완료
-        } else {
-            update_interest(conn); // EPOLLOUT 로 드레인 (on_writable 이 완료 시 pw 진입)
-        }
-        return;
-    }
-    if (s == Connection::State::passive_close && !conn->tx_empty()) {
-        // passive graceful: 드레인 후 closing (peer 이미 FIN, pw 불필요)
-        conn->request_close();
-        update_interest(conn);
-        return;
-    }
-    // passive_close tx empty / aborting / etc.: 즉시 closing (FIN, latch 없음)
-    schedule_close(conn);
+    disconnect(conn, DisconnectReason::local_drop);
     reap_if_idle();
 }
 
@@ -108,16 +82,14 @@ void ConnectionManager::handle_timer(runtime::TimerId id) {
         // 3초 내 첫 프레임 없음 -> 미확인 연결. (프레임 왔으면 cancel 돼 발화 안 함.)
         if (conn != nullptr && conn->state() == Connection::State::open) {
             LOG_WARN("transport.handshake_timeout", ddcs::logger::kv("id", slot.cid.value()));
-            conn->latch_rst();
-            schedule_close(conn);
+            disconnect(conn, DisconnectReason::first_frame_timeout);
         }
         break;
     case TimerKind::pw:
         pw_timer_id_.erase(slot.cid); // 발화로 소비
         if (conn != nullptr && conn->state() == Connection::State::passive_wait) {
             LOG_WARN("transport.pw_timeout", ddcs::logger::kv("id", slot.cid.value()));
-            conn->latch_rst(); // pw TIMEOUT -> RST + closing
-            schedule_close(conn);
+            disconnect(conn, DisconnectReason::transport_error);
         }
         break;
     }
@@ -139,7 +111,7 @@ void ConnectionManager::handle_accept(common::Fd fd, Endpoint peer) {
     if (epoll_add(p)) {
         (void)p->transition(Connection::State::open);
         LOG_DEBUG("transport.accept", ddcs::logger::kv("id", id.value()), ddcs::logger::kv("peer_port", peer.port));
-        handler_->on_connect(id);
+        handler_->on_connected(id);
         // handshake 한도: 3초 내 첫 프레임이 없으면 close. 첫 on_recv 가 cancel.
         runtime::TimerId const tid = timers_.schedule(handshake_timeout, this);
         timer_slot_[tid] = TimerSlot{id, TimerKind::handshake};
@@ -157,7 +129,7 @@ void ConnectionManager::handle_event(Connection& conn, std::uint32_t events) {
         return; // 이미 reap 예약됨
     }
     if ((events & (EPOLLERR | EPOLLHUP)) != 0u) {
-        fail(c, CloseReason::conn_error);
+        fail(c, DisconnectReason::transport_error);
         return;
     }
     if ((events & EPOLLIN) != 0u) {
@@ -183,10 +155,10 @@ void ConnectionManager::handle_readable(Connection* conn) {
             (void)conn->rx_consume(conn->rx_size()); // 폐기 (close 후 on_recv 금지)
             switch (r) {
             case Connection::IoResult::peer_closed:
-                schedule_close(conn); // 정상 FIN 완주 -> closing (latch 없음)
+                disconnect(conn, DisconnectReason::peer_closed);
                 return;
             case Connection::IoResult::error:
-                fail(conn, CloseReason::conn_error);
+                fail(conn, DisconnectReason::transport_error);
                 return;
             case Connection::IoResult::full:
                 continue; // 폐기로 공간 확보 -> 더 읽기
@@ -211,13 +183,13 @@ void ConnectionManager::handle_readable(Connection* conn) {
             auto const h = proto::frame::decode(hb);
 
             if (h.magic != proto::frame::magic) {
-                fail(conn, CloseReason::protocol_error);
+                fail(conn, DisconnectReason::protocol_error);
                 return;
             }
 
             std::size_t const total = proto::frame::header_size + h.length;
             if (total > inbound_buffer_capacity) {
-                fail(conn, CloseReason::protocol_error); // 링에 못 담는 길이 - 손상/악성
+                fail(conn, DisconnectReason::protocol_error); // 링에 못 담는 길이 - 손상/악성
                 return;
             }
             if (conn->rx_size() < total) {
@@ -249,11 +221,10 @@ void ConnectionManager::handle_readable(Connection* conn) {
         case Connection::IoResult::full:
             continue; // framing 이 공간 확보 -> 더 읽기
         case Connection::IoResult::peer_closed:
-            (void)conn->transition(Connection::State::passive_close);
-            handler_->on_close_request(conn->id(), CloseReason::peer_closed); // 1회
+            disconnect(conn, DisconnectReason::peer_closed);
             return;
         case Connection::IoResult::error:
-            fail(conn, CloseReason::conn_error);
+            fail(conn, DisconnectReason::transport_error);
             return;
         case Connection::IoResult::ok:
             return; // receive() 는 반환하지 않음 - 방어
@@ -268,7 +239,7 @@ void ConnectionManager::handle_writable(Connection* conn) {
         return;
     }
     if (conn->transmit() == Connection::IoResult::error) {
-        fail(conn, CloseReason::conn_error); // close_requested 면 fail 이 closing 처리
+        fail(conn, DisconnectReason::transport_error); // close_requested 면 fail 이 closing 처리
         return;
     }
     if (conn->close_requested() && conn->tx_empty()) {
@@ -318,7 +289,7 @@ bool ConnectionManager::epoll_add(Connection* conn) {
 
 void ConnectionManager::epoll_mod(Connection* conn, std::uint32_t events) {
     if (!reactor_.mod(conn->fd(), events)) {
-        fail(conn, CloseReason::conn_error);
+        fail(conn, DisconnectReason::transport_error);
         return;
     }
     conn->set_io_interest(events);
@@ -344,7 +315,7 @@ void ConnectionManager::to_passive_wait(Connection* conn) {
     update_interest(conn);          // pw -> EPOLLIN 만
 }
 
-void ConnectionManager::fail(Connection* conn, CloseReason reason) {
+void ConnectionManager::fail(Connection* conn, DisconnectReason reason) {
     auto const s = conn->state();
     if (s == Connection::State::closing || s == Connection::State::aborting || s == Connection::State::idle) {
         return;
@@ -353,14 +324,18 @@ void ConnectionManager::fail(Connection* conn, CloseReason reason) {
         "transport.fail", ddcs::logger::kv("id", conn->id().value()),
         ddcs::logger::kv("reason", static_cast<std::uint8_t>(reason))
     );
-    conn->latch_rst();
-    if (conn->close_requested()) {
-        schedule_close(conn);
+    disconnect(conn, reason);
+}
+
+void ConnectionManager::disconnect(Connection* conn, DisconnectReason reason) {
+    auto const s = conn->state();
+    if (s == Connection::State::closing || s == Connection::State::idle) {
         return;
     }
-    (void)conn->transition(Connection::State::aborting);
-    if (s == Connection::State::open) {
-        handler_->on_close_request(conn->id(), reason);
+    conn->latch_rst();
+    schedule_close(conn);
+    if (conn->in_epoll()) {
+        handler_->on_disconnecting(conn->id(), reason);
     }
 }
 
@@ -398,7 +373,7 @@ void ConnectionManager::reap_if_idle() {
 
 void ConnectionManager::close_connections() {
     reaping_ = true;
-    // 인덱스 순회: reap 중 on_disconnect 가 더 닫아 pending 이 자라도 안전(반복자 무효화 없음).
+    // 인덱스 순회: reap 중 on_disconnected 가 더 닫아 pending 이 자라도 안전(반복자 무효화 없음).
     for (std::size_t i = 0; i < pending_close_.size(); ++i) {
         ConnectionId const id = pending_close_[i];
         auto* conn = find(id);
@@ -413,7 +388,7 @@ void ConnectionManager::close_connections() {
             pw_timer_id_.erase(pit);
         }
         if (conn->in_epoll()) { // 매핑된 정상 연결만 (orphan 은 in_epoll == false)
-            handler_->on_disconnect(id);
+            handler_->on_disconnected(id);
             epoll_del(conn);
         }
         connection_map_.erase(id); // 핸들 drop -> reset() -> fd close (무장 시 RST)

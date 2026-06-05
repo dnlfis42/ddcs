@@ -29,7 +29,6 @@ using ddcs::common::PoolHandle;
 using ddcs::ctrl::app::agent::CommandService;
 using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::domain::DeviceId;
-using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
 namespace msg = ddcs::proto::msg;
@@ -53,12 +52,12 @@ public:
     };
     std::vector<Sent> sends;
 
-    PoolHandle<LinearBuffer> payload_buffer() override { return pool.acquire(); }
+    PoolHandle<LinearBuffer> send_buffer() override { return pool.acquire(); }
     void send(ConnectionId id, std::uint8_t type, PoolHandle<LinearBuffer> body) override {
         auto const r = body->readable();
         sends.push_back({id, type, std::string{reinterpret_cast<char const*>(r.data()), r.size()}});
     }
-    void close(ConnectionId, CloseMode) override {}
+    void drop(ConnectionId) override {}
 };
 
 PoolHandle<LinearBuffer> make_ack_body(std::uint64_t command_id) {

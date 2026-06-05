@@ -38,7 +38,6 @@ using ddcs::ctrl::app::session::LivenessMonitor;
 using ddcs::ctrl::app::session::SessionManager;
 using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::domain::DeviceRegistry;
-using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
 namespace msg = ddcs::proto::msg;
@@ -46,9 +45,9 @@ namespace msg = ddcs::proto::msg;
 class MockOutbound : public Outbound {
 public:
     ddcs::common::ObjectPool<LinearBuffer> pool{ddcs::common::make_pool<LinearBuffer>(0, 8, std::size_t{256})};
-    PoolHandle<LinearBuffer> payload_buffer() override { return pool.acquire(); }
+    PoolHandle<LinearBuffer> send_buffer() override { return pool.acquire(); }
     void send(ConnectionId, std::uint8_t, PoolHandle<LinearBuffer>) override {}
-    void close(ConnectionId, CloseMode) override {}
+    void drop(ConnectionId) override {}
 };
 
 Uuid make_uuid(std::uint8_t seed) {

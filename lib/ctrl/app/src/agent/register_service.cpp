@@ -22,7 +22,7 @@ DeviceId RegisterService::resolve(ConnectionId conn, common::PoolHandle<common::
 }
 
 void RegisterService::send_register_response(ConnectionId conn, bool success) {
-    auto buf = outbound_.payload_buffer();
+    auto buf = outbound_.send_buffer();
     proto::msg::RegisterResponse const resp{
         .result = success ? proto::msg::RegisterResult::success : proto::msg::RegisterResult::failed,
         .reason = {},

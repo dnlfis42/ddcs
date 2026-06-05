@@ -33,8 +33,7 @@ using ddcs::common::LinearBuffer;
 using ddcs::common::PoolHandle;
 using ddcs::ctrl::infra::transport::ConnectionManager;
 using ddcs::ctrl::infra::transport::Endpoint;
-using ddcs::ctrl::port::transport::CloseMode;
-using ddcs::ctrl::port::transport::CloseReason;
+using ddcs::ctrl::port::transport::DisconnectReason;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Inbound;
 using ddcs::runtime::Reactor;
@@ -46,18 +45,18 @@ class MockInbound : public Inbound {
 public:
     std::vector<ConnectionId> connected;
     std::vector<ConnectionId> disconnected;
-    std::vector<ConnectionId> close_requested;
+    std::vector<ConnectionId> disconnecting;
     std::vector<std::uint8_t> recv_type;
     std::vector<std::string> recv_body;
 
-    void on_connect(ConnectionId id) override { connected.push_back(id); }
+    void on_connected(ConnectionId id) override { connected.push_back(id); }
     void on_recv(ConnectionId, std::uint8_t type, PoolHandle<LinearBuffer> body) override {
         recv_type.push_back(type);
         auto const r = body->readable();
         recv_body.emplace_back(reinterpret_cast<char const*>(r.data()), r.size());
     }
-    void on_close_request(ConnectionId id, CloseReason) override { close_requested.push_back(id); }
-    void on_disconnect(ConnectionId id) override { disconnected.push_back(id); }
+    void on_disconnecting(ConnectionId id, DisconnectReason) override { disconnecting.push_back(id); }
+    void on_disconnected(ConnectionId id) override { disconnected.push_back(id); }
 };
 
 // socketpair 한 쌍: conn 측 fd 를 nonblocking 으로 넘기고, peer 측은 보관.
@@ -96,7 +95,7 @@ TEST(ConnectionManagerTest, AcceptRegistersAndNotifiesConnect) {
     EXPECT_TRUE(inbound.connected[0].valid());
 }
 
-TEST(ConnectionManagerTest, CloseForceReapsAndNotifiesDisconnect) {
+TEST(ConnectionManagerTest, DropReapsAndNotifiesDisconnect) {
     Reactor reactor;
     TimerScheduler timers{reactor};
     timers.start();
@@ -108,14 +107,16 @@ TEST(ConnectionManagerTest, CloseForceReapsAndNotifiesDisconnect) {
     manager.on_accept(sp.take_conn(), Endpoint{});
     ConnectionId const id = inbound.connected.at(0);
 
-    manager.close(id, CloseMode::force);
+    manager.drop(id);
 
     EXPECT_EQ(manager.size(), 0u);
+    ASSERT_EQ(inbound.disconnecting.size(), 1u);
+    EXPECT_EQ(inbound.disconnecting[0], id);
     ASSERT_EQ(inbound.disconnected.size(), 1u);
     EXPECT_EQ(inbound.disconnected[0], id);
 }
 
-TEST(ConnectionManagerTest, PeerFinTriggersCloseRequest) {
+TEST(ConnectionManagerTest, PeerFinDisconnectsConnection) {
     Reactor reactor;
     TimerScheduler timers{reactor};
     timers.start();
@@ -130,10 +131,13 @@ TEST(ConnectionManagerTest, PeerFinTriggersCloseRequest) {
     ::close(sp.peer); // FIN
     sp.peer = -1;
 
-    reactor.run_once(1000ms); // EPOLLIN(FIN) -> on_readable -> peer_closed -> on_close_request
+    reactor.run_once(1000ms); // EPOLLIN(FIN) -> on_readable -> peer_closed -> on_disconnecting
 
-    ASSERT_EQ(inbound.close_requested.size(), 1u);
-    EXPECT_EQ(inbound.close_requested[0], id);
+    EXPECT_EQ(manager.size(), 0u);
+    ASSERT_EQ(inbound.disconnecting.size(), 1u);
+    EXPECT_EQ(inbound.disconnecting[0], id);
+    ASSERT_EQ(inbound.disconnected.size(), 1u);
+    EXPECT_EQ(inbound.disconnected[0], id);
 }
 
 TEST(ConnectionManagerTest, FramedMessageDeliveredToOnRecv) {
@@ -174,7 +178,7 @@ TEST(ConnectionManagerTest, SendFramesBodyAndTransmits) {
     ConnectionId const id = inbound.connected.at(0);
 
     // headroom 예약된 버퍼에 "hi" 채워 send.
-    auto buf = manager.payload_buffer();
+    auto buf = manager.send_buffer();
     char const body[] = "hi";
     ASSERT_TRUE(buf->write({reinterpret_cast<std::byte const*>(body), 2}));
     manager.send(id, 0x11, std::move(buf));
@@ -194,34 +198,6 @@ TEST(ConnectionManagerTest, SendFramesBodyAndTransmits) {
     EXPECT_EQ(std::memcmp(got.data() + frame::header_size, "hi", 2), 0);
 }
 
-TEST(ConnectionManagerTest, GracefulCloseHalfClosesThenReapsOnPeerFin) {
-    Reactor reactor;
-    TimerScheduler timers{reactor};
-    timers.start();
-    ConnectionManager manager{reactor, timers};
-    MockInbound inbound;
-    manager.init(inbound);
-
-    SocketPair sp;
-    manager.on_accept(sp.take_conn(), Endpoint{});
-    ConnectionId const id = inbound.connected.at(0);
-
-    manager.close(id, CloseMode::graceful); // tx empty -> begin_passive_wait -> shutdown(WR)
-
-    // peer 가 우리 쪽 FIN(half-close) 을 받는다: read -> 0
-    char rbuf[8];
-    EXPECT_EQ(::read(sp.peer, rbuf, sizeof(rbuf)), 0);
-
-    // peer 도 FIN -> conn passive_wait 에서 peer FIN 완주 -> closing -> reap_closed
-    ::close(sp.peer);
-    sp.peer = -1;
-    reactor.run_once(1000ms);
-
-    EXPECT_EQ(manager.size(), 0u);
-    ASSERT_EQ(inbound.disconnected.size(), 1u);
-    EXPECT_EQ(inbound.disconnected[0], id);
-}
-
 TEST(ConnectionManagerTest, HandshakeTimeoutClosesSilentConnection) {
     ddcs::common::ManualClock clk;
     Reactor reactor;
@@ -239,6 +215,8 @@ TEST(ConnectionManagerTest, HandshakeTimeoutClosesSilentConnection) {
     timers.expire_due();                  // handshake 발화 -> force close -> reap
 
     EXPECT_EQ(manager.size(), 0u);
+    ASSERT_EQ(inbound.disconnecting.size(), 1u);
+    EXPECT_EQ(inbound.disconnecting[0], inbound.connected[0]);
     ASSERT_EQ(inbound.disconnected.size(), 1u);
 }
 

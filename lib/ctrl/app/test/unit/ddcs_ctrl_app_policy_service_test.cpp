@@ -43,7 +43,6 @@ using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::domain::DeviceRegistry;
 using ddcs::ctrl::domain::GroupPolicy;
 using ddcs::ctrl::domain::GroupRule;
-using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
 using ddcs::device::Mode;
@@ -56,12 +55,12 @@ public:
     ddcs::common::ObjectPool<LinearBuffer> pool{ddcs::common::make_pool<LinearBuffer>(0, 8, std::size_t{256})};
     std::vector<std::string> sends; // 캡처된 Command body
 
-    PoolHandle<LinearBuffer> payload_buffer() override { return pool.acquire(); }
+    PoolHandle<LinearBuffer> send_buffer() override { return pool.acquire(); }
     void send(ConnectionId, std::uint8_t, PoolHandle<LinearBuffer> body) override {
         auto const r = body->readable();
         sends.emplace_back(reinterpret_cast<char const*>(r.data()), r.size());
     }
-    void close(ConnectionId, CloseMode) override {}
+    void drop(ConnectionId) override {}
 };
 
 Uuid make_uuid(std::uint8_t seed) {

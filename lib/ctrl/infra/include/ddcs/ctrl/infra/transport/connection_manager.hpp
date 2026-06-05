@@ -23,8 +23,7 @@ class TimerScheduler;
 
 namespace ddcs::ctrl::infra::transport {
 
-using ddcs::ctrl::port::transport::CloseMode;
-using ddcs::ctrl::port::transport::CloseReason;
+using ddcs::ctrl::port::transport::DisconnectReason;
 using ddcs::ctrl::port::transport::Inbound;
 using ddcs::ctrl::port::transport::Outbound;
 
@@ -48,9 +47,9 @@ public: // 조회
     std::size_t size() const noexcept { return connection_map_.size(); }
 
 public: // Outbound (app -> transport)
-    common::PoolHandle<common::LinearBuffer> payload_buffer() override;
+    common::PoolHandle<common::LinearBuffer> send_buffer() override;
     void send(ConnectionId id, std::uint8_t type, common::PoolHandle<common::LinearBuffer> body) override;
-    void close(ConnectionId id, CloseMode mode) override;
+    void drop(ConnectionId id) override;
 
 public:
     void on_timer_event(runtime::TimerId id) override {
@@ -88,7 +87,8 @@ private: // epoll
 
 private: // FSM 전이
     void to_passive_wait(Connection* conn);
-    void fail(Connection* conn, CloseReason reason);
+    void fail(Connection* conn, DisconnectReason reason);
+    void disconnect(Connection* conn, DisconnectReason reason);
     void schedule_close(Connection* conn); // close 예약
 
 private: // 조회

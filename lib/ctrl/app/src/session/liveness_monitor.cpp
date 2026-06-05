@@ -7,8 +7,6 @@
 
 namespace ddcs::ctrl::app::session {
 
-using ddcs::ctrl::port::transport::CloseMode;
-
 LivenessMonitor::LivenessMonitor(
     SessionRegistry& sessions, Outbound& outbound, common::Clock& clock, std::chrono::nanoseconds timeout
 ) noexcept
@@ -17,7 +15,7 @@ LivenessMonitor::LivenessMonitor(
 void LivenessMonitor::sweep() {
     auto const now = clock_.now();
     stale_.clear();
-    // 순회 중 sessions_ 변경 금지 -> stale 먼저 수집한 뒤 close (close->on_disconnect 가 erase).
+    // 순회 중 sessions_ 변경 금지 -> stale 먼저 수집한 뒤 drop(drop->on_disconnected 가 erase).
     sessions_.for_each([&](ConnectionId conn, Session const& s) {
         if (s.state == State::active && now - s.last_seen > timeout_) {
             stale_.push_back(conn);
@@ -30,7 +28,7 @@ void LivenessMonitor::sweep() {
         }
     });
     for (auto const conn : stale_) {
-        outbound_.close(conn, CloseMode::force);
+        outbound_.drop(conn);
     }
 }
 

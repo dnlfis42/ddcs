@@ -19,7 +19,7 @@ using ddcs::ctrl::port::transport::ConnectionId;
 //  - reverse: agent -> 현재 conn (agent->conn 해석, kick-old 추적)
 class SessionRegistry {
 public:
-    // on_connect: handshaking 단계 세션 생성. 이미 있으면 기존 반환(방어).
+    // on_connected: handshaking 단계 세션 생성. 이미 있으면 기존 반환(방어).
     Session& open(ConnectionId conn);
     Session* find(ConnectionId conn);
 
@@ -30,7 +30,7 @@ public:
     // agent -> 현재 conn (없으면 ConnectionId{}).
     ConnectionId resolve(DeviceId agent) const;
 
-    // on_disconnect: 세션 제거. reverse 맵은 현재 바인딩이 이 conn 일 때만 정리(kick 보존).
+    // on_disconnected: 세션 제거. reverse 맵은 현재 바인딩이 이 conn 일 때만 정리(kick 보존).
     void erase(ConnectionId conn);
 
     // LivenessMonitor sweep 용 순회: fn(ConnectionId, Session const&).

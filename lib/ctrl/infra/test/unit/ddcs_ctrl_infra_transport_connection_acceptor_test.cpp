@@ -29,7 +29,7 @@ using ddcs::common::LinearBuffer;
 using ddcs::common::PoolHandle;
 using ddcs::ctrl::infra::transport::ConnectionAcceptor;
 using ddcs::ctrl::infra::transport::ConnectionManager;
-using ddcs::ctrl::port::transport::CloseReason;
+using ddcs::ctrl::port::transport::DisconnectReason;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Inbound;
 using ddcs::runtime::Reactor;
@@ -42,14 +42,14 @@ public:
     std::vector<std::uint8_t> recv_type;
     std::vector<std::string> recv_body;
 
-    void on_connect(ConnectionId id) override { connected.push_back(id); }
+    void on_connected(ConnectionId id) override { connected.push_back(id); }
     void on_recv(ConnectionId, std::uint8_t type, PoolHandle<LinearBuffer> body) override {
         recv_type.push_back(type);
         auto const r = body->readable();
         recv_body.emplace_back(reinterpret_cast<char const*>(r.data()), r.size());
     }
-    void on_close_request(ConnectionId, CloseReason) override {}
-    void on_disconnect(ConnectionId) override {}
+    void on_disconnecting(ConnectionId, DisconnectReason) override {}
+    void on_disconnected(ConnectionId) override {}
 };
 
 // 127.0.0.1:port 로 연결한 클라이언트 소켓.
@@ -83,7 +83,7 @@ TEST(ConnectionAcceptorTest, AcceptsConnectionAndDeliversFrame) {
     Fd client = connect_loopback(port);
     ASSERT_TRUE(client.valid());
 
-    reactor.run_once(1000ms); // accept -> on_connect
+    reactor.run_once(1000ms); // accept -> on_connected
     ASSERT_EQ(inbound.connected.size(), 1u);
 
     // 프레임 전송: magic | type=0x07 | len=2 | "ok"

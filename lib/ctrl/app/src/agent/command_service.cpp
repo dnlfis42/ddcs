@@ -30,7 +30,7 @@ bool CommandService::send_command(
     ConnectionId conn, std::uint64_t command_id, std::uint8_t type, std::string const& payload
 ) {
     proto::msg::Command const cmd{.command_id = command_id, .type = type, .payload = payload};
-    auto buf = outbound_.payload_buffer();
+    auto buf = outbound_.send_buffer();
     if (!proto::msg::encode(cmd, *buf)) {
         LOG_WARN("command.encode_fail", ddcs::logger::kv("command", command_id));
         return false;

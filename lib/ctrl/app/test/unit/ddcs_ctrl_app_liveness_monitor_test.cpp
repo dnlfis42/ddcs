@@ -28,7 +28,6 @@ using ddcs::ctrl::app::session::LivenessMonitor;
 using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::app::session::State;
 using ddcs::ctrl::domain::DeviceId;
-using ddcs::ctrl::port::transport::CloseMode;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
 
@@ -42,10 +41,10 @@ DeviceId make_uuid(std::uint8_t seed) {
 
 class MockOutbound : public Outbound {
 public:
-    std::vector<std::pair<ConnectionId, CloseMode>> closes;
-    PoolHandle<LinearBuffer> payload_buffer() override { return {}; }
+    std::vector<ConnectionId> drops;
+    PoolHandle<LinearBuffer> send_buffer() override { return {}; }
     void send(ConnectionId, std::uint8_t, PoolHandle<LinearBuffer>) override {}
-    void close(ConnectionId id, CloseMode mode) override { closes.emplace_back(id, mode); }
+    void drop(ConnectionId id) override { drops.push_back(id); }
 };
 
 struct Fixture {
@@ -67,7 +66,7 @@ TEST(LivenessMonitorTest, KeepsFreshActiveSession) {
     f.make_active(ConnectionId{1}, make_uuid(1));
     f.clock.advance(std::chrono::seconds{2}); // < 3s
     f.mon.sweep();
-    EXPECT_TRUE(f.outbound.closes.empty());
+    EXPECT_TRUE(f.outbound.drops.empty());
     EXPECT_EQ(f.mon.evicted_total(), 0u);
 }
 
@@ -76,9 +75,8 @@ TEST(LivenessMonitorTest, EvictsSilentActiveSession) {
     f.make_active(ConnectionId{1}, make_uuid(1));
     f.clock.advance(std::chrono::seconds{4}); // > 3s 침묵
     f.mon.sweep();
-    ASSERT_EQ(f.outbound.closes.size(), 1u);
-    EXPECT_EQ(f.outbound.closes[0].first, ConnectionId{1});
-    EXPECT_EQ(f.outbound.closes[0].second, CloseMode::force);
+    ASSERT_EQ(f.outbound.drops.size(), 1u);
+    EXPECT_EQ(f.outbound.drops[0], ConnectionId{1});
     EXPECT_EQ(f.mon.evicted_total(), 1u); // 알람 counter
 }
 
@@ -87,7 +85,7 @@ TEST(LivenessMonitorTest, IgnoresHandshakingSession) {
     f.sessions.open(ConnectionId{1}); // handshaking (미등록)
     f.clock.advance(std::chrono::seconds{10});
     f.mon.sweep();
-    EXPECT_TRUE(f.outbound.closes.empty()); // handshaking 은 ConnectionManager handshake 타이머 소관
+    EXPECT_TRUE(f.outbound.drops.empty()); // handshaking 은 ConnectionManager handshake 타이머 소관
 }
 
 TEST(LivenessMonitorTest, IgnoresClosingSession) {
@@ -96,7 +94,7 @@ TEST(LivenessMonitorTest, IgnoresClosingSession) {
     f.sessions.find(ConnectionId{1})->state = State::closing; // 드레인 중
     f.clock.advance(std::chrono::seconds{10});
     f.mon.sweep();
-    EXPECT_TRUE(f.outbound.closes.empty()); // closing 은 ConnectionManager pw 소관
+    EXPECT_TRUE(f.outbound.drops.empty()); // closing 은 ConnectionManager pw 소관
 }
 
 TEST(LivenessMonitorTest, FreshenedSessionSurvives) {
@@ -106,5 +104,5 @@ TEST(LivenessMonitorTest, FreshenedSessionSurvives) {
     f.sessions.find(ConnectionId{1})->update_seen(f.clock.now()); // 트래픽 도착 -> 갱신
     f.clock.advance(std::chrono::seconds{2});                     // 마지막 관측 후 2s
     f.mon.sweep();
-    EXPECT_TRUE(f.outbound.closes.empty());
+    EXPECT_TRUE(f.outbound.drops.empty());
 }
