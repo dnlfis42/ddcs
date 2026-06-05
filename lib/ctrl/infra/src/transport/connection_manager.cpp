@@ -1,9 +1,9 @@
-#include "ddcs/ctrl/infra/transport/connection_coordinator.hpp"
+#include "ddcs/ctrl/infra/transport/connection_manager.hpp"
 
-#include "ddcs/runtime/reactor.hpp"
-#include "ddcs/runtime/timer_scheduler.hpp"
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/frame/frame.hpp"
+#include "ddcs/runtime/reactor.hpp"
+#include "ddcs/runtime/timer_scheduler.hpp"
 
 #include <cassert>
 #include <chrono>
@@ -26,19 +26,19 @@ constexpr std::chrono::nanoseconds handshake_timeout{std::chrono::seconds{3}}; /
 
 } // namespace
 
-ConnectionCoordinator::ConnectionCoordinator(runtime::Reactor& reactor, runtime::TimerScheduler& timers)
+ConnectionManager::ConnectionManager(runtime::Reactor& reactor, runtime::TimerScheduler& timers)
     : reactor_{reactor}, timers_{timers}, connection_pool_{common::make_pool<Connection>(0, pool_chunk)},
       payload_pool_{common::make_pool<common::LinearBuffer>(0, pool_chunk, payload_buf_capacity)} {}
 
 // --- Outbound (app -> transport) -------------------------------------------
 
-common::PoolHandle<common::LinearBuffer> ConnectionCoordinator::payload_buffer() {
+common::PoolHandle<common::LinearBuffer> ConnectionManager::payload_buffer() {
     auto buf = payload_pool_.acquire();
     buf->reserve(proto::frame::header_size); // frame header 자리 미리 확보
     return buf;
 }
 
-void ConnectionCoordinator::send(ConnectionId id, std::uint8_t type, common::PoolHandle<common::LinearBuffer> body) {
+void ConnectionManager::send(ConnectionId id, std::uint8_t type, common::PoolHandle<common::LinearBuffer> body) {
     auto* conn = find(id);
     if (conn == nullptr || conn->state() != Connection::State::open) {
         return; // 없거나 이미 닫는 중 - 드롭
@@ -58,7 +58,7 @@ void ConnectionCoordinator::send(ConnectionId id, std::uint8_t type, common::Poo
     update_interest(conn); // EPOLLOUT 무장
 }
 
-void ConnectionCoordinator::close(ConnectionId id, CloseMode mode) {
+void ConnectionManager::close(ConnectionId id, CloseMode mode) {
     auto* conn = find(id);
     if (conn == nullptr || conn->state() == Connection::State::closing) {
         return; // 없거나 이미 예약됨 (멱등)
@@ -66,6 +66,7 @@ void ConnectionCoordinator::close(ConnectionId id, CloseMode mode) {
     if (mode == CloseMode::force) {
         conn->latch_rst(); // 즉시 RST
         schedule_close(conn);
+        reap_if_idle();
         return;
     }
     // graceful
@@ -89,9 +90,10 @@ void ConnectionCoordinator::close(ConnectionId id, CloseMode mode) {
     }
     // passive_close tx empty / aborting / etc.: 즉시 closing (FIN, latch 없음)
     schedule_close(conn);
+    reap_if_idle();
 }
 
-void ConnectionCoordinator::handle_timer(runtime::TimerId id) {
+void ConnectionManager::handle_timer(runtime::TimerId id) {
     auto const it = timer_slot_.find(id);
     if (it == timer_slot_.end()) {
         return; // 방어 (Reactor 가 취소분은 거르므로 정상 경로엔 없음)
@@ -121,10 +123,10 @@ void ConnectionCoordinator::handle_timer(runtime::TimerId id) {
     }
 }
 
-void ConnectionCoordinator::handle_accept(common::Fd fd, Endpoint peer) {
+void ConnectionManager::handle_accept(common::Fd fd, Endpoint peer) {
     auto conn = connection_pool_.acquire();
     ConnectionId const id{++next_id_}; // transport mint (reserve_id 폐기)
-    conn->set_coordinator(*this);
+    conn->set_manager(*this);
     conn->assign(id, std::move(fd), peer, read_interest);
 
     auto [it, inserted] = connection_map_.try_emplace(id, std::move(conn));
@@ -149,7 +151,7 @@ void ConnectionCoordinator::handle_accept(common::Fd fd, Endpoint peer) {
     }
 }
 
-void ConnectionCoordinator::handle_event(Connection& conn, std::uint32_t events) {
+void ConnectionManager::handle_event(Connection& conn, std::uint32_t events) {
     Connection* const c = &conn;
     if (c->state() == Connection::State::closing) {
         return; // 이미 reap 예약됨
@@ -174,7 +176,7 @@ void ConnectionCoordinator::handle_event(Connection& conn, std::uint32_t events)
 }
 
 // open: framing. passive_wait: peer FIN 대기(수신분 폐기, FIN/에러만 본다).
-void ConnectionCoordinator::handle_readable(Connection* conn) {
+void ConnectionManager::handle_readable(Connection* conn) {
     if (conn->state() == Connection::State::passive_wait) {
         for (;;) {
             auto const r = conn->receive();
@@ -260,7 +262,7 @@ void ConnectionCoordinator::handle_readable(Connection* conn) {
 }
 
 // open / passive_close / active_close 에서 송신(드레인). close_requested 면 완료 시 다음 단계.
-void ConnectionCoordinator::handle_writable(Connection* conn) {
+void ConnectionManager::handle_writable(Connection* conn) {
     auto const s = conn->state();
     if (s != Connection::State::open && s != Connection::State::passive_close && s != Connection::State::active_close) {
         return;
@@ -278,7 +280,7 @@ void ConnectionCoordinator::handle_writable(Connection* conn) {
     }
 }
 
-void ConnectionCoordinator::update_interest(Connection* conn) {
+void ConnectionManager::update_interest(Connection* conn) {
     std::uint32_t desired = EPOLLET;
     switch (conn->state()) {
     case Connection::State::open:
@@ -306,7 +308,7 @@ void ConnectionCoordinator::update_interest(Connection* conn) {
 
 // --- epoll
 
-bool ConnectionCoordinator::epoll_add(Connection* conn) {
+bool ConnectionManager::epoll_add(Connection* conn) {
     if (!reactor_.add(conn->fd(), conn->io_interest(), conn)) {
         return false;
     }
@@ -314,7 +316,7 @@ bool ConnectionCoordinator::epoll_add(Connection* conn) {
     return true;
 }
 
-void ConnectionCoordinator::epoll_mod(Connection* conn, std::uint32_t events) {
+void ConnectionManager::epoll_mod(Connection* conn, std::uint32_t events) {
     if (!reactor_.mod(conn->fd(), events)) {
         fail(conn, CloseReason::conn_error);
         return;
@@ -322,7 +324,7 @@ void ConnectionCoordinator::epoll_mod(Connection* conn, std::uint32_t events) {
     conn->set_io_interest(events);
 }
 
-void ConnectionCoordinator::epoll_del(Connection* conn) {
+void ConnectionManager::epoll_del(Connection* conn) {
     if (!conn->in_epoll()) {
         return;
     }
@@ -333,16 +335,16 @@ void ConnectionCoordinator::epoll_del(Connection* conn) {
 // --- FSM
 
 // shutdown(WR) + passive_wait 전이 + pw 타임아웃 예약.
-void ConnectionCoordinator::to_passive_wait(Connection* conn) {
+void ConnectionManager::to_passive_wait(Connection* conn) {
     conn->shutdown_write();
     (void)conn->transition(Connection::State::passive_wait);
     runtime::TimerId const tid = timers_.schedule(pw_timeout, this);
     timer_slot_[tid] = TimerSlot{conn->id(), TimerKind::pw};
-    pw_timer_id_[conn->id()] = tid; // 정상 close 시 close_connections 가 cancel
+    pw_timer_id_[conn->id()] = tid; // 정상 close 시 close_connections()가 cancel
     update_interest(conn);          // pw -> EPOLLIN 만
 }
 
-void ConnectionCoordinator::fail(Connection* conn, CloseReason reason) {
+void ConnectionManager::fail(Connection* conn, CloseReason reason) {
     auto const s = conn->state();
     if (s == Connection::State::closing || s == Connection::State::aborting || s == Connection::State::idle) {
         return;
@@ -362,7 +364,7 @@ void ConnectionCoordinator::fail(Connection* conn, CloseReason reason) {
     }
 }
 
-void ConnectionCoordinator::schedule_close(Connection* conn) {
+void ConnectionManager::schedule_close(Connection* conn) {
     if (conn->state() == Connection::State::closing) {
         return; // 멱등
     }
@@ -371,7 +373,7 @@ void ConnectionCoordinator::schedule_close(Connection* conn) {
     }
 }
 
-void ConnectionCoordinator::cancel_handshake(ConnectionId id) {
+void ConnectionManager::cancel_handshake(ConnectionId id) {
     auto const it = handshake_timer_id_.find(id);
     if (it == handshake_timer_id_.end()) {
         return; // 첫 프레임 이미 도착했거나 미등록 - 멱등
@@ -381,7 +383,21 @@ void ConnectionCoordinator::cancel_handshake(ConnectionId id) {
     handshake_timer_id_.erase(it);
 }
 
-void ConnectionCoordinator::close_connections() {
+void ConnectionManager::leave_entrypoint() {
+    assert(entry_depth_ > 0);
+    --entry_depth_;
+    reap_if_idle();
+}
+
+void ConnectionManager::reap_if_idle() {
+    if (entry_depth_ != 0 || pending_close_.empty() || reaping_) {
+        return;
+    }
+    close_connections();
+}
+
+void ConnectionManager::close_connections() {
+    reaping_ = true;
     // 인덱스 순회: reap 중 on_disconnect 가 더 닫아 pending 이 자라도 안전(반복자 무효화 없음).
     for (std::size_t i = 0; i < pending_close_.size(); ++i) {
         ConnectionId const id = pending_close_[i];
@@ -403,9 +419,10 @@ void ConnectionCoordinator::close_connections() {
         connection_map_.erase(id); // 핸들 drop -> reset() -> fd close (무장 시 RST)
     }
     pending_close_.clear();
+    reaping_ = false;
 }
 
-Connection* ConnectionCoordinator::find(ConnectionId id) {
+Connection* ConnectionManager::find(ConnectionId id) {
     auto const it = connection_map_.find(id);
     return it == connection_map_.end() ? nullptr : it->second.get();
 }

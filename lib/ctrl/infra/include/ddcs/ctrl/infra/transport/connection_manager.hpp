@@ -28,19 +28,18 @@ using ddcs::ctrl::port::transport::CloseReason;
 using ddcs::ctrl::port::transport::Inbound;
 using ddcs::ctrl::port::transport::Outbound;
 
-// transport 의 정책/오케스트레이션 중심.
-//  - app 쪽: Outbound 구현(payload_buffer/send/close/timer).
-//  - runtime 쪽: runtime::TimerHandler(타이머 만료 수신), Connection 의 per-conn 이벤트 구동.
-// Reactor(runtime)는 이 클래스를 모른다. 연결 수명/FSM/framing 은 전부 여기 산다.
-class ConnectionCoordinator final : public Outbound, public runtime::TimerHandler {
+// transport connection 집합의 수명주기 중심.
+// app 쪽으로는 Outbound를 구현하고, runtime 쪽으로는 timer와 per-connection fd event를 받는다.
+// Reactor는 이 클래스를 모르고, 연결 수명/FSM/framing은 전부 여기서 완결한다.
+class ConnectionManager final : public Outbound, public runtime::TimerHandler {
 public:
-    ConnectionCoordinator(runtime::Reactor& reactor, runtime::TimerScheduler& timers);
-    ~ConnectionCoordinator() override { connection_map_.clear(); }
+    ConnectionManager(runtime::Reactor& reactor, runtime::TimerScheduler& timers);
+    ~ConnectionManager() override { connection_map_.clear(); }
 
-    ConnectionCoordinator(ConnectionCoordinator const&) = delete;
-    ConnectionCoordinator& operator=(ConnectionCoordinator const&) = delete;
-    ConnectionCoordinator(ConnectionCoordinator&&) noexcept = delete;
-    ConnectionCoordinator& operator=(ConnectionCoordinator&&) noexcept = delete;
+    ConnectionManager(ConnectionManager const&) = delete;
+    ConnectionManager& operator=(ConnectionManager const&) = delete;
+    ConnectionManager(ConnectionManager&&) noexcept = delete;
+    ConnectionManager& operator=(ConnectionManager&&) noexcept = delete;
 
 public: // DI
     void init(Inbound& handler) noexcept { handler_ = &handler; }
@@ -55,20 +54,20 @@ public: // Outbound (app -> transport)
 
 public:
     void on_timer_event(runtime::TimerId id) override {
+        ++entry_depth_;
         handle_timer(id);
-        close_connections();
+        leave_entrypoint();
     }
     void on_accept(common::Fd fd, Endpoint peer) {
+        ++entry_depth_;
         handle_accept(std::move(fd), peer);
-        close_connections();
+        leave_entrypoint();
     }
     void on_event(Connection& conn, std::uint32_t events) {
+        ++entry_depth_;
         handle_event(conn, events);
-        close_connections();
+        leave_entrypoint();
     }
-
-    // 조립 루트(Controller)가 sweep 등 entry-point 밖에서 close 한 뒤 reap 을 구동.
-    void close_connections(); // pending close 일괄 정리(reap). 위 on_* 래퍼도 호출.
 
 private:
     void handle_timer(runtime::TimerId id);
@@ -95,6 +94,11 @@ private: // FSM 전이
 private: // 조회
     Connection* find(ConnectionId id);
 
+private: // close reap
+    void leave_entrypoint();
+    void reap_if_idle();
+    void close_connections();
+
 private: // 타이머 장부 (opaque TimerId -> 의미)
     enum class TimerKind : std::uint8_t { handshake, pw };
     struct TimerSlot {
@@ -108,6 +112,8 @@ private:
     runtime::TimerScheduler& timers_;
     Inbound* handler_{nullptr};
     std::uint64_t next_id_{0}; // ConnectionId 발급 카운터(transport mint). 1 부터
+    std::uint32_t entry_depth_{0};
+    bool reaping_{false};
     common::ObjectPool<Connection> connection_pool_;
     common::ObjectPool<common::LinearBuffer> payload_pool_;
     std::unordered_map<ConnectionId, common::PoolHandle<Connection>> connection_map_;

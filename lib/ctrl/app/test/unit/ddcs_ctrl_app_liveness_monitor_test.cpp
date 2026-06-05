@@ -87,7 +87,7 @@ TEST(LivenessMonitorTest, IgnoresHandshakingSession) {
     f.sessions.open(ConnectionId{1}); // handshaking (미등록)
     f.clock.advance(std::chrono::seconds{10});
     f.mon.sweep();
-    EXPECT_TRUE(f.outbound.closes.empty()); // handshaking 은 coordinator handshake 타이머 소관
+    EXPECT_TRUE(f.outbound.closes.empty()); // handshaking 은 ConnectionManager handshake 타이머 소관
 }
 
 TEST(LivenessMonitorTest, IgnoresClosingSession) {
@@ -96,7 +96,7 @@ TEST(LivenessMonitorTest, IgnoresClosingSession) {
     f.sessions.find(ConnectionId{1})->state = State::closing; // 드레인 중
     f.clock.advance(std::chrono::seconds{10});
     f.mon.sweep();
-    EXPECT_TRUE(f.outbound.closes.empty()); // closing 은 coordinator pw 소관
+    EXPECT_TRUE(f.outbound.closes.empty()); // closing 은 ConnectionManager pw 소관
 }
 
 TEST(LivenessMonitorTest, FreshenedSessionSurvives) {

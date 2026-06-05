@@ -24,7 +24,7 @@ using ddcs::ctrl::port::metrics::Inbound;
 
 // metrics 스크레이프 listen 엔드포인트 - reactor 의 두 번째 guest.
 // listen fd 의 FdHandler(accept) + per-conn Connection 오케스트레이션. HTTP read -> respond -> close.
-// gen-token reactor 가 디스패치 안전을 보장; self-close 는 entry-point 끝 reap 으로(coordinator 미러).
+// gen-token reactor 가 디스패치 안전을 보장한다. self-close는 entry-point 끝에서 reap한다.
 class Server final : public runtime::FdHandler {
 public:
     Server(runtime::Reactor& reactor, Inbound& provider, std::uint16_t port, int backlog);

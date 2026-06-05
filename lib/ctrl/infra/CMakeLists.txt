@@ -1,15 +1,15 @@
 add_library(ddcs_ctrl_infra STATIC)
 add_library(ddcs::ctrl::infra ALIAS ddcs_ctrl_infra)
 
-# 5a Endpoint, 5b Connection, 5c ConnectionCoordinator, 5d Acceptor.
+# 5a Endpoint, 5b Connection, 5c ConnectionManager, 5d ConnectionAcceptor.
 target_sources(
     ddcs_ctrl_infra
     PRIVATE
         src/metrics/connection.cpp
         src/metrics/server.cpp
-        src/transport/acceptor.cpp
         src/transport/connection.cpp
-        src/transport/connection_coordinator.cpp
+        src/transport/connection_acceptor.cpp
+        src/transport/connection_manager.cpp
         src/transport/endpoint.cpp
     PUBLIC
         FILE_SET HEADERS
@@ -17,9 +17,9 @@ target_sources(
             FILES
                 include/ddcs/ctrl/infra/metrics/connection.hpp
                 include/ddcs/ctrl/infra/metrics/server.hpp
-                include/ddcs/ctrl/infra/transport/acceptor.hpp
                 include/ddcs/ctrl/infra/transport/connection.hpp
-                include/ddcs/ctrl/infra/transport/connection_coordinator.hpp
+                include/ddcs/ctrl/infra/transport/connection_acceptor.hpp
+                include/ddcs/ctrl/infra/transport/connection_manager.hpp
                 include/ddcs/ctrl/infra/transport/endpoint.hpp
 )
 target_link_libraries(

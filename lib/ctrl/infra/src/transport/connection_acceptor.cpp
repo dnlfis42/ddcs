@@ -1,10 +1,10 @@
-#include "ddcs/ctrl/infra/transport/acceptor.hpp"
+#include "ddcs/ctrl/infra/transport/connection_acceptor.hpp"
 
 #include "ddcs/common/throw_errno.hpp"
-#include "ddcs/ctrl/infra/transport/connection_coordinator.hpp"
+#include "ddcs/ctrl/infra/transport/connection_manager.hpp"
 #include "ddcs/ctrl/infra/transport/endpoint.hpp"
-#include "ddcs/runtime/reactor.hpp"
 #include "ddcs/logger/log.hpp"
+#include "ddcs/runtime/reactor.hpp"
 
 #include <utility>
 
@@ -44,12 +44,12 @@ Endpoint from_sockaddr(sockaddr const& sa, socklen_t len) noexcept {
 
 } // namespace
 
-Acceptor::Acceptor(
-    runtime::Reactor& reactor, ConnectionCoordinator& coordinator, std::uint16_t listen_port, int accept_backlog
+ConnectionAcceptor::ConnectionAcceptor(
+    runtime::Reactor& reactor, ConnectionManager& manager, std::uint16_t listen_port, int accept_backlog
 )
-    : reactor_{reactor}, coordinator_{coordinator}, listen_port_{listen_port}, accept_backlog_{accept_backlog} {}
+    : reactor_{reactor}, manager_{manager}, listen_port_{listen_port}, accept_backlog_{accept_backlog} {}
 
-void Acceptor::start() {
+void ConnectionAcceptor::start() {
     listen_fd_.reset(::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
     if (!listen_fd_) {
         common::throw_errno(errno, "socket");
@@ -85,7 +85,7 @@ void Acceptor::start() {
     LOG_INFO("transport.acceptor.start", ddcs::logger::kv("port", port()));
 }
 
-std::uint16_t Acceptor::port() const {
+std::uint16_t ConnectionAcceptor::port() const {
     sockaddr_in addr{};
     socklen_t len{sizeof(addr)};
     if (::getsockname(listen_fd_.get(), reinterpret_cast<sockaddr*>(&addr), &len) < 0) {
@@ -94,7 +94,7 @@ std::uint16_t Acceptor::port() const {
     return ntohs(addr.sin_port);
 }
 
-void Acceptor::on_fd_event(std::uint32_t events) {
+void ConnectionAcceptor::on_fd_event(std::uint32_t events) {
     if ((events & (EPOLLERR | EPOLLHUP)) != 0u) {
         LOG_ERROR("transport.listener_error", ddcs::logger::kv("events", events));
         reactor_.stop();
@@ -105,7 +105,7 @@ void Acceptor::on_fd_event(std::uint32_t events) {
     }
 }
 
-void Acceptor::accept_loop() {
+void ConnectionAcceptor::accept_loop() {
     for (;;) {
         sockaddr_storage peer_addr{};
         socklen_t peer_addr_len{sizeof(peer_addr)};
@@ -147,7 +147,7 @@ void Acceptor::accept_loop() {
         }
 
         Endpoint const peer = from_sockaddr(reinterpret_cast<sockaddr const&>(peer_addr), peer_addr_len);
-        coordinator_.on_accept(std::move(conn_fd), peer); // 연결 생성/등록/통지는 coordinator 소관
+        manager_.on_accept(std::move(conn_fd), peer); // 연결 생성/등록/통지는 manager 소관.
     }
 }
 

@@ -1,9 +1,9 @@
-#include "ddcs/ctrl/infra/transport/acceptor.hpp"
+#include "ddcs/ctrl/infra/transport/connection_acceptor.hpp"
 
 #include "ddcs/common/fd.hpp"
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
-#include "ddcs/ctrl/infra/transport/connection_coordinator.hpp"
+#include "ddcs/ctrl/infra/transport/connection_manager.hpp"
 #include "ddcs/ctrl/port/transport/connection_id.hpp"
 #include "ddcs/ctrl/port/transport/inbound.hpp"
 #include "ddcs/proto/frame/frame.hpp"
@@ -27,8 +27,8 @@ namespace {
 using ddcs::common::Fd;
 using ddcs::common::LinearBuffer;
 using ddcs::common::PoolHandle;
-using ddcs::ctrl::infra::transport::Acceptor;
-using ddcs::ctrl::infra::transport::ConnectionCoordinator;
+using ddcs::ctrl::infra::transport::ConnectionAcceptor;
+using ddcs::ctrl::infra::transport::ConnectionManager;
 using ddcs::ctrl::port::transport::CloseReason;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Inbound;
@@ -67,14 +67,14 @@ Fd connect_loopback(std::uint16_t port) {
 
 } // namespace
 
-TEST(AcceptorTest, AcceptsConnectionAndDeliversFrame) {
+TEST(ConnectionAcceptorTest, AcceptsConnectionAndDeliversFrame) {
     Reactor reactor;
     TimerScheduler timers{reactor};
     timers.start();
-    ConnectionCoordinator coord{reactor, timers};
+    ConnectionManager manager{reactor, timers};
     MockInbound inbound;
-    coord.init(inbound);
-    Acceptor acceptor{reactor, coord, 0, 128}; // ephemeral port
+    manager.init(inbound);
+    ConnectionAcceptor acceptor{reactor, manager, 0, 128}; // ephemeral port
     acceptor.start();
 
     std::uint16_t const port = acceptor.port();

@@ -30,7 +30,7 @@ void SessionManager::on_recv(ConnectionId conn, std::uint8_t type, common::PoolH
     Session* const s = sessions_.find(conn);
 
     // handshaking: RegisterRequest 만 허용. 잘못된 첫 프레임은 프로토콜 위반 -> close.
-    // (coordinator handshake 타이머가 "프레임 없음"을, 이건 "잘못된 첫 프레임"을 닫아 register-or-die 완성.)
+    // (ConnectionManager handshake 타이머가 "프레임 없음"을, 이건 "잘못된 첫 프레임"을 닫아 register-or-die 완성.)
     if (s != nullptr && s->state == State::handshaking && t != proto::msg::Type::RegisterRequest) {
         LOG_WARN(
             "dispatch.pre_register_unexpected", ddcs::logger::kv("conn", conn.value()), ddcs::logger::kv("type", type)
@@ -69,7 +69,7 @@ void SessionManager::on_recv(ConnectionId conn, std::uint8_t type, common::PoolH
 
 void SessionManager::on_close_request(ConnectionId conn, CloseReason reason) {
     if (Session* const s = sessions_.find(conn); s != nullptr) {
-        s->state = State::closing; // liveness 에서 즉시 제외(드레인 한도는 coordinator pw 소관)
+        s->state = State::closing; // liveness 에서 즉시 제외(드레인 한도는 ConnectionManager pw 소관)
     }
     // peer_closed(정상 half-close)는 graceful 드레인, 오류성(conn/protocol)은 force.
     CloseMode const mode = (reason == CloseReason::peer_closed) ? CloseMode::graceful : CloseMode::force;

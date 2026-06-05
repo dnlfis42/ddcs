@@ -1,6 +1,6 @@
 #include "ddcs/ctrl/infra/transport/connection.hpp"
 
-#include "ddcs/ctrl/infra/transport/connection_coordinator.hpp"
+#include "ddcs/ctrl/infra/transport/connection_manager.hpp"
 
 #include <cassert>
 #include <cerrno>
@@ -39,8 +39,8 @@ bool can_transition(Connection::State from, Connection::State to) noexcept {
 
 } // namespace
 
-// 정책 없음: Reactor 가 알려온 readiness 를 coordinator 로 곧장 위임.
-void Connection::on_fd_event(std::uint32_t events) { coordinator_->on_event(*this, events); }
+// 정책 없음: Reactor가 알려온 readiness를 manager로 곧장 위임한다.
+void Connection::on_fd_event(std::uint32_t events) { manager_->on_event(*this, events); }
 
 void Connection::assign(ConnectionId id, common::Fd fd, Endpoint peer, std::uint32_t io_interest) noexcept {
     assert(state_ == State::idle && "assign() on non-idle connection");
@@ -85,7 +85,7 @@ void Connection::reset() noexcept {
     while (!tx_queue_.empty()) {
         tx_queue_.pop();
     }
-    // coordinator_ 는 per-conn 상태가 아니라 슬롯 바인딩이므로 유지(재사용 시 set_coordinator 가 갱신).
+    // manager_는 per-conn 상태가 아니라 슬롯 바인딩이므로 유지(재사용 시 set_manager()가 갱신).
 }
 
 // ET: 더 읽을 게 없을 때(EAGAIN)까지 소진. 전이는 하지 않고 결과만 보고한다.

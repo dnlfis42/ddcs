@@ -19,15 +19,15 @@ namespace ddcs::ctrl::infra::transport {
 
 using ddcs::ctrl::port::transport::ConnectionId;
 
-class ConnectionCoordinator; // on_fd_event 위임 대상 (순환 의존 회피)
+class ConnectionManager; // on_fd_event 위임 대상 (순환 의존 회피)
 
 inline constexpr std::size_t inbound_buffer_capacity{1 << 12};
 
 // 순수 메커니즘: syscall + 버퍼 + IoResult 보고만 한다.
-// 상태 전이는 스스로 하지 않고 ConnectionCoordinator 가 transition() 으로 구동한다.
+// 상태 전이는 스스로 하지 않고 ConnectionManager가 transition()으로 구동한다.
 //
 // runtime::FdHandler 로서: Reactor 가 이 conn fd 의 readiness 를 알려오면 on_fd_event 가 호출되고,
-// 정책은 갖지 않은 채 곧장 coordinator 로 위임한다.
+// 정책은 갖지 않은 채 곧장 manager로 위임한다.
 class Connection : public runtime::FdHandler {
 public:
     enum class State : std::uint8_t {
@@ -57,7 +57,7 @@ public:
     Connection(Connection&&) noexcept = delete;
     Connection& operator=(Connection&&) noexcept = delete;
 
-public: // runtime::FdHandler - 정책 없음. 곧장 coordinator 로 위임.
+public: // runtime::FdHandler - 정책 없음. 곧장 manager로 위임.
     void on_fd_event(std::uint32_t events) override;
 
 public: // state query
@@ -69,22 +69,22 @@ public: // state query
     bool in_epoll() const noexcept { return in_epoll_; }
     bool close_requested() const noexcept { return close_requested_; }
 
-public: // mutation (ConnectionCoordinator 전용)
-    // 이 conn 을 구동할 coordinator 바인딩. 풀에서 꺼낸 직후 1회 설정(전이 전).
-    void set_coordinator(ConnectionCoordinator& coordinator) noexcept { coordinator_ = &coordinator; }
+public: // mutation (ConnectionManager 전용)
+    // 이 conn을 구동할 manager 바인딩. 풀에서 꺼낸 직후 1회 설정(전이 전).
+    void set_manager(ConnectionManager& manager) noexcept { manager_ = &manager; }
     // 풀에서 갓 꺼낸 idle 슬롯에 자원 배정. 전이는 하지 않는다.
     void assign(ConnectionId id, common::Fd fd, Endpoint peer, std::uint32_t io_interest) noexcept;
     // 합법 엣지면 전이 후 true, 불법이면 무변경 후 false (assert 안 함. 호출부 책임)
     [[nodiscard]]
     bool transition(State to) noexcept;
-    // in_epoll_ 미러. 실제 epoll_ctl 은 ConnectionCoordinator 소관
+    // in_epoll_ 미러. 실제 epoll_ctl은 ConnectionManager 소관.
     void enter_epoll() noexcept { in_epoll_ = true; }
     void leave_epoll() noexcept { in_epoll_ = false; }
     // 운영 중 epoll interest 변경분을 미러에 반영 (첫 세팅은 assign 이 담당)
     void set_io_interest(std::uint32_t io_interest) noexcept { io_interest_ = io_interest; }
     // 이후 fd close 가 RST 를 보내도록 래치 (SO_LINGER{1,0}). 토글 아님(되돌릴 수 없음)
     void latch_rst() noexcept;
-    // graceful close 요청 마킹 (one-way). tx 드레인 완료 시 coordinator 가 closing 으로 전이
+    // graceful close 요청 마킹 (one-way). tx 드레인 완료 시 manager가 closing으로 전이.
     void request_close() noexcept { close_requested_ = true; }
     // half-close: 송신 방향 FIN. 이후 write 불가(드레인 완료 후 호출). 수신은 계속 가능
     void shutdown_write() noexcept;
@@ -106,7 +106,7 @@ public: // tx
     void tx_enqueue(common::PoolHandle<common::LinearBuffer>&& buffer) { tx_queue_.push(std::move(buffer)); }
 
 private: // data
-    ConnectionCoordinator* coordinator_{nullptr};
+    ConnectionManager* manager_{nullptr};
     ConnectionId id_{};
     common::Fd fd_{};
     Endpoint peer_{};

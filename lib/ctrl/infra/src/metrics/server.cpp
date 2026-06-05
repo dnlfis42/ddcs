@@ -2,8 +2,8 @@
 
 #include "ddcs/common/throw_errno.hpp"
 #include "ddcs/ctrl/port/metrics/inbound.hpp"
-#include "ddcs/runtime/reactor.hpp"
 #include "ddcs/logger/log.hpp"
+#include "ddcs/runtime/reactor.hpp"
 
 #include <string>
 #include <utility>

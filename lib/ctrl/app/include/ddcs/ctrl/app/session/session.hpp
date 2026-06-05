@@ -12,9 +12,9 @@ using ddcs::ctrl::domain::DeviceId;
 // 세션 수명 상태.
 enum class State : std::uint8_t {
     idle,        // 미사용 초깃값.
-    handshaking, // 연결됨, RegisterRequest 대기. 한도는 coordinator의 handshake 타이머(infra)가 감시.
+    handshaking, // 연결됨, RegisterRequest 대기. 한도는 ConnectionManager handshake 타이머가 감시.
     active,      // 등록 완료, 운영 중. LivenessMonitor가 last_seen으로 침묵을 감시.
-    closing,     // graceful close 진행 중. liveness 대상 아님(coordinator pw가 드레인 한도)
+    closing,     // graceful close 진행 중. liveness 대상 아님(ConnectionManager pw가 드레인 한도)
 };
 
 // 한 연결의 세션 상태(연결<->agent 바인딩 + liveness 관측). SessionRegistry 가 conn 으로 키잉해 소유.
