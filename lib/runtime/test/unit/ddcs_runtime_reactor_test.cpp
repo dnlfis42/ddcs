@@ -21,7 +21,7 @@ class FlagIo : public FdHandler {
 public:
     int count{0};
     std::uint32_t last_events{0};
-    void on_io(std::uint32_t events) override {
+    void on_fd_event(std::uint32_t events) override {
         ++count;
         last_events = events;
     }

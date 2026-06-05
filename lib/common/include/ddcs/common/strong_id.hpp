@@ -1,23 +1,25 @@
 #pragma once
 
+#include <concepts>
 #include <functional>
-#include <type_traits>
 
 #include <cstddef>
 
 namespace ddcs::common {
 
 template <typename Tag, typename T>
-    requires std::is_default_constructible_v<T>
+    requires std::default_initializable<T> && std::equality_comparable<T>
 class StrongId {
 public:
-    StrongId() = default;
-    explicit StrongId(T v) noexcept : value_{v} {}
+    constexpr StrongId() = default;
+    constexpr explicit StrongId(T v) noexcept : value_{v} {}
 
-    T value() const noexcept { return value_; }
-    bool valid() const noexcept { return value_ != T{}; }
-    bool operator==(StrongId const&) const = default;
-    void reset() { value_ = {}; }
+    constexpr T value() const noexcept { return value_; }
+    constexpr bool valid() const noexcept { return value_ != T{}; }
+
+    constexpr void reset() noexcept { value_ = {}; }
+
+    constexpr bool operator==(StrongId const&) const = default;
 
 private:
     T value_{};

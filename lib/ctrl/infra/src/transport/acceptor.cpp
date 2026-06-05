@@ -94,7 +94,7 @@ std::uint16_t Acceptor::port() const {
     return ntohs(addr.sin_port);
 }
 
-void Acceptor::on_io(std::uint32_t events) {
+void Acceptor::on_fd_event(std::uint32_t events) {
     if ((events & (EPOLLERR | EPOLLHUP)) != 0u) {
         LOG_ERROR("transport.listener_error", ddcs::logger::kv("events", events));
         reactor_.stop();

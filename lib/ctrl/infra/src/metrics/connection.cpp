@@ -16,7 +16,7 @@ namespace {
 constexpr std::size_t request_cap{8192}; // 요청 상한 - 넘으면 그만 읽고 응답(악성/과대 방어)
 } // namespace
 
-void Connection::on_io(std::uint32_t events) { server_->on_event(*this, events); }
+void Connection::on_fd_event(std::uint32_t events) { server_->on_event(*this, events); }
 
 void Connection::assign(common::Fd fd) noexcept {
     fd_ = std::move(fd);

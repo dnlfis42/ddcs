@@ -40,7 +40,7 @@ bool can_transition(Connection::State from, Connection::State to) noexcept {
 } // namespace
 
 // 정책 없음: Reactor 가 알려온 readiness 를 coordinator 로 곧장 위임.
-void Connection::on_io(std::uint32_t events) { coordinator_->on_event(*this, events); }
+void Connection::on_fd_event(std::uint32_t events) { coordinator_->on_event(*this, events); }
 
 void Connection::assign(ConnectionId id, common::Fd fd, Endpoint peer, std::uint32_t io_interest) noexcept {
     assert(state_ == State::idle && "assign() on non-idle connection");

@@ -4,14 +4,11 @@
 
 namespace ddcs::runtime {
 
-/**
- * @brief 타이머 만료 시 호출되는 핸들러 인터페이스
- *
- */
+// TimerScheduler가 전달하는 논리 타이머 만료를 받는다.
 class TimerHandler {
 public:
     virtual ~TimerHandler() = default;
-    virtual void on_timer(TimerId id) = 0;
+    virtual void on_timer_event(TimerId id) = 0;
 };
 
 } // namespace ddcs::runtime

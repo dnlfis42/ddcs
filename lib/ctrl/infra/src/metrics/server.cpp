@@ -78,7 +78,7 @@ std::uint16_t Server::port() const {
     return ntohs(addr.sin_port);
 }
 
-void Server::on_io(std::uint32_t events) {
+void Server::on_fd_event(std::uint32_t events) {
     if ((events & (EPOLLERR | EPOLLHUP)) != 0u) {
         LOG_ERROR("metrics.listener_error", ddcs::logger::kv("events", events));
         return;

@@ -1,4 +1,4 @@
-#include "ddcs/runtime/timer_source.hpp"
+#include "ddcs/runtime/timer_scheduler.hpp"
 
 #include "ddcs/common/clock.hpp"
 #include "ddcs/runtime/reactor.hpp"
@@ -17,19 +17,19 @@ namespace {
 using ddcs::runtime::Reactor;
 using ddcs::runtime::TimerHandler;
 using ddcs::runtime::TimerId;
-using ddcs::runtime::TimerSource;
+using ddcs::runtime::TimerScheduler;
 
 class RecordingTimer : public TimerHandler {
 public:
     std::vector<TimerId> fired;
-    void on_timer(TimerId id) override { fired.push_back(id); }
+    void on_timer_event(TimerId id) override { fired.push_back(id); }
 };
 
 } // namespace
 
-TEST(TimerSourceTest, TimerFiresThroughReactor) {
+TEST(TimerSchedulerTest, TimerFiresThroughReactor) {
     Reactor reactor;
-    TimerSource timers{reactor};
+    TimerScheduler timers{reactor};
     RecordingTimer handler;
 
     timers.start();
@@ -40,9 +40,9 @@ TEST(TimerSourceTest, TimerFiresThroughReactor) {
     EXPECT_EQ(handler.fired[0], id);
 }
 
-TEST(TimerSourceTest, CancelledTimerDoesNotFire) {
+TEST(TimerSchedulerTest, CancelledTimerDoesNotFire) {
     Reactor reactor;
-    TimerSource timers{reactor};
+    TimerScheduler timers{reactor};
     RecordingTimer handler;
 
     timers.start();
@@ -53,10 +53,10 @@ TEST(TimerSourceTest, CancelledTimerDoesNotFire) {
     EXPECT_TRUE(handler.fired.empty());
 }
 
-TEST(TimerSourceTest, ExpireDueUsesInjectedClock) {
+TEST(TimerSchedulerTest, ExpireDueUsesInjectedClock) {
     ddcs::common::ManualClock clock;
     Reactor reactor;
-    TimerSource timers{reactor, clock};
+    TimerScheduler timers{reactor, clock};
     RecordingTimer handler;
 
     TimerId const id = timers.schedule(5ms, &handler);

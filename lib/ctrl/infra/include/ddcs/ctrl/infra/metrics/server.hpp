@@ -38,8 +38,8 @@ public:
     void start();               // socket/bind/listen + reactor.add(listen_fd)
     std::uint16_t port() const; // 실제 바인드 포트(ephemeral 확인용)
 
-    void on_io(std::uint32_t events) override;             // listen fd: accept + reap
-    void on_event(Connection& conn, std::uint32_t events); // conn fd(Connection::on_io 위임): dispatch + reap
+    void on_fd_event(std::uint32_t events) override;       // listen fd: accept + reap
+    void on_event(Connection& conn, std::uint32_t events); // conn fd(Connection::on_fd_event 위임): dispatch + reap
 
     std::size_t size() const noexcept { return conns_.size(); }
 

@@ -1,4 +1,4 @@
-#include "ddcs/runtime/signal_source.hpp"
+#include "ddcs/runtime/signal_fd.hpp"
 
 #include "ddcs/runtime/reactor.hpp"
 
@@ -14,14 +14,14 @@ using namespace std::chrono_literals;
 namespace {
 
 using ddcs::runtime::Reactor;
-using ddcs::runtime::SignalSource;
+using ddcs::runtime::SignalFd;
 
 } // namespace
 
-TEST(SignalSourceTest, RaisedSignalInvokesCallback) {
+TEST(SignalFdTest, RaisedSignalInvokesCallback) {
     Reactor reactor;
     bool fired{false};
-    SignalSource source{reactor, {SIGUSR1}, [&] {
+    SignalFd source{reactor, {SIGUSR1}, [&] {
                             fired = true;
                             reactor.stop();
                         }};

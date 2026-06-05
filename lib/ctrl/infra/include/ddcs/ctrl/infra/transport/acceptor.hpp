@@ -30,8 +30,8 @@ public:
     void start();               // socket/bind/listen + reactor.add(listen_fd) + reserve-fd 확보
     std::uint16_t port() const; // 실제 바인드된 포트 (ephemeral=0 확인용)
 
-public:                                        // runtime::FdHandler (listen fd)
-    void on_io(std::uint32_t events) override; // 에러 -> reactor.stop / EPOLLIN -> accept 루프
+public:                                              // runtime::FdHandler (listen fd)
+    void on_fd_event(std::uint32_t events) override; // 에러 -> reactor.stop / EPOLLIN -> accept 루프
 
 private:
     void accept_loop();

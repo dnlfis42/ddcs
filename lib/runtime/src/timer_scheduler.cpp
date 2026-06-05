@@ -1,4 +1,4 @@
-#include "ddcs/runtime/timer_source.hpp"
+#include "ddcs/runtime/timer_scheduler.hpp"
 
 #include "ddcs/common/throw_errno.hpp"
 #include "ddcs/runtime/reactor.hpp"
@@ -45,13 +45,13 @@ itimerspec make_spec(std::chrono::nanoseconds delay) noexcept {
 
 } // namespace
 
-TimerSource::TimerSource(Reactor& reactor) : reactor_{reactor}, clock_{default_clock_} {}
+TimerScheduler::TimerScheduler(Reactor& reactor) : reactor_{reactor}, clock_{default_clock_} {}
 
-TimerSource::TimerSource(Reactor& reactor, common::Clock& clock) : reactor_{reactor}, clock_{clock} {}
+TimerScheduler::TimerScheduler(Reactor& reactor, common::Clock& clock) : reactor_{reactor}, clock_{clock} {}
 
-TimerSource::~TimerSource() { stop(); }
+TimerScheduler::~TimerScheduler() { stop(); }
 
-void TimerSource::start() {
+void TimerScheduler::start() {
     if (registered_) {
         return;
     }
@@ -76,7 +76,7 @@ void TimerSource::start() {
     }
 }
 
-void TimerSource::stop() noexcept {
+void TimerScheduler::stop() noexcept {
     if (registered_) {
         reactor_.del(fd_.get());
         registered_ = false;
@@ -84,23 +84,40 @@ void TimerSource::stop() noexcept {
     fd_.reset();
 }
 
-TimerId TimerSource::schedule(std::chrono::nanoseconds delay, TimerHandler* handler) {
-    TimerId const id = timers_.schedule(clock_.now() + delay, handler);
+TimerId TimerScheduler::schedule(std::chrono::nanoseconds delay, TimerHandler* handler) {
+    TimerId const id = handlers_.insert(handler);
+    timers_.push(clock_.now() + delay, id);
     arm();
     return id;
 }
 
-void TimerSource::cancel(TimerId id) {
-    timers_.cancel(id);
+void TimerScheduler::cancel(TimerId id) {
+    (void)handlers_.erase(id);
     arm();
 }
 
-void TimerSource::expire_due() {
-    timers_.expire(clock_.now());
+void TimerScheduler::expire_due() {
+    auto const now = clock_.now();
+
+    for (;;) {
+        prune_cancelled();
+
+        auto const entry = timers_.top();
+        if (!entry || entry->deadline > now) {
+            break;
+        }
+
+        timers_.pop();
+        TimerHandler* handler = handlers_.consume(entry->id);
+        if (handler != nullptr) {
+            handler->on_timer_event(entry->id);
+        }
+    }
+
     arm();
 }
 
-void TimerSource::on_io(std::uint32_t events) {
+void TimerScheduler::on_fd_event(std::uint32_t events) {
     if ((events & EPOLLIN) == 0u) {
         return;
     }
@@ -109,7 +126,7 @@ void TimerSource::on_io(std::uint32_t events) {
     }
 }
 
-bool TimerSource::drain() {
+bool TimerScheduler::drain() {
     bool delivered{false};
     for (;;) {
         std::uint64_t expirations{};
@@ -132,13 +149,31 @@ bool TimerSource::drain() {
     }
 }
 
-void TimerSource::arm() {
+void TimerScheduler::prune_cancelled() {
+    while (auto const entry = timers_.top()) {
+        if (handlers_.contains(entry->id)) {
+            return;
+        }
+        timers_.pop();
+    }
+}
+
+std::optional<detail::TimerQueue::time_point> TimerScheduler::next_deadline() {
+    prune_cancelled();
+    auto const entry = timers_.top();
+    if (!entry) {
+        return std::nullopt;
+    }
+    return entry->deadline;
+}
+
+void TimerScheduler::arm() {
     if (!registered_) {
         return;
     }
 
     itimerspec spec{};
-    if (auto const deadline = timers_.next_deadline()) {
+    if (auto const deadline = next_deadline()) {
         auto const remaining = std::max(*deadline - clock_.now(), common::Clock::duration::zero());
         spec = make_spec(std::chrono::duration_cast<std::chrono::nanoseconds>(remaining));
     }

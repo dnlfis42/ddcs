@@ -1,7 +1,7 @@
 #include "ddcs/ctrl/infra/transport/connection_coordinator.hpp"
 
 #include "ddcs/runtime/reactor.hpp"
-#include "ddcs/runtime/timer_source.hpp"
+#include "ddcs/runtime/timer_scheduler.hpp"
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/frame/frame.hpp"
 
@@ -26,7 +26,7 @@ constexpr std::chrono::nanoseconds handshake_timeout{std::chrono::seconds{3}}; /
 
 } // namespace
 
-ConnectionCoordinator::ConnectionCoordinator(runtime::Reactor& reactor, runtime::TimerSource& timers)
+ConnectionCoordinator::ConnectionCoordinator(runtime::Reactor& reactor, runtime::TimerScheduler& timers)
     : reactor_{reactor}, timers_{timers}, connection_pool_{common::make_pool<Connection>(0, pool_chunk)},
       payload_pool_{common::make_pool<common::LinearBuffer>(0, pool_chunk, payload_buf_capacity)} {}
 

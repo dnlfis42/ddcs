@@ -15,7 +15,7 @@
 
 namespace ddcs::agent::infra {
 
-class Connector; // on_io 위임 대상 (순환 의존 회피)
+class Connector; // on_fd_event 위임 대상 (순환 의존 회피)
 
 inline constexpr std::size_t inbound_buffer_capacity{1 << 12};
 
@@ -47,7 +47,7 @@ public:
     Connection& operator=(Connection&&) noexcept = delete;
 
 public: // runtime::FdHandler - 정책 없음. 곧장 Connector 로 위임.
-    void on_io(std::uint32_t events) override;
+    void on_fd_event(std::uint32_t events) override;
 
 public: // query
     int fd() const noexcept { return fd_.get(); }

@@ -1,7 +1,7 @@
 #include "ddcs/agent/infra/connector.hpp"
 
 #include "ddcs/runtime/reactor.hpp"
-#include "ddcs/runtime/timer_source.hpp"
+#include "ddcs/runtime/timer_scheduler.hpp"
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/frame/frame.hpp"
 
@@ -28,7 +28,7 @@ constexpr std::uint32_t connect_interest{EPOLLOUT | EPOLLET}; // 완료를 EPOLL
 constexpr std::uint32_t read_interest{EPOLLIN | EPOLLET};
 } // namespace
 
-Connector::Connector(runtime::Reactor& reactor, runtime::TimerSource& timers, std::string host, std::uint16_t port)
+Connector::Connector(runtime::Reactor& reactor, runtime::TimerScheduler& timers, std::string host, std::uint16_t port)
     : reactor_{reactor}, timers_{timers}, host_{std::move(host)}, port_{port},
       payload_pool_{common::make_pool<common::LinearBuffer>(0, pool_chunk, payload_buf_capacity)} {}
 
@@ -36,7 +36,7 @@ Connector::~Connector() {
     if (connection_.in_epoll()) {
         reactor_.del(connection_.fd());
     }
-    // connection_ dtor 가 fd 를 닫고, 타이머는 TimerSource 와 함께 소멸.
+    // connection_ dtor 가 fd 를 닫고, 타이머는 TimerScheduler 와 함께 소멸.
 }
 
 void Connector::start() { try_connect(); }
@@ -88,7 +88,7 @@ void Connector::close() { disconnect_and_reconnect(); }
 
 // --- runtime::TimerHandler -----------------------------------------------------
 
-void Connector::on_timer(runtime::TimerId id) {
+void Connector::on_timer_event(runtime::TimerId id) {
     if (id == reconnect_timer_) {
         reconnect_timer_ = runtime::TimerId{};
         try_connect();

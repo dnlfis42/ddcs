@@ -19,14 +19,14 @@ namespace ddcs::ctrl::infra::transport {
 
 using ddcs::ctrl::port::transport::ConnectionId;
 
-class ConnectionCoordinator; // on_io 위임 대상 (순환 의존 회피)
+class ConnectionCoordinator; // on_fd_event 위임 대상 (순환 의존 회피)
 
 inline constexpr std::size_t inbound_buffer_capacity{1 << 12};
 
 // 순수 메커니즘: syscall + 버퍼 + IoResult 보고만 한다.
 // 상태 전이는 스스로 하지 않고 ConnectionCoordinator 가 transition() 으로 구동한다.
 //
-// runtime::FdHandler 로서: Reactor 가 이 conn fd 의 readiness 를 알려오면 on_io 가 호출되고,
+// runtime::FdHandler 로서: Reactor 가 이 conn fd 의 readiness 를 알려오면 on_fd_event 가 호출되고,
 // 정책은 갖지 않은 채 곧장 coordinator 로 위임한다.
 class Connection : public runtime::FdHandler {
 public:
@@ -58,7 +58,7 @@ public:
     Connection& operator=(Connection&&) noexcept = delete;
 
 public: // runtime::FdHandler - 정책 없음. 곧장 coordinator 로 위임.
-    void on_io(std::uint32_t events) override;
+    void on_fd_event(std::uint32_t events) override;
 
 public: // state query
     ConnectionId id() const noexcept { return id_; }

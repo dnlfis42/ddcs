@@ -1,4 +1,4 @@
-#include "ddcs/runtime/signal_source.hpp"
+#include "ddcs/runtime/signal_fd.hpp"
 
 #include "ddcs/common/throw_errno.hpp"
 #include "ddcs/runtime/reactor.hpp"
@@ -13,12 +13,12 @@
 
 namespace ddcs::runtime {
 
-SignalSource::SignalSource(Reactor& reactor, std::initializer_list<int> signals, Callback callback)
+SignalFd::SignalFd(Reactor& reactor, std::initializer_list<int> signals, Callback callback)
     : reactor_{reactor}, signals_{signals}, callback_{std::move(callback)} {}
 
-SignalSource::~SignalSource() { stop(); }
+SignalFd::~SignalFd() { stop(); }
 
-void SignalSource::start() {
+void SignalFd::start() {
     if (registered_) {
         return;
     }
@@ -45,7 +45,7 @@ void SignalSource::start() {
     registered_ = true;
 }
 
-void SignalSource::stop() noexcept {
+void SignalFd::stop() noexcept {
     if (registered_) {
         reactor_.del(fd_.get());
         registered_ = false;
@@ -54,7 +54,7 @@ void SignalSource::stop() noexcept {
     restore_signal_mask();
 }
 
-void SignalSource::on_io(std::uint32_t events) {
+void SignalFd::on_fd_event(std::uint32_t events) {
     if ((events & EPOLLIN) == 0u) {
         return;
     }
@@ -63,7 +63,7 @@ void SignalSource::on_io(std::uint32_t events) {
     }
 }
 
-sigset_t SignalSource::make_mask() const {
+sigset_t SignalFd::make_mask() const {
     sigset_t mask;
     sigemptyset(&mask);
     for (int const signal : signals_) {
@@ -72,7 +72,7 @@ sigset_t SignalSource::make_mask() const {
     return mask;
 }
 
-bool SignalSource::drain() {
+bool SignalFd::drain() {
     bool delivered{false};
     for (;;) {
         signalfd_siginfo si{};
@@ -95,7 +95,7 @@ bool SignalSource::drain() {
     }
 }
 
-void SignalSource::restore_signal_mask() noexcept {
+void SignalFd::restore_signal_mask() noexcept {
     if (!has_previous_mask_) {
         return;
     }

@@ -10,7 +10,7 @@
 
 namespace ddcs::ctrl::infra::metrics {
 
-class Server; // on_io 위임 대상 (순환 의존 회피)
+class Server; // on_fd_event 위임 대상 (순환 의존 회피)
 
 // 단일 스크레이프 연결. 순수 메커니즘: recv/send + 버퍼 + IoResult 보고.
 // 요청 완료 판정/응답 빌드/reap 은 Server 가 구동(정책 없음). HTTP read -> respond -> close.
@@ -27,7 +27,7 @@ public:
     Connection(Connection&&) noexcept = delete;
     Connection& operator=(Connection&&) noexcept = delete;
 
-    void on_io(std::uint32_t events) override; // 정책 없음 -> Server 로 위임
+    void on_fd_event(std::uint32_t events) override; // 정책 없음 -> Server 로 위임
 
     void set_server(Server& server) noexcept { server_ = &server; }
     void assign(common::Fd fd) noexcept; // 풀에서 꺼내 자원 배정 (idle -> reading)

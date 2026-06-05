@@ -10,7 +10,7 @@
 #include "ddcs/ctrl/port/transport/outbound.hpp"
 #include "ddcs/proto/frame/frame.hpp"
 #include "ddcs/runtime/reactor.hpp"
-#include "ddcs/runtime/timer_source.hpp"
+#include "ddcs/runtime/timer_scheduler.hpp"
 
 #include <gtest/gtest.h>
 
@@ -38,7 +38,7 @@ using ddcs::ctrl::port::transport::CloseReason;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Inbound;
 using ddcs::runtime::Reactor;
-using ddcs::runtime::TimerSource;
+using ddcs::runtime::TimerScheduler;
 using namespace std::chrono_literals;
 
 // 이벤트 기록용 mock Inbound (app 측 대역).
@@ -82,7 +82,7 @@ struct SocketPair {
 
 TEST(ConnectionCoordinatorTest, AcceptRegistersAndNotifiesConnect) {
     Reactor reactor;
-    TimerSource timers{reactor};
+    TimerScheduler timers{reactor};
     timers.start();
     ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
@@ -98,7 +98,7 @@ TEST(ConnectionCoordinatorTest, AcceptRegistersAndNotifiesConnect) {
 
 TEST(ConnectionCoordinatorTest, CloseForceReapsAndNotifiesDisconnect) {
     Reactor reactor;
-    TimerSource timers{reactor};
+    TimerScheduler timers{reactor};
     timers.start();
     ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
@@ -123,7 +123,7 @@ TEST(ConnectionCoordinatorTest, CloseForceReapsAndNotifiesDisconnect) {
 
 TEST(ConnectionCoordinatorTest, PeerFinTriggersCloseRequest) {
     Reactor reactor;
-    TimerSource timers{reactor};
+    TimerScheduler timers{reactor};
     timers.start();
     ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
@@ -144,7 +144,7 @@ TEST(ConnectionCoordinatorTest, PeerFinTriggersCloseRequest) {
 
 TEST(ConnectionCoordinatorTest, FramedMessageDeliveredToOnRecv) {
     Reactor reactor;
-    TimerSource timers{reactor};
+    TimerScheduler timers{reactor};
     timers.start();
     ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
@@ -169,7 +169,7 @@ TEST(ConnectionCoordinatorTest, FramedMessageDeliveredToOnRecv) {
 
 TEST(ConnectionCoordinatorTest, SendFramesBodyAndTransmits) {
     Reactor reactor;
-    TimerSource timers{reactor};
+    TimerScheduler timers{reactor};
     timers.start();
     ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
@@ -202,7 +202,7 @@ TEST(ConnectionCoordinatorTest, SendFramesBodyAndTransmits) {
 
 TEST(ConnectionCoordinatorTest, GracefulCloseHalfClosesThenReapsOnPeerFin) {
     Reactor reactor;
-    TimerSource timers{reactor};
+    TimerScheduler timers{reactor};
     timers.start();
     ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
@@ -231,7 +231,7 @@ TEST(ConnectionCoordinatorTest, GracefulCloseHalfClosesThenReapsOnPeerFin) {
 TEST(ConnectionCoordinatorTest, HandshakeTimeoutClosesSilentConnection) {
     ddcs::common::ManualClock clk;
     Reactor reactor;
-    TimerSource timers{reactor, clk};
+    TimerScheduler timers{reactor, clk};
     timers.start();
     ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;
@@ -251,7 +251,7 @@ TEST(ConnectionCoordinatorTest, HandshakeTimeoutClosesSilentConnection) {
 TEST(ConnectionCoordinatorTest, FirstFrameCancelsHandshakeTimeout) {
     ddcs::common::ManualClock clk;
     Reactor reactor;
-    TimerSource timers{reactor, clk};
+    TimerScheduler timers{reactor, clk};
     timers.start();
     ConnectionCoordinator coord{reactor, timers};
     MockInbound inbound;

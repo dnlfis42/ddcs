@@ -14,25 +14,27 @@ namespace ddcs::runtime {
 
 class Reactor;
 
-class SignalSource final : public FdHandler {
+// signalfd를 소유하고 Reactor의 fd event를 callback으로 변환한다.
+// CAUTION: start()는 process signal mask를 변경하고, stop()은 이전 mask를 복구한다.
+class SignalFd final : public FdHandler {
 public:
     using Callback = std::function<void()>;
 
-public:
-    SignalSource(Reactor& reactor, std::initializer_list<int> signals, Callback callback);
-    ~SignalSource() override;
+public: // 특수 멤버 함수
+    SignalFd(Reactor& reactor, std::initializer_list<int> signals, Callback callback);
+    ~SignalFd() override;
 
-    SignalSource(SignalSource const&) = delete;
-    SignalSource& operator=(SignalSource const&) = delete;
-    SignalSource(SignalSource&&) noexcept = delete;
-    SignalSource& operator=(SignalSource&&) noexcept = delete;
+    SignalFd(SignalFd const&) = delete;
+    SignalFd& operator=(SignalFd const&) = delete;
+    SignalFd(SignalFd&&) noexcept = delete;
+    SignalFd& operator=(SignalFd&&) noexcept = delete;
 
-public:
+public: // 수명주기
     void start();
     void stop() noexcept;
 
-public: // FdHandler
-    void on_io(std::uint32_t events) override;
+public: // FdHandler 구현
+    void on_fd_event(std::uint32_t events) override;
 
 private:
     [[nodiscard]]
