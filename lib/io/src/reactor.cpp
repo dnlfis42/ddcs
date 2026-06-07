@@ -1,0 +1,173 @@
+#include "ddcs/io/reactor.hpp"
+
+#include "ddcs/common/fd.hpp"
+#include "ddcs/common/throw_errno.hpp"
+#include "ddcs/io/channel.hpp"
+#include "ddcs/io/channel_events.hpp"
+#include "ddcs/io/detail/channel_registry.hpp"
+
+#include <array>
+#include <chrono>
+#include <limits>
+#include <memory>
+
+#include <cerrno>
+#include <cstddef>
+#include <cstdint>
+
+#include <sys/epoll.h>
+
+namespace ddcs::io {
+
+namespace {
+
+constexpr std::size_t max_epoll_events{64};
+constexpr int epoll_wait_forever{-1};
+constexpr std::chrono::milliseconds wait_forever{-1};
+
+[[nodiscard]] int to_epoll_timeout(std::chrono::milliseconds timeout) noexcept {
+    auto const milliseconds = timeout.count();
+    if (milliseconds < 0) {
+        return epoll_wait_forever;
+    }
+    if (milliseconds > std::numeric_limits<int>::max()) {
+        return std::numeric_limits<int>::max();
+    }
+    return static_cast<int>(milliseconds);
+}
+
+[[nodiscard]] std::uint32_t to_epoll_interests(ChannelEvents interests) noexcept {
+    std::uint32_t events{0};
+    if (contains(interests, ChannelEvents::readable)) {
+        events |= EPOLLIN;
+    }
+    if (contains(interests, ChannelEvents::writable)) {
+        events |= EPOLLOUT;
+    }
+    if (contains(interests, ChannelEvents::edge_triggered)) {
+        events |= EPOLLET;
+    }
+    if (contains(interests, ChannelEvents::one_shot)) {
+        events |= EPOLLONESHOT;
+    }
+    return events;
+}
+
+[[nodiscard]] ChannelEvents to_channel_events(std::uint32_t epoll_events) noexcept {
+    ChannelEvents mask{ChannelEvents::none};
+    if ((epoll_events & EPOLLIN) != 0u) {
+        mask |= ChannelEvents::readable;
+    }
+    if ((epoll_events & EPOLLOUT) != 0u) {
+        mask |= ChannelEvents::writable;
+    }
+    if ((epoll_events & EPOLLERR) != 0u) {
+        mask |= ChannelEvents::error;
+    }
+    if ((epoll_events & EPOLLHUP) != 0u) {
+        mask |= ChannelEvents::hangup;
+    }
+    return mask;
+}
+
+} // namespace
+
+struct Reactor::Impl {
+    common::Fd epoll_fd{};
+    detail::ChannelRegistry channel_registry;
+    bool running{false};
+};
+
+Reactor::Reactor() : impl_{std::make_unique<Impl>()} {
+    impl_->epoll_fd.reset(::epoll_create1(EPOLL_CLOEXEC));
+    if (!impl_->epoll_fd.valid()) {
+        common::throw_errno(errno, "epoll_create1");
+    }
+}
+
+Reactor::~Reactor() = default;
+
+bool Reactor::add(Channel& channel) {
+    if (!channel.valid()) {
+        return false;
+    }
+    if (channel.registered()) {
+        return true;
+    }
+
+    epoll_event ev{};
+    ev.events = to_epoll_interests(channel.interests());
+    ev.data.u64 = impl_->channel_registry.insert(channel);
+
+    if (::epoll_ctl(impl_->epoll_fd.get(), EPOLL_CTL_ADD, channel.fd(), &ev) != 0) {
+        (void)impl_->channel_registry.erase(channel);
+        return false;
+    }
+
+    channel.mark_registered();
+    return true;
+}
+
+bool Reactor::modify(Channel& channel, ChannelEvents interests) {
+    if (!channel.valid() || !channel.registered()) {
+        return false;
+    }
+
+    epoll_event ev{};
+    ev.events = to_epoll_interests(interests);
+    ev.data.u64 = impl_->channel_registry.token(channel);
+
+    if (::epoll_ctl(impl_->epoll_fd.get(), EPOLL_CTL_MOD, channel.fd(), &ev) != 0) {
+        return false;
+    }
+
+    channel.set_interests(interests);
+    return true;
+}
+
+void Reactor::remove(Channel& channel) noexcept {
+    if (!channel.registered()) {
+        return;
+    }
+
+    if (channel.valid()) {
+        (void)::epoll_ctl(impl_->epoll_fd.get(), EPOLL_CTL_DEL, channel.fd(), nullptr);
+    }
+
+    (void)impl_->channel_registry.erase(channel);
+    channel.mark_unregistered();
+}
+
+void Reactor::run() {
+    impl_->running = true;
+    while (impl_->running) {
+        run_once(wait_forever);
+    }
+}
+
+void Reactor::run_once(std::chrono::milliseconds timeout) {
+    std::array<epoll_event, max_epoll_events> events{};
+
+    int const n =
+        ::epoll_wait(impl_->epoll_fd.get(), events.data(), static_cast<int>(events.size()), to_epoll_timeout(timeout));
+    if (n < 0) {
+        int const err = errno;
+        if (err == EINTR) {
+            return;
+        }
+        common::throw_errno(err, "epoll_wait");
+    }
+
+    for (std::size_t i = 0; i < static_cast<std::size_t>(n); ++i) {
+        auto const& event = events[i];
+        if (auto* channel = impl_->channel_registry.resolve(event.data.u64)) {
+            channel->handler().on_ready(*channel, to_channel_events(event.events));
+        }
+    }
+}
+
+void Reactor::stop() noexcept { impl_->running = false; }
+
+bool Reactor::running() const noexcept { return impl_->running; }
+
+} // namespace ddcs::io

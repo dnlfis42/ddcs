@@ -1,0 +1,65 @@
+#pragma once
+
+#include "ddcs/common/clock.hpp"
+#include "ddcs/io/timer_id.hpp"
+
+#include <algorithm>
+#include <cassert>
+#include <optional>
+#include <vector>
+
+namespace ddcs::io::detail {
+
+// TimerId를 deadline 순서로 보관하는 min-heap. clock과 handler를 모른다.
+class TimerQueue {
+public:
+    using time_point = common::Clock::time_point;
+
+public:
+    struct Entry {
+        time_point deadline;
+        TimerId id;
+    };
+
+public:
+    void push(time_point deadline, TimerId id) {
+        assert(id.valid());
+
+        heap_.push_back(Entry{deadline, id});
+        std::push_heap(heap_.begin(), heap_.end(), Later{});
+    }
+
+    void pop() noexcept {
+        if (heap_.empty()) {
+            return;
+        }
+        std::pop_heap(heap_.begin(), heap_.end(), Later{});
+        heap_.pop_back();
+    }
+
+    [[nodiscard]] std::optional<Entry> top() const noexcept {
+        if (heap_.empty()) {
+            return std::nullopt;
+        }
+        return heap_.front();
+    }
+
+    [[nodiscard]] bool empty() const noexcept { return heap_.empty(); }
+
+    void clear() noexcept { heap_.clear(); }
+
+private:
+    struct Later {
+        bool operator()(Entry const& lhs, Entry const& rhs) const noexcept {
+            if (lhs.deadline != rhs.deadline) {
+                return lhs.deadline > rhs.deadline;
+            }
+            return lhs.id.value() > rhs.id.value();
+        }
+    };
+
+private:
+    std::vector<Entry> heap_;
+};
+
+} // namespace ddcs::io::detail
