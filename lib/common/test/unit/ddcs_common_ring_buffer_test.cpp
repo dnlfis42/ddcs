@@ -1,107 +1,199 @@
 #include "ddcs/common/ring_buffer.hpp"
 
-#include <gtest/gtest.h>
-
 #include <array>
+#include <cstddef>
 #include <span>
 
-#include <cstddef>
+#include <gtest/gtest.h>
 
 namespace ddcs::common {
 
-static_assert(valid_ringbuf_capacity<1>);
-static_assert(valid_ringbuf_capacity<2>);
-static_assert(valid_ringbuf_capacity<4>);
-static_assert(valid_ringbuf_capacity<1024>);
-static_assert(!valid_ringbuf_capacity<0>);
-static_assert(!valid_ringbuf_capacity<3>);
-static_assert(!valid_ringbuf_capacity<5>);
-static_assert(!valid_ringbuf_capacity<6>);
-
 namespace {
 
-constexpr std::size_t kN = 8;
+template <std::size_t... Values>
+consteval bool all_valid_capacities() {
+    return (valid_ring_buffer_capacity<Values> && ...);
+}
 
-std::array<std::byte, kN> make_pattern() {
+template <std::size_t... Values>
+consteval bool all_invalid_capacities() {
+    return ((!valid_ring_buffer_capacity<Values>) && ...);
+}
+
+static_assert(all_valid_capacities<1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024>());
+static_assert(all_invalid_capacities<0, 3, 5, 6, 7, 9, 10>());
+
+constexpr std::size_t test_capacity = 8;
+
+std::array<std::byte, test_capacity> make_pattern() {
     return {
         std::byte{0x10}, std::byte{0x20}, std::byte{0x30}, std::byte{0x40},
         std::byte{0x50}, std::byte{0x60}, std::byte{0x70}, std::byte{0x80},
     };
 }
 
-std::span<std::byte const> head(std::array<std::byte, kN> const& a, std::size_t n) {
-    return std::span<std::byte const>{a.data(), n};
+template <std::size_t N>
+std::span<std::byte const> head(std::array<std::byte, N> const& bytes, std::size_t n) {
+    return std::span<std::byte const>{bytes.data(), n};
 }
 
 } // namespace
 
-TEST(RingBufferTest, ObserversInEmptyState) {
-    RingBuffer<kN> rb;
-    EXPECT_EQ(rb.capacity(), kN);
+TEST(RingBufferTest, ReportsEmptyState) {
+    RingBuffer<test_capacity> rb;
+
+    EXPECT_EQ(rb.capacity(), test_capacity);
     EXPECT_EQ(rb.size(), 0u);
-    EXPECT_EQ(rb.available(), kN);
+    EXPECT_EQ(rb.available(), test_capacity);
     EXPECT_TRUE(rb.empty());
     EXPECT_FALSE(rb.full());
 }
 
-TEST(RingBufferTest, ObserversInPartialNoWrapState) {
-    RingBuffer<kN> rb;
+TEST(RingBufferTest, ReportsStateAfterPartialWrite) {
+    RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
     ASSERT_TRUE(rb.write(head(pattern, 3)));
 
-    EXPECT_EQ(rb.capacity(), kN);
+    EXPECT_EQ(rb.capacity(), test_capacity);
     EXPECT_EQ(rb.size(), 3u);
-    EXPECT_EQ(rb.available(), 5u);
+    EXPECT_EQ(rb.available(), test_capacity - 3);
     EXPECT_FALSE(rb.empty());
     EXPECT_FALSE(rb.full());
 }
 
-TEST(RingBufferTest, ObserversInPartialWrappedState) {
-    RingBuffer<kN> rb;
+TEST(RingBufferTest, ReportsStateAfterWrappedWrite) {
+    RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
     std::array<std::byte, 5> drained{};
 
     ASSERT_TRUE(rb.write(head(pattern, 5)));
     ASSERT_TRUE(rb.read(drained));
-    ASSERT_TRUE(rb.write(head(pattern, 4))); // wraps to idx 5,6,7,0
+    ASSERT_TRUE(rb.write(head(pattern, 4)));
 
-    EXPECT_EQ(rb.capacity(), kN);
+    EXPECT_EQ(rb.capacity(), test_capacity);
     EXPECT_EQ(rb.size(), 4u);
     EXPECT_EQ(rb.available(), 4u);
     EXPECT_FALSE(rb.empty());
     EXPECT_FALSE(rb.full());
 }
 
-TEST(RingBufferTest, ObserversInFullNoWrapState) {
-    RingBuffer<kN> rb;
+TEST(RingBufferTest, ReportsFullState) {
+    RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
-    ASSERT_TRUE(rb.write(head(pattern, kN)));
+    ASSERT_TRUE(rb.write(head(pattern, test_capacity)));
 
-    EXPECT_EQ(rb.capacity(), kN);
-    EXPECT_EQ(rb.size(), kN);
+    EXPECT_EQ(rb.capacity(), test_capacity);
+    EXPECT_EQ(rb.size(), test_capacity);
     EXPECT_EQ(rb.available(), 0u);
     EXPECT_FALSE(rb.empty());
     EXPECT_TRUE(rb.full());
 }
 
-TEST(RingBufferTest, ObserversInFullWrappedState) {
-    RingBuffer<kN> rb;
+TEST(RingBufferTest, ReportsFullStateAfterWrappedWrite) {
+    RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
     std::array<std::byte, 3> drained{};
 
     ASSERT_TRUE(rb.write(head(pattern, 3)));
     ASSERT_TRUE(rb.read(drained));
-    ASSERT_TRUE(rb.write(head(pattern, kN))); // 8 bytes wraps from idx 3
+    ASSERT_TRUE(rb.write(head(pattern, test_capacity)));
 
-    EXPECT_EQ(rb.capacity(), kN);
-    EXPECT_EQ(rb.size(), kN);
+    EXPECT_EQ(rb.capacity(), test_capacity);
+    EXPECT_EQ(rb.size(), test_capacity);
     EXPECT_EQ(rb.available(), 0u);
     EXPECT_FALSE(rb.empty());
     EXPECT_TRUE(rb.full());
 }
 
-TEST(RingBufferTest, WriteReadRoundTrip) {
-    RingBuffer<kN> rb;
+TEST(RingBufferTest, ReturnsCurrentReadableData) {
+    RingBuffer<test_capacity> rb;
+    auto pattern = make_pattern();
+    ASSERT_TRUE(rb.write(head(pattern, 4)));
+
+    auto readable = rb.readable();
+    ASSERT_EQ(readable.size(), 4u);
+    for (std::size_t i = 0; i < 4; ++i) {
+        EXPECT_EQ(readable[i], pattern[i]);
+    }
+    EXPECT_EQ(rb.size(), 4u);
+}
+
+TEST(RingBufferTest, ReturnsContiguousReadableDataAfterWrap) {
+    RingBuffer<test_capacity> rb;
+    auto pattern = make_pattern();
+    std::array<std::byte, 5> drained{};
+
+    ASSERT_TRUE(rb.write(head(pattern, 5)));
+    ASSERT_TRUE(rb.read(drained));
+
+    std::array<std::byte, 6> payload{
+        std::byte{0xa1}, std::byte{0xa2}, std::byte{0xa3}, std::byte{0xa4}, std::byte{0xa5}, std::byte{0xa6},
+    };
+    ASSERT_TRUE(rb.write(payload));
+
+    auto readable = rb.readable();
+    ASSERT_EQ(readable.size(), 3u);
+    EXPECT_EQ(readable[0], payload[0]);
+    EXPECT_EQ(readable[1], payload[1]);
+    EXPECT_EQ(readable[2], payload[2]);
+    EXPECT_EQ(rb.size(), 6u);
+}
+
+TEST(RingBufferTest, ShrinksWritableRegionAfterWrite) {
+    RingBuffer<test_capacity> rb;
+    EXPECT_EQ(rb.writable().size(), test_capacity);
+
+    auto pattern = make_pattern();
+    ASSERT_TRUE(rb.write(head(pattern, 5)));
+    EXPECT_EQ(rb.writable().size(), test_capacity - 5);
+}
+
+TEST(RingBufferTest, ExposesExternallyFilledDataOnCommit) {
+    RingBuffer<test_capacity> rb;
+    auto region = rb.writable();
+    ASSERT_GE(region.size(), 2u);
+
+    region[0] = std::byte{0xab};
+    region[1] = std::byte{0xcd};
+    ASSERT_TRUE(rb.commit(2));
+    EXPECT_EQ(rb.size(), 2u);
+
+    std::array<std::byte, 2> dst{};
+    ASSERT_TRUE(rb.read(dst));
+    EXPECT_EQ(dst[0], std::byte{0xab});
+    EXPECT_EQ(dst[1], std::byte{0xcd});
+}
+
+TEST(RingBufferTest, RejectsCommitBeyondAvailableSpace) {
+    RingBuffer<test_capacity> rb;
+
+    EXPECT_FALSE(rb.commit(test_capacity + 1));
+    EXPECT_TRUE(rb.empty());
+    EXPECT_EQ(rb.available(), test_capacity);
+}
+
+TEST(RingBufferTest, RejectsConsumeBeyondReadableData) {
+    RingBuffer<test_capacity> rb;
+    std::array<std::byte, 2> two{};
+    ASSERT_TRUE(rb.write(two));
+
+    EXPECT_FALSE(rb.consume(3));
+    EXPECT_EQ(rb.size(), 2u);
+}
+
+TEST(RingBufferTest, ResetsPositionsOnClear) {
+    RingBuffer<test_capacity> rb;
+    std::array<std::byte, 3> three{};
+    ASSERT_TRUE(rb.write(three));
+
+    rb.clear();
+    EXPECT_TRUE(rb.empty());
+    EXPECT_EQ(rb.size(), 0u);
+    EXPECT_EQ(rb.available(), test_capacity);
+}
+
+TEST(RingBufferTest, RoundTripsWrittenBytes) {
+    RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
     ASSERT_TRUE(rb.write(head(pattern, 4)));
 
@@ -113,15 +205,17 @@ TEST(RingBufferTest, WriteReadRoundTrip) {
     }
 }
 
-TEST(RingBufferTest, WriteReturnsFalseWhenInsufficientSpace) {
-    RingBuffer<kN> rb;
-    std::array<std::byte, kN + 1> too_much{};
+TEST(RingBufferTest, RejectsWriteWhenSpaceIsInsufficient) {
+    RingBuffer<test_capacity> rb;
+    std::array<std::byte, test_capacity + 1> too_much{};
+
     EXPECT_FALSE(rb.write(too_much));
     EXPECT_TRUE(rb.empty());
+    EXPECT_EQ(rb.available(), test_capacity);
 }
 
-TEST(RingBufferTest, ReadReturnsFalseWhenInsufficientData) {
-    RingBuffer<kN> rb;
+TEST(RingBufferTest, RejectsReadWhenDataIsInsufficient) {
+    RingBuffer<test_capacity> rb;
     std::array<std::byte, 1> one{std::byte{0xab}};
     ASSERT_TRUE(rb.write(one));
 
@@ -130,8 +224,8 @@ TEST(RingBufferTest, ReadReturnsFalseWhenInsufficientData) {
     EXPECT_EQ(rb.size(), 1u);
 }
 
-TEST(RingBufferTest, PeekDoesNotAdvanceReadCursor) {
-    RingBuffer<kN> rb;
+TEST(RingBufferTest, LeavesReadCursorUnchangedOnPeek) {
+    RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
     ASSERT_TRUE(rb.write(head(pattern, 3)));
 
@@ -142,13 +236,13 @@ TEST(RingBufferTest, PeekDoesNotAdvanceReadCursor) {
     EXPECT_EQ(rb.size(), 3u);
 
     for (std::size_t i = 0; i < 3; ++i) {
-        EXPECT_EQ(peeked1[i], peeked2[i]);
         EXPECT_EQ(peeked1[i], pattern[i]);
+        EXPECT_EQ(peeked2[i], pattern[i]);
     }
 }
 
-TEST(RingBufferTest, ReadAdvancesReadCursor) {
-    RingBuffer<kN> rb;
+TEST(RingBufferTest, AdvancesReadCursorOnRead) {
+    RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
     ASSERT_TRUE(rb.write(head(pattern, 5)));
     EXPECT_EQ(rb.size(), 5u);
@@ -158,8 +252,8 @@ TEST(RingBufferTest, ReadAdvancesReadCursor) {
     EXPECT_EQ(rb.size(), 2u);
 }
 
-TEST(RingBufferTest, WritesAndReadsAcrossWrapBoundary) {
-    RingBuffer<kN> rb;
+TEST(RingBufferTest, RoundTripsBytesAcrossWrapBoundary) {
+    RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
     std::array<std::byte, 5> drained{};
     ASSERT_TRUE(rb.write(head(pattern, 5)));
@@ -178,54 +272,14 @@ TEST(RingBufferTest, WritesAndReadsAcrossWrapBoundary) {
     }
 }
 
-TEST(RingBufferTest, ZeroCopyWriteViaWritableAndMove) {
-    RingBuffer<kN> rb;
-    auto region = rb.writable();
-    ASSERT_EQ(region.size(), kN);
-
-    region[0] = std::byte{0xab};
-    region[1] = std::byte{0xcd};
-    ASSERT_TRUE(rb.commit(2));
-    EXPECT_EQ(rb.size(), 2u);
-
-    std::array<std::byte, 2> dst{};
-    ASSERT_TRUE(rb.read(dst));
-    EXPECT_EQ(dst[0], std::byte{0xab});
-    EXPECT_EQ(dst[1], std::byte{0xcd});
-}
-
-TEST(RingBufferTest, MoveWritePosReturnsFalseWhenExceedsAvailable) {
-    RingBuffer<kN> rb;
-    EXPECT_FALSE(rb.commit(kN + 1));
-    EXPECT_TRUE(rb.empty());
-}
-
-TEST(RingBufferTest, MoveReadPosReturnsFalseWhenExceedsSize) {
-    RingBuffer<kN> rb;
-    std::array<std::byte, 2> two{};
-    ASSERT_TRUE(rb.write(two));
-
-    EXPECT_FALSE(rb.consume(3));
-    EXPECT_EQ(rb.size(), 2u);
-}
-
-TEST(RingBufferTest, ClearResetsToEmpty) {
-    RingBuffer<kN> rb;
-    std::array<std::byte, 3> three{};
-    ASSERT_TRUE(rb.write(three));
-    rb.clear();
-    EXPECT_TRUE(rb.empty());
-    EXPECT_EQ(rb.size(), 0u);
-    EXPECT_EQ(rb.available(), kN);
-}
-
-TEST(RingBufferTest, PreservesContentsAcrossManyWrapCycles) {
-    RingBuffer<kN> rb;
+TEST(RingBufferTest, PreservesContentsAcrossRepeatedWraps) {
+    RingBuffer<test_capacity> rb;
     std::array<std::byte, 3> chunk{
         std::byte{0xa1},
         std::byte{0xb2},
         std::byte{0xc3},
     };
+
     for (int i = 0; i < 100; ++i) {
         ASSERT_TRUE(rb.write(chunk));
         std::array<std::byte, 3> dst{};
