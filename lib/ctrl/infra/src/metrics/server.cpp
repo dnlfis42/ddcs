@@ -46,7 +46,7 @@ Server::~Server() { conns_.clear(); }
 
 void Server::start() {
     listen_fd_.reset(::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
-    if (!listen_fd_) {
+    if (!listen_fd_.valid()) {
         common::throw_errno(errno, "metrics socket");
     }
     int const yes{1};
@@ -92,7 +92,7 @@ void Server::on_fd_event(std::uint32_t events) {
 void Server::accept_loop() {
     for (;;) {
         common::Fd fd{::accept4(listen_fd_.get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC)};
-        if (!fd) {
+        if (!fd.valid()) {
             int const err = errno;
             if (err == EAGAIN || err == EWOULDBLOCK) {
                 return;

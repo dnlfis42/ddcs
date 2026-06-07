@@ -27,7 +27,6 @@ public:
 public:
     [[nodiscard]] int get() const noexcept { return fd_; }
     [[nodiscard]] bool valid() const noexcept { return fd_ != invalid; }
-    explicit operator bool() const noexcept { return valid(); }
 
 public:
     [[nodiscard]] int release() noexcept {

@@ -57,7 +57,7 @@ void TimerScheduler::start() {
     }
 
     fd_.reset(::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC));
-    if (!fd_) {
+    if (!fd_.valid()) {
         common::throw_errno(errno, "timerfd_create");
     }
 

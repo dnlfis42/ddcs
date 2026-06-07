@@ -59,7 +59,7 @@ bool Connection::transition(State to) noexcept {
 }
 
 void Connection::latch_rst() noexcept {
-    if (!fd_) {
+    if (!fd_.valid()) {
         return;
     }
     linger const lin{.l_onoff = 1, .l_linger = 0};
@@ -67,7 +67,7 @@ void Connection::latch_rst() noexcept {
 }
 
 void Connection::shutdown_write() noexcept {
-    if (!fd_) {
+    if (!fd_.valid()) {
         return;
     }
     ::shutdown(fd_.get(), SHUT_WR);

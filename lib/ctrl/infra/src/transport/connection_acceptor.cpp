@@ -51,7 +51,7 @@ ConnectionAcceptor::ConnectionAcceptor(
 
 void ConnectionAcceptor::start() {
     listen_fd_.reset(::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
-    if (!listen_fd_) {
+    if (!listen_fd_.valid()) {
         common::throw_errno(errno, "socket");
     }
 
@@ -78,7 +78,7 @@ void ConnectionAcceptor::start() {
 
     // reserve-fd: EMFILE/ENFILE 시 spare 를 풀어 kernel accept 큐를 shed 한다.
     accept_spare_fd_.reset(::open("/dev/null", O_RDONLY | O_CLOEXEC));
-    if (!accept_spare_fd_) {
+    if (!accept_spare_fd_.valid()) {
         common::throw_errno(errno, "open /dev/null (accept spare)");
     }
 
@@ -113,7 +113,7 @@ void ConnectionAcceptor::accept_loop() {
             listen_fd_.get(), reinterpret_cast<sockaddr*>(&peer_addr), &peer_addr_len, SOCK_NONBLOCK | SOCK_CLOEXEC
         )};
 
-        if (!conn_fd) {
+        if (!conn_fd.valid()) {
             int const err = errno;
             if (err == EAGAIN || err == EWOULDBLOCK) {
                 return;
@@ -126,7 +126,7 @@ void ConnectionAcceptor::accept_loop() {
                 // reserve-fd: spare 1개를 풀어 accept->즉시 close 로 kernel 큐 1건 shed, spare 재확보 후 재시도.
                 accept_spare_fd_.reset();
                 common::Fd reject{::accept4(listen_fd_.get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC)};
-                bool const drained = static_cast<bool>(reject); // dtor 가 close -> 클라이언트 정리
+                bool const drained = reject.valid(); // dtor 가 close -> 클라이언트 정리
                 accept_spare_fd_.reset(::open("/dev/null", O_RDONLY | O_CLOEXEC));
                 if (!drained) {
                     return; // 큐 비었거나 더 못 shed

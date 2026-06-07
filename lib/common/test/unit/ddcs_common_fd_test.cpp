@@ -39,7 +39,6 @@ TEST(FdTest, StartsInvalidByDefault) {
 
     EXPECT_EQ(fd.get(), Fd::invalid);
     EXPECT_FALSE(fd.valid());
-    EXPECT_FALSE(static_cast<bool>(fd));
 }
 
 TEST(FdTest, ReportsWrappedDescriptorAsValid) {
@@ -47,7 +46,6 @@ TEST(FdTest, ReportsWrappedDescriptorAsValid) {
 
     EXPECT_NE(fd.get(), Fd::invalid);
     EXPECT_TRUE(fd.valid());
-    EXPECT_TRUE(static_cast<bool>(fd));
     EXPECT_TRUE(is_open(fd.get()));
 }
 

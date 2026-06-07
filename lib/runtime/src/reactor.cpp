@@ -38,7 +38,7 @@ int to_epoll_timeout(std::chrono::milliseconds timeout) noexcept {
 
 Reactor::Reactor() {
     epoll_fd_.reset(::epoll_create1(EPOLL_CLOEXEC));
-    if (!epoll_fd_) {
+    if (!epoll_fd_.valid()) {
         common::throw_errno(errno, "epoll_create1");
     }
 }

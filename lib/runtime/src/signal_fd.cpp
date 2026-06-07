@@ -30,7 +30,7 @@ void SignalFd::start() {
     has_previous_mask_ = true;
 
     fd_.reset(::signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC));
-    if (!fd_) {
+    if (!fd_.valid()) {
         int const err = errno;
         restore_signal_mask();
         common::throw_errno(err, "signalfd");
