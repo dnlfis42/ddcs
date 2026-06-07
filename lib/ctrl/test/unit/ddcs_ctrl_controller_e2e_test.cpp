@@ -8,26 +8,25 @@
 #include "ddcs/proto/msg/message.hpp"
 #include "ddcs/proto/msg/type.hpp"
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <cerrno>
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
-
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -95,7 +94,7 @@ public:
         frame::Header const h{
             .magic = frame::magic,
             .type = static_cast<std::uint8_t>(type),
-            .length = static_cast<std::uint16_t>(body.size()),
+            .payload_size = static_cast<std::uint16_t>(body.size()),
         };
         auto const hb = frame::encode(h);
 
@@ -136,15 +135,19 @@ public:
         }
         frame::HeaderBytes hb{};
         std::copy_n(rx_.begin(), frame::header_size, hb.begin());
-        frame::Header const h = frame::decode(hb);
-        EXPECT_EQ(h.magic, frame::magic);
-        std::size_t const total = frame::header_size + h.length;
+        auto const parsed_header = frame::parse(hb);
+        EXPECT_TRUE(parsed_header);
+        if (!parsed_header) {
+            return std::nullopt;
+        }
+        auto const header = *parsed_header;
+        std::size_t const total = frame::header_size + header.payload_size;
         if (rx_.size() < total) {
             return std::nullopt;
         }
         auto const off = static_cast<std::ptrdiff_t>(frame::header_size);
         auto const end = static_cast<std::ptrdiff_t>(total);
-        Frame f{.type = h.type, .body = {}};
+        Frame f{.type = header.type, .body = {}};
         f.body.assign(rx_.begin() + off, rx_.begin() + end);
         rx_.erase(rx_.begin(), rx_.begin() + end);
         return f;

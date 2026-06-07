@@ -12,19 +12,18 @@
 #include "ddcs/runtime/reactor.hpp"
 #include "ddcs/runtime/timer_scheduler.hpp"
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <chrono>
-#include <string>
-#include <vector>
-
 #include <cstdint>
 #include <cstring>
+#include <string>
+#include <vector>
 
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -33,8 +32,8 @@ using ddcs::common::LinearBuffer;
 using ddcs::common::PoolHandle;
 using ddcs::ctrl::infra::transport::ConnectionManager;
 using ddcs::ctrl::infra::transport::Endpoint;
-using ddcs::ctrl::port::transport::DisconnectReason;
 using ddcs::ctrl::port::transport::ConnectionId;
+using ddcs::ctrl::port::transport::DisconnectReason;
 using ddcs::ctrl::port::transport::Inbound;
 using ddcs::runtime::Reactor;
 using ddcs::runtime::TimerScheduler;
@@ -151,9 +150,9 @@ TEST(ConnectionManagerTest, FramedMessageDeliveredToOnRecv) {
     SocketPair sp;
     manager.on_accept(sp.take_conn(), Endpoint{});
 
-    // 프레임 한 개: magic | type=0x42 | len=3 | "abc"
+    // 프레임 한 개: magic | type=0x42 | payload_size=3 | "abc"
     namespace frame = ddcs::proto::frame;
-    auto const hb = frame::encode({.magic = frame::magic, .type = 0x42, .length = 3});
+    auto const hb = frame::encode({.magic = frame::magic, .type = 0x42, .payload_size = 3});
     char const body[] = "abc";
     ASSERT_EQ(::write(sp.peer, hb.data(), hb.size()), static_cast<ssize_t>(hb.size()));
     ASSERT_EQ(::write(sp.peer, body, 3), 3);
@@ -185,16 +184,16 @@ TEST(ConnectionManagerTest, SendFramesBodyAndTransmits) {
 
     reactor.run_once(1000ms); // EPOLLOUT(무장) -> on_writable -> transmit
 
-    // peer 가 frame 수신: magic | type=0x11 | len=2 | "hi" = 7 bytes
+    // peer 가 frame 수신: magic | type=0x11 | payload_size=2 | "hi" = 7 bytes
     namespace frame = ddcs::proto::frame;
     std::array<std::byte, 16> got{};
     ASSERT_EQ(::read(sp.peer, got.data(), got.size()), static_cast<ssize_t>(frame::header_size + 2));
     frame::HeaderBytes hb{};
     std::memcpy(hb.data(), got.data(), frame::header_size);
-    auto const h = frame::decode(hb);
-    EXPECT_EQ(h.magic, frame::magic);
-    EXPECT_EQ(h.type, std::uint8_t{0x11});
-    EXPECT_EQ(h.length, std::uint16_t{2});
+    auto const parsed_header = frame::parse(hb);
+    ASSERT_TRUE(parsed_header);
+    EXPECT_EQ(parsed_header->type, std::uint8_t{0x11});
+    EXPECT_EQ(parsed_header->payload_size, std::uint16_t{2});
     EXPECT_EQ(std::memcmp(got.data() + frame::header_size, "hi", 2), 0);
 }
 
@@ -234,7 +233,7 @@ TEST(ConnectionManagerTest, FirstFrameCancelsHandshakeTimeout) {
 
     // 첫 프레임(header-only) 전송 -> on_recv -> handshake 타이머 cancel.
     namespace frame = ddcs::proto::frame;
-    auto const hb = frame::encode({.magic = frame::magic, .type = 0x42, .length = 0});
+    auto const hb = frame::encode({.magic = frame::magic, .type = 0x42, .payload_size = 0});
     ASSERT_EQ(::write(sp.peer, hb.data(), hb.size()), static_cast<ssize_t>(hb.size()));
     reactor.run_once(0ms);
     ASSERT_EQ(inbound.recv_type.size(), 1u);

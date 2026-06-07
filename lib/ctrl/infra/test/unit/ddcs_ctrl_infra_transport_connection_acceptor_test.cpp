@@ -10,17 +10,16 @@
 #include "ddcs/runtime/reactor.hpp"
 #include "ddcs/runtime/timer_scheduler.hpp"
 
-#include <gtest/gtest.h>
-
+#include <cstdint>
 #include <string>
 #include <vector>
-
-#include <cstdint>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -29,8 +28,8 @@ using ddcs::common::LinearBuffer;
 using ddcs::common::PoolHandle;
 using ddcs::ctrl::infra::transport::ConnectionAcceptor;
 using ddcs::ctrl::infra::transport::ConnectionManager;
-using ddcs::ctrl::port::transport::DisconnectReason;
 using ddcs::ctrl::port::transport::ConnectionId;
+using ddcs::ctrl::port::transport::DisconnectReason;
 using ddcs::ctrl::port::transport::Inbound;
 using ddcs::runtime::Reactor;
 using ddcs::runtime::TimerScheduler;
@@ -86,9 +85,9 @@ TEST(ConnectionAcceptorTest, AcceptsConnectionAndDeliversFrame) {
     reactor.run_once(1000ms); // accept -> on_connected
     ASSERT_EQ(inbound.connected.size(), 1u);
 
-    // 프레임 전송: magic | type=0x07 | len=2 | "ok"
+    // 프레임 전송: magic | type=0x07 | payload_size=2 | "ok"
     namespace frame = ddcs::proto::frame;
-    auto const hb = frame::encode({.magic = frame::magic, .type = 0x07, .length = 2});
+    auto const hb = frame::encode({.magic = frame::magic, .type = 0x07, .payload_size = 2});
     char const body[] = "ok";
     ASSERT_EQ(::write(client.get(), hb.data(), hb.size()), static_cast<ssize_t>(hb.size()));
     ASSERT_EQ(::write(client.get(), body, 2), 2);
