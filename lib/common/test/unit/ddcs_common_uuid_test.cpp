@@ -1,36 +1,37 @@
 #include "ddcs/common/uuid.hpp"
 
-#include <gtest/gtest.h>
-
 #include <array>
+#include <cstddef>
 #include <type_traits>
 #include <unordered_map>
 
-#include <cstddef>
+#include <gtest/gtest.h>
 
 namespace ddcs::common {
 
 static_assert(std::is_trivially_copyable_v<Uuid>);
 
-TEST(Uuid, NilDefault) {
+TEST(UuidTest, ReportsDefaultUuidAsNil) {
     Uuid u;
     for (auto b : u.bytes()) {
         EXPECT_EQ(b, std::byte{0});
     }
     EXPECT_EQ(u.to_string(), "00000000-0000-0000-0000-000000000000");
+    EXPECT_FALSE(u.valid());
 }
 
-TEST(Uuid, BytesToString) {
+TEST(UuidTest, FormatsBytesAsCanonicalString) {
     std::array<std::byte, 16> const bytes{
         std::byte{0x55}, std::byte{0x0e}, std::byte{0x84}, std::byte{0x00}, std::byte{0xe2}, std::byte{0x9b},
         std::byte{0x41}, std::byte{0xd4}, std::byte{0xa7}, std::byte{0x16}, std::byte{0x44}, std::byte{0x66},
         std::byte{0x55}, std::byte{0x44}, std::byte{0x00}, std::byte{0x00},
     };
     Uuid const u{bytes};
+    EXPECT_TRUE(u.valid());
     EXPECT_EQ(u.to_string(), "550e8400-e29b-41d4-a716-446655440000");
 }
 
-TEST(Uuid, Comparison) {
+TEST(UuidTest, ComparesLexicographically) {
     std::array<std::byte, 16> a{};
     std::array<std::byte, 16> b{};
     b[0] = std::byte{0x01};
@@ -45,7 +46,7 @@ TEST(Uuid, Comparison) {
     EXPECT_TRUE(u2 > u1);
 }
 
-TEST(Uuid, Hash) {
+TEST(UuidTest, HashesEqualValuesEqually) {
     std::array<std::byte, 16> a{};
     a[0] = std::byte{0x01};
     std::array<std::byte, 16> b{};
