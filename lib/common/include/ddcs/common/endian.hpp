@@ -7,6 +7,11 @@ namespace ddcs::common {
 
 template <std::unsigned_integral T>
 constexpr T byteswap(T v) noexcept {
+    static_assert(
+        sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8,
+        "byteswap supports only 1, 2, 4, and 8 byte unsigned integers"
+    );
+
     if constexpr (sizeof(T) == 1) {
         return v;
     } else if constexpr (sizeof(T) == 2) {
@@ -15,7 +20,7 @@ constexpr T byteswap(T v) noexcept {
         return static_cast<T>(
             ((v & 0x000000FFu) << 24) | ((v & 0x0000FF00u) << 8) | ((v & 0x00FF0000u) >> 8) | ((v & 0xFF000000u) >> 24)
         );
-    } else if constexpr (sizeof(T) == 8) {
+    } else {
         return static_cast<T>(
             ((v & 0x00000000000000FFull) << 56) | ((v & 0x000000000000FF00ull) << 40) |
             ((v & 0x0000000000FF0000ull) << 24) | ((v & 0x00000000FF000000ull) << 8) |

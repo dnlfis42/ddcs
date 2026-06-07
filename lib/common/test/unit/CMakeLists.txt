@@ -5,6 +5,13 @@ target_link_libraries(
 )
 add_test(NAME ddcs_common_clock_test COMMAND ddcs_common_clock_test)
 
+add_executable(ddcs_common_endian_test ddcs_common_endian_test.cpp)
+target_link_libraries(
+    ddcs_common_endian_test
+    PRIVATE compile_option ddcs::common GTest::gtest_main
+)
+add_test(NAME ddcs_common_endian_test COMMAND ddcs_common_endian_test)
+
 add_executable(
     ddcs_common_linear_buffer_test
     ddcs_common_linear_buffer_test.cpp
