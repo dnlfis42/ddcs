@@ -34,7 +34,7 @@ ConnectionManager::ConnectionManager(runtime::Reactor& reactor, runtime::TimerSc
 
 common::PoolHandle<common::LinearBuffer> ConnectionManager::send_buffer() {
     auto buf = payload_pool_.acquire();
-    buf->reserve(proto::frame::header_size); // frame header 자리 미리 확보
+    buf->reserve_front(proto::frame::header_size); // frame header 자리 미리 확보
     return buf;
 }
 

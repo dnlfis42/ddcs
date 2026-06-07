@@ -45,7 +45,7 @@ void Connector::start() { try_connect(); }
 
 common::PoolHandle<common::LinearBuffer> Connector::payload_buffer() {
     auto buf = payload_pool_.acquire();
-    buf->reserve(proto::frame::header_size); // frame header 자리 확보
+    buf->reserve_front(proto::frame::header_size); // frame header 자리 확보
     return buf;
 }
 

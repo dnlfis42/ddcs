@@ -13,7 +13,7 @@ namespace ddcs::common {
 
 namespace {
 
-constexpr std::size_t kCap = 16;
+constexpr std::size_t test_capacity = 16;
 
 std::array<std::byte, 8> make_pattern() {
     return {
@@ -29,57 +29,53 @@ std::span<std::byte const> head(std::array<std::byte, N> const& a, std::size_t n
 
 } // namespace
 
-// --- observers ---
-
-TEST(LinearBufferTest, ObserversInEmptyState) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, ReportsEmptyState) {
+    LinearBuffer lb{test_capacity};
     EXPECT_TRUE(lb.empty());
     EXPECT_EQ(lb.size(), 0u);
-    EXPECT_EQ(lb.available(), kCap);
-    EXPECT_EQ(lb.capacity(), kCap);
+    EXPECT_EQ(lb.available(), test_capacity);
+    EXPECT_EQ(lb.capacity(), test_capacity);
 }
 
-TEST(LinearBufferTest, ObserversAfterPartialWrite) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, ReportsStateAfterPartialWrite) {
+    LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
     ASSERT_TRUE(lb.write(head(pattern, 3)));
 
     EXPECT_FALSE(lb.empty());
     EXPECT_EQ(lb.size(), 3u);
-    EXPECT_EQ(lb.available(), kCap - 3);
-    EXPECT_EQ(lb.capacity(), kCap);
+    EXPECT_EQ(lb.available(), test_capacity - 3);
+    EXPECT_EQ(lb.capacity(), test_capacity);
 }
 
-// --- stream state ---
-
-TEST(LinearBufferTest, BoolConversionIsTrueOnInit) {
-    LinearBuffer lb{kCap};
-    EXPECT_TRUE(static_cast<bool>(lb));
+TEST(LinearBufferTest, ReportsClearStreamStateOnInit) {
+    LinearBuffer lb{test_capacity};
+    EXPECT_FALSE(lb.stream_failed());
 }
 
-TEST(LinearBufferTest, BecomesFalsyAfterStreamOverflow) {
+TEST(LinearBufferTest, SetsStreamFailedAfterStreamOverflow) {
     LinearBuffer lb{3};
     int v{1};
     lb << v;
-    EXPECT_FALSE(static_cast<bool>(lb));
+    EXPECT_TRUE(lb.stream_failed());
 }
 
-TEST(LinearBufferTest, BecomesFalsyAfterStreamUnderflow) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, SetsStreamFailedAfterStreamUnderflow) {
+    LinearBuffer lb{test_capacity};
     int out{};
     lb >> out;
-    EXPECT_FALSE(static_cast<bool>(lb));
+    EXPECT_TRUE(lb.stream_failed());
 }
 
-TEST(LinearBufferTest, SetFailMakesBufferFalsy) {
-    LinearBuffer lb{kCap};
-    lb.set_fail();
-    EXPECT_FALSE(static_cast<bool>(lb));
+TEST(LinearBufferTest, MarksStreamAsFailedExplicitly) {
+    LinearBuffer lb{test_capacity};
+    lb.set_stream_failed();
+    EXPECT_TRUE(lb.stream_failed());
 }
 
-TEST(LinearBufferTest, StreamOpsAreNoOpAfterFail) {
-    LinearBuffer lb{kCap};
-    lb.set_fail();
+TEST(LinearBufferTest, LeavesStreamOpsNoOpAfterStreamFailure) {
+    LinearBuffer lb{test_capacity};
+    lb.set_stream_failed();
     int v{42};
     lb << v;
     EXPECT_EQ(lb.size(), 0u);
@@ -89,10 +85,8 @@ TEST(LinearBufferTest, StreamOpsAreNoOpAfterFail) {
     EXPECT_EQ(out, 99);
 }
 
-// --- zero-copy region ---
-
-TEST(LinearBufferTest, ReadableReturnsCurrentData) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, ReturnsCurrentReadableData) {
+    LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
     ASSERT_TRUE(lb.write(head(pattern, 4)));
 
@@ -104,39 +98,37 @@ TEST(LinearBufferTest, ReadableReturnsCurrentData) {
     EXPECT_EQ(lb.size(), 4u);
 }
 
-TEST(LinearBufferTest, WritableShrinksAfterWrite) {
-    LinearBuffer lb{kCap};
-    EXPECT_EQ(lb.writable().size(), kCap);
+TEST(LinearBufferTest, ShrinksWritableRegionAfterWrite) {
+    LinearBuffer lb{test_capacity};
+    EXPECT_EQ(lb.writable().size(), test_capacity);
 
     auto pattern = make_pattern();
     ASSERT_TRUE(lb.write(head(pattern, 5)));
-    EXPECT_EQ(lb.writable().size(), kCap - 5);
+    EXPECT_EQ(lb.writable().size(), test_capacity - 5);
 }
 
-// --- cursor ---
-
-TEST(LinearBufferTest, ReserveAdvancesBothCursorsWhenEmpty) {
-    LinearBuffer lb{kCap};
-    ASSERT_TRUE(lb.reserve(4));
+TEST(LinearBufferTest, AdvancesBothCursorsWhenReservingFront) {
+    LinearBuffer lb{test_capacity};
+    ASSERT_TRUE(lb.reserve_front(4));
     EXPECT_TRUE(lb.empty());
     EXPECT_EQ(lb.size(), 0u);
-    EXPECT_EQ(lb.available(), kCap - 4);
+    EXPECT_EQ(lb.available(), test_capacity - 4);
 }
 
-TEST(LinearBufferTest, ReserveFailsWhenNotEmpty) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, RejectsReserveFrontWhenBufferIsNotEmpty) {
+    LinearBuffer lb{test_capacity};
     std::array<std::byte, 1> one{std::byte{0xff}};
     ASSERT_TRUE(lb.write(one));
-    EXPECT_FALSE(lb.reserve(4));
+    EXPECT_FALSE(lb.reserve_front(4));
 }
 
-TEST(LinearBufferTest, ReserveFailsWhenLargerThanCapacity) {
+TEST(LinearBufferTest, RejectsReserveFrontLargerThanCapacity) {
     LinearBuffer lb{4};
-    EXPECT_FALSE(lb.reserve(5));
+    EXPECT_FALSE(lb.reserve_front(5));
 }
 
-TEST(LinearBufferTest, CommitExposesExternallyFilledData) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, ExposesExternallyFilledDataOnCommit) {
+    LinearBuffer lb{test_capacity};
     auto region = lb.writable();
     ASSERT_GE(region.size(), 2u);
     region[0] = std::byte{0xab};
@@ -150,38 +142,36 @@ TEST(LinearBufferTest, CommitExposesExternallyFilledData) {
     EXPECT_EQ(dst[1], std::byte{0xcd});
 }
 
-TEST(LinearBufferTest, CommitReturnsFalseOnOverflow) {
+TEST(LinearBufferTest, RejectsCommitBeyondAvailableSpace) {
     LinearBuffer lb{4};
     EXPECT_FALSE(lb.commit(5));
     EXPECT_EQ(lb.size(), 0u);
     EXPECT_EQ(lb.available(), 4u);
 }
 
-TEST(LinearBufferTest, ConsumeReturnsFalseOnUnderflow) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, RejectsConsumeBeyondReadableData) {
+    LinearBuffer lb{test_capacity};
     std::array<std::byte, 2> two{};
     ASSERT_TRUE(lb.write(two));
     EXPECT_FALSE(lb.consume(3));
     EXPECT_EQ(lb.size(), 2u);
 }
 
-TEST(LinearBufferTest, ClearResetsPositionsAndFailFlag) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, ResetsPositionsAndStreamFailureOnClear) {
+    LinearBuffer lb{test_capacity};
     lb << 1 << 2 << 3;
-    lb.set_fail();
-    ASSERT_FALSE(static_cast<bool>(lb));
+    lb.set_stream_failed();
+    ASSERT_TRUE(lb.stream_failed());
 
     lb.clear();
     EXPECT_TRUE(lb.empty());
     EXPECT_EQ(lb.size(), 0u);
-    EXPECT_EQ(lb.available(), kCap);
-    EXPECT_TRUE(static_cast<bool>(lb));
+    EXPECT_EQ(lb.available(), test_capacity);
+    EXPECT_FALSE(lb.stream_failed());
 }
 
-// --- copy I/O (span) ---
-
-TEST(LinearBufferTest, WriteReadRoundTrip) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, RoundTripsWrittenBytes) {
+    LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
     ASSERT_TRUE(lb.write(head(pattern, 4)));
 
@@ -193,7 +183,7 @@ TEST(LinearBufferTest, WriteReadRoundTrip) {
     }
 }
 
-TEST(LinearBufferTest, WriteReturnsFalseWhenInsufficientSpace) {
+TEST(LinearBufferTest, RejectsWriteWhenSpaceIsInsufficient) {
     LinearBuffer lb{2};
     std::array<std::byte, 4> too_much{};
     EXPECT_FALSE(lb.write(too_much));
@@ -201,8 +191,8 @@ TEST(LinearBufferTest, WriteReturnsFalseWhenInsufficientSpace) {
     EXPECT_EQ(lb.available(), 2u);
 }
 
-TEST(LinearBufferTest, ReadReturnsFalseWhenInsufficientData) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, RejectsReadWhenDataIsInsufficient) {
+    LinearBuffer lb{test_capacity};
     std::array<std::byte, 1> one{std::byte{0xab}};
     ASSERT_TRUE(lb.write(one));
 
@@ -211,8 +201,8 @@ TEST(LinearBufferTest, ReadReturnsFalseWhenInsufficientData) {
     EXPECT_EQ(lb.size(), 1u);
 }
 
-TEST(LinearBufferTest, PeekDoesNotAdvanceReadCursor) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, LeavesReadCursorUnchangedOnPeek) {
+    LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
     ASSERT_TRUE(lb.write(head(pattern, 3)));
 
@@ -227,11 +217,9 @@ TEST(LinearBufferTest, PeekDoesNotAdvanceReadCursor) {
     }
 }
 
-// --- write_front (prepend into headroom) ---
-
-TEST(LinearBufferTest, WriteFrontPrependsIntoReservedHeadroom) {
-    LinearBuffer lb{kCap};
-    ASSERT_TRUE(lb.reserve(2));
+TEST(LinearBufferTest, PrependsIntoReservedFrontSpaceWithWriteFront) {
+    LinearBuffer lb{test_capacity};
+    ASSERT_TRUE(lb.reserve_front(2));
 
     std::array<std::byte, 3> body{std::byte{0xaa}, std::byte{0xbb}, std::byte{0xcc}};
     ASSERT_TRUE(lb.write(body));
@@ -250,8 +238,8 @@ TEST(LinearBufferTest, WriteFrontPrependsIntoReservedHeadroom) {
     EXPECT_EQ(dst[4], std::byte{0xcc});
 }
 
-TEST(LinearBufferTest, WriteFrontFailsWithoutHeadroom) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, RejectsWriteFrontWithoutHeadroom) {
+    LinearBuffer lb{test_capacity};
     std::array<std::byte, 3> body{};
     ASSERT_TRUE(lb.write(body));
 
@@ -260,10 +248,8 @@ TEST(LinearBufferTest, WriteFrontFailsWithoutHeadroom) {
     EXPECT_EQ(lb.size(), 3u);
 }
 
-// --- stream serialization ---
-
-TEST(LinearBufferTest, StreamRoundTripsSingleInt) {
-    LinearBuffer lb{kCap};
+TEST(LinearBufferTest, RoundTripsSingleIntThroughStreamOps) {
+    LinearBuffer lb{test_capacity};
     lb << 42;
     EXPECT_EQ(lb.size(), sizeof(int));
 
@@ -271,10 +257,10 @@ TEST(LinearBufferTest, StreamRoundTripsSingleInt) {
     lb >> out;
     EXPECT_EQ(out, 42);
     EXPECT_TRUE(lb.empty());
-    EXPECT_TRUE(static_cast<bool>(lb));
+    EXPECT_FALSE(lb.stream_failed());
 }
 
-TEST(LinearBufferTest, StreamRoundTripsMixedArithmeticTypes) {
+TEST(LinearBufferTest, RoundTripsMixedArithmeticTypesThroughStreamOps) {
     LinearBuffer lb{64};
     bool b{true};
     int i{-7};
@@ -294,7 +280,7 @@ TEST(LinearBufferTest, StreamRoundTripsMixedArithmeticTypes) {
     EXPECT_EQ(u_out, 0xDEADBEEFCAFEBABEull);
     EXPECT_DOUBLE_EQ(d_out, 3.141592);
     EXPECT_TRUE(lb.empty());
-    EXPECT_TRUE(static_cast<bool>(lb));
+    EXPECT_FALSE(lb.stream_failed());
 }
 
 } // namespace ddcs::common
