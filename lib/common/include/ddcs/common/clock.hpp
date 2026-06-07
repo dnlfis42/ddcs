@@ -22,7 +22,7 @@ public:
     virtual time_point now() const noexcept = 0;
 };
 
-class SystemClock final : public Clock {
+class SteadyClock final : public Clock {
 public:
     time_point now() const noexcept override { return std::chrono::steady_clock::now(); }
 };

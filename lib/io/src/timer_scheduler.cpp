@@ -217,7 +217,7 @@ struct TimerScheduler::Impl {
 
     TimerScheduler& owner;
     Reactor& reactor;
-    common::SystemClock default_clock;
+    common::SteadyClock default_clock;
     common::Clock& clock;
     Channel channel;
     detail::TimerQueue timer_queue;

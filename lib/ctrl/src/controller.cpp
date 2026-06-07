@@ -58,7 +58,7 @@ private:
     void load_policy(); // policy.json load-once (start에서). 파일/파싱 실패는 WARN 후 빈 정책.
 
     logger::StdoutSink default_sink_;
-    common::SystemClock clock_;
+    common::SteadyClock clock_;
     Config cfg_;
 
     runtime::Reactor reactor_;

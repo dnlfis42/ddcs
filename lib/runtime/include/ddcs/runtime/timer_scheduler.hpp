@@ -56,7 +56,7 @@ private:
 
 private:
     Reactor& reactor_;
-    common::SystemClock default_clock_;
+    common::SteadyClock default_clock_;
     common::Clock& clock_;
     common::Fd fd_{};
     detail::TimerQueue timers_;

@@ -8,44 +8,44 @@ namespace ddcs::common {
 
 using namespace std::chrono_literals;
 
-TEST(Clock, SystemClockMonotonic) {
-    SystemClock c;
-    auto const t1 = c.now();
-    auto const t2 = c.now();
+TEST(ClockTest, ReturnsMonotonicTimeFromSteadyClock) {
+    SteadyClock clock;
+    auto const t1 = clock.now();
+    auto const t2 = clock.now();
     EXPECT_GE(t2, t1);
 }
 
-TEST(Clock, ManualClockDefaultStart) {
-    ManualClock c;
-    EXPECT_EQ(c.now(), Clock::time_point{});
+TEST(ClockTest, StartsManualClockAtDefaultTime) {
+    ManualClock clock;
+    EXPECT_EQ(clock.now(), Clock::time_point{});
 }
 
-TEST(Clock, ManualClockAdvance) {
-    ManualClock c;
-    auto const t0 = c.now();
+TEST(ClockTest, AdvancesManualClockByDuration) {
+    ManualClock clock;
+    auto const t0 = clock.now();
 
-    c.advance(1s);
-    EXPECT_EQ(c.now() - t0, std::chrono::duration_cast<Clock::duration>(1s));
+    clock.advance(1s);
+    EXPECT_EQ(clock.now() - t0, std::chrono::duration_cast<Clock::duration>(1s));
 
-    c.advance(500ms);
-    EXPECT_EQ(c.now() - t0, std::chrono::duration_cast<Clock::duration>(1500ms));
+    clock.advance(500ms);
+    EXPECT_EQ(clock.now() - t0, std::chrono::duration_cast<Clock::duration>(1500ms));
 }
 
-TEST(Clock, ManualClockSet) {
-    ManualClock c;
+TEST(ClockTest, SetsManualClockTime) {
+    ManualClock clock;
     Clock::time_point const t{1234ms};
-    c.set(t);
-    EXPECT_EQ(c.now(), t);
+    clock.set(t);
+    EXPECT_EQ(clock.now(), t);
 }
 
-TEST(Clock, PolymorphicUsage) {
+TEST(ClockTest, DispatchesNowThroughClockInterface) {
     ManualClock impl;
-    Clock& c = impl;
+    Clock& clock = impl;
 
-    EXPECT_EQ(c.now(), Clock::time_point{});
+    EXPECT_EQ(clock.now(), Clock::time_point{});
 
     impl.advance(2s);
-    EXPECT_EQ(c.now(), Clock::time_point{} + std::chrono::duration_cast<Clock::duration>(2s));
+    EXPECT_EQ(clock.now(), Clock::time_point{} + std::chrono::duration_cast<Clock::duration>(2s));
 }
 
 } // namespace ddcs::common
