@@ -55,7 +55,7 @@ void SessionService::on_recv(std::uint8_t type, common::PoolHandle<common::Linea
     auto const data = body->readable();
     switch (state_) {
     case State::registering:
-        if (static_cast<proto::msg::Type>(type) == proto::msg::Type::RegisterResponse) {
+        if (static_cast<proto::msg::MessageType>(type) == proto::msg::MessageType::register_response) {
             handle_register_response(data);
         } else {
             LOG_WARN("agent.session.unexpected_registering", ddcs::logger::kv("type", type));
@@ -63,7 +63,7 @@ void SessionService::on_recv(std::uint8_t type, common::PoolHandle<common::Linea
         }
         break;
     case State::active:
-        if (static_cast<proto::msg::Type>(type) == proto::msg::Type::Command) {
+        if (static_cast<proto::msg::MessageType>(type) == proto::msg::MessageType::command) {
             handle_command(data);
         } else {
             LOG_WARN("agent.session.unexpected_active", ddcs::logger::kv("type", type));

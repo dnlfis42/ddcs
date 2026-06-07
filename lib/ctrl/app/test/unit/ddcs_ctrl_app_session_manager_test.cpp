@@ -83,7 +83,7 @@ PoolHandle<LinearBuffer> encode_body(T const& m) {
     return buf;
 }
 
-constexpr std::uint8_t kType(msg::Type t) { return static_cast<std::uint8_t>(t); }
+constexpr std::uint8_t kType(msg::MessageType t) { return static_cast<std::uint8_t>(t); }
 
 // SessionManager 와 그 뒤의 실 use-case 그래프를 묶은 테스트 하니스.
 struct Harness {
@@ -98,7 +98,7 @@ struct Harness {
 
     void register_active(ConnectionId conn, Uuid uuid) {
         mgr.on_connected(conn);
-        mgr.on_recv(conn, kType(msg::Type::RegisterRequest), encode_body(msg::RegisterRequest{.agent_uuid = uuid}));
+        mgr.on_recv(conn, kType(msg::MessageType::register_request), encode_body(msg::RegisterRequest{.agent_uuid = uuid}));
         outbound.sends.clear();
         outbound.drops.clear();
     }
@@ -118,7 +118,7 @@ TEST(SessionManagerTest, RoutesRegisterRequestActivatesSession) {
     Harness h;
     h.mgr.on_connected(ConnectionId{1});
     h.mgr.on_recv(
-        ConnectionId{1}, kType(msg::Type::RegisterRequest),
+        ConnectionId{1}, kType(msg::MessageType::register_request),
         encode_body(msg::RegisterRequest{.agent_uuid = make_uuid(1)})
     );
 
@@ -126,14 +126,14 @@ TEST(SessionManagerTest, RoutesRegisterRequestActivatesSession) {
     ASSERT_NE(s, nullptr);
     EXPECT_EQ(s->state, State::active);
     ASSERT_EQ(h.outbound.sends.size(), 1u); // RegisterResponse
-    EXPECT_EQ(h.outbound.sends[0].type, kType(msg::Type::RegisterResponse));
+    EXPECT_EQ(h.outbound.sends[0].type, kType(msg::MessageType::register_response));
 }
 
 TEST(SessionManagerTest, ActiveRecvUpdatesLastSeen) {
     Harness h;
     h.register_active(ConnectionId{1}, make_uuid(1)); // last_seen = t0
     h.clock.advance(std::chrono::seconds{2});
-    h.mgr.on_recv(ConnectionId{1}, kType(msg::Type::Heartbeat), encode_body(msg::Heartbeat{.timestamp_ms = 0}));
+    h.mgr.on_recv(ConnectionId{1}, kType(msg::MessageType::heartbeat), encode_body(msg::Heartbeat{.timestamp_ms = 0}));
 
     auto* s = h.sessions.find(ConnectionId{1});
     ASSERT_NE(s, nullptr);
@@ -145,7 +145,7 @@ TEST(SessionManagerTest, RoutesStatusAsTelemetry) {
     Harness h;
     h.register_active(ConnectionId{1}, make_uuid(1));
     h.mgr.on_recv(
-        ConnectionId{1}, kType(msg::Type::Status), encode_body(msg::Status{.timestamp_ms = 0, .status_json = "{}"})
+        ConnectionId{1}, kType(msg::MessageType::status), encode_body(msg::Status{.timestamp_ms = 0, .status_json = "{}"})
     );
     EXPECT_TRUE(h.outbound.drops.empty()); // 비치명적
 }
@@ -158,7 +158,7 @@ TEST(SessionManagerTest, RoutesCommandOutcomeResolvesPending) {
     ASSERT_EQ(h.commands.pending_count(), 1u);
 
     h.mgr.on_recv(
-        ConnectionId{1}, kType(msg::Type::CommandOutcome),
+        ConnectionId{1}, kType(msg::MessageType::command_outcome),
         encode_body(msg::CommandOutcome{.command_id = command_id, .result = msg::CommandResult::success, .reason = {}})
     );
     EXPECT_EQ(h.commands.pending_count(), 0u); // outcome 라우팅 -> 해소
@@ -172,7 +172,7 @@ TEST(SessionManagerTest, RoutesCommandAckExtendsDeadline) {
 
     h.clock.advance(std::chrono::seconds{4});
     h.mgr.on_recv(
-        ConnectionId{1}, kType(msg::Type::CommandAck), encode_body(msg::CommandAck{.command_id = command_id})
+        ConnectionId{1}, kType(msg::MessageType::command_ack), encode_body(msg::CommandAck{.command_id = command_id})
     ); // deadline -> t0+9s
 
     h.clock.advance(std::chrono::seconds{4}); // t0+8s
@@ -185,7 +185,7 @@ TEST(SessionManagerTest, UnexpectedTypeClosesConnection) {
     h.mgr.on_connected(ConnectionId{1});
     // RegisterResponse 는 c->a 전용 -> 수신 시 프로토콜 위반.
     h.mgr.on_recv(
-        ConnectionId{1}, kType(msg::Type::RegisterResponse),
+        ConnectionId{1}, kType(msg::MessageType::register_response),
         encode_body(msg::RegisterResponse{.result = msg::RegisterResult::success, .reason = {}})
     );
     ASSERT_EQ(h.outbound.drops.size(), 1u);
@@ -215,7 +215,7 @@ TEST(SessionManagerTest, PreRegisterUnexpectedTypeCloses) {
     h.mgr.on_connected(ConnectionId{1}); // handshaking
     // 등록 전 비-Register 프레임 -> 프로토콜 위반 -> close (register-or-die gap-fix).
     h.mgr.on_recv(
-        ConnectionId{1}, kType(msg::Type::Status), encode_body(msg::Status{.timestamp_ms = 0, .status_json = "{}"})
+        ConnectionId{1}, kType(msg::MessageType::status), encode_body(msg::Status{.timestamp_ms = 0, .status_json = "{}"})
     );
     ASSERT_EQ(h.outbound.drops.size(), 1u);
     EXPECT_EQ(h.outbound.drops[0], ConnectionId{1});
@@ -227,7 +227,7 @@ TEST(SessionManagerTest, KicksOldConnectionOnSameUuidReRegister) {
     // 같은 uuid 가 새 conn 으로 재등록 -> 옛 conn 축출.
     h.mgr.on_connected(ConnectionId{2});
     h.mgr.on_recv(
-        ConnectionId{2}, kType(msg::Type::RegisterRequest),
+        ConnectionId{2}, kType(msg::MessageType::register_request),
         encode_body(msg::RegisterRequest{.agent_uuid = make_uuid(1)})
     );
 
@@ -244,7 +244,7 @@ TEST(SessionManagerTest, RegisterDecodeFailClosesConnection) {
     auto bad = pool.acquire();
     std::array<std::byte, 4> junk{};
     ASSERT_TRUE(bad->write({junk.data(), junk.size()}));
-    h.mgr.on_recv(ConnectionId{1}, kType(msg::Type::RegisterRequest), std::move(bad));
+    h.mgr.on_recv(ConnectionId{1}, kType(msg::MessageType::register_request), std::move(bad));
 
     ASSERT_EQ(h.outbound.drops.size(), 1u);
     EXPECT_EQ(h.outbound.drops[0], ConnectionId{1});

@@ -25,12 +25,12 @@ void SessionManager::on_connected(ConnectionId conn) {
 }
 
 void SessionManager::on_recv(ConnectionId conn, std::uint8_t type, common::PoolHandle<common::LinearBuffer> body) {
-    auto const t = static_cast<proto::msg::Type>(type);
+    auto const t = static_cast<proto::msg::MessageType>(type);
     Session* const s = sessions_.find(conn);
 
     // handshaking: RegisterRequest 만 허용. 잘못된 첫 프레임은 프로토콜 위반 -> close.
     // (ConnectionManager handshake 타이머가 "프레임 없음"을, 이건 "잘못된 첫 프레임"을 닫아 register-or-die 완성.)
-    if (s != nullptr && s->state == State::handshaking && t != proto::msg::Type::RegisterRequest) {
+    if (s != nullptr && s->state == State::handshaking && t != proto::msg::MessageType::register_request) {
         LOG_WARN(
             "dispatch.pre_register_unexpected", ddcs::logger::kv("conn", conn.value()), ddcs::logger::kv("type", type)
         );
@@ -44,18 +44,18 @@ void SessionManager::on_recv(ConnectionId conn, std::uint8_t type, common::PoolH
     }
 
     switch (t) {
-    case proto::msg::Type::RegisterRequest:
+    case proto::msg::MessageType::register_request:
         handle_register(conn, std::move(body));
         break;
-    case proto::msg::Type::Heartbeat:
+    case proto::msg::MessageType::heartbeat:
         break; // idle keepalive - 위 update_seen 으로 충분. 별도 처리 없음.
-    case proto::msg::Type::Status:
+    case proto::msg::MessageType::status:
         status_.handle_status(conn, std::move(body));
         break;
-    case proto::msg::Type::CommandAck:
+    case proto::msg::MessageType::command_ack:
         commands_.handle_ack(conn, std::move(body));
         break;
-    case proto::msg::Type::CommandOutcome:
+    case proto::msg::MessageType::command_outcome:
         commands_.handle_outcome(conn, std::move(body));
         break;
     default:

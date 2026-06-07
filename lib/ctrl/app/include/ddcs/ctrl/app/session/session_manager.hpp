@@ -24,7 +24,7 @@ using ddcs::ctrl::port::transport::Inbound;
 using ddcs::ctrl::port::transport::Outbound;
 
 // inbound (driving) 포트 구현이자 세션 수명 FSM 의 소유자. infra(transport) 이벤트를 받아
-// 세션 상태를 전이시키고 app use-case 로 라우팅한다. frame.type opaque 바이트를 여기서 msg::Type 으로
+// 세션 상태를 전이시키고 app use-case 로 라우팅한다. frame.type opaque 바이트를 여기서 msg::MessageType 으로
 // 해석(의미는 app 책임). transport 헤더는 모르고 포트로만 통신.
 //  - on_connected     : 세션 open(handshaking)
 //  - on_recv          : handshaking->Register 만 허용 / active 면 update_seen 후 type -> 서비스 분기

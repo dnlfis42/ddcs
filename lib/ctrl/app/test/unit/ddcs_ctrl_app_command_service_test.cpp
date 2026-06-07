@@ -100,7 +100,7 @@ TEST(CommandServiceTest, DispatchSendsCommandAndTracksPending) {
     EXPECT_EQ(svc.dispatched_total(), 1u);
     ASSERT_EQ(outbound.sends.size(), 1u);
     EXPECT_EQ(outbound.sends[0].id, ConnectionId{1});
-    EXPECT_EQ(outbound.sends[0].type, static_cast<std::uint8_t>(msg::Type::Command));
+    EXPECT_EQ(outbound.sends[0].type, static_cast<std::uint8_t>(msg::MessageType::command));
 
     msg::Command sent{};
     auto const& b = outbound.sends[0].body;

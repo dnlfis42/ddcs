@@ -70,7 +70,7 @@ PoolHandle<LinearBuffer> body_of(T const& m) {
     return buf;
 }
 
-constexpr std::uint8_t kType(msg::Type t) { return static_cast<std::uint8_t>(t); }
+constexpr std::uint8_t kType(msg::MessageType t) { return static_cast<std::uint8_t>(t); }
 
 namespace cmd = ddcs::proto::cmd;
 
@@ -125,7 +125,7 @@ int count_timer(MockOutbound const& o, TimerId id) {
 void activate(SessionService& svc, MockOutbound& out) {
     svc.on_connected();
     svc.on_recv(
-        kType(msg::Type::RegisterResponse),
+        kType(msg::MessageType::register_response),
         body_of(msg::RegisterResponse{.result = msg::RegisterResult::success, .reason = {}})
     );
     out.sends.clear();
@@ -144,7 +144,7 @@ TEST(AgentSessionServiceTest, OnConnectedSendsRegisterAndArmsTimeout) {
 
     EXPECT_EQ(svc.state(), SessionService::State::registering);
     ASSERT_EQ(out.sends.size(), 1u);
-    EXPECT_EQ(out.sends[0].type, kType(msg::Type::RegisterRequest));
+    EXPECT_EQ(out.sends[0].type, kType(msg::MessageType::register_request));
     msg::RegisterRequest req{};
     auto const& b = out.sends[0].body;
     ASSERT_TRUE(msg::decode({reinterpret_cast<std::byte const*>(b.data()), b.size()}, req));
@@ -163,7 +163,7 @@ TEST(AgentSessionServiceTest, RegisterRequestCarriesConfiguredGroupAndVersion) {
     svc.on_connected();
 
     ASSERT_EQ(out.sends.size(), 1u);
-    EXPECT_EQ(out.sends[0].type, kType(msg::Type::RegisterRequest));
+    EXPECT_EQ(out.sends[0].type, kType(msg::MessageType::register_request));
     msg::RegisterRequest req{};
     auto const& b = out.sends[0].body;
     ASSERT_TRUE(msg::decode({reinterpret_cast<std::byte const*>(b.data()), b.size()}, req));
@@ -178,7 +178,7 @@ TEST(AgentSessionServiceTest, RegisterResponseSuccessEntersActive) {
     svc.on_connected();
 
     svc.on_recv(
-        kType(msg::Type::RegisterResponse),
+        kType(msg::MessageType::register_response),
         body_of(msg::RegisterResponse{.result = msg::RegisterResult::success, .reason = {}})
     );
 
@@ -194,7 +194,7 @@ TEST(AgentSessionServiceTest, RegisterResponseFailedCloses) {
     svc.on_connected();
 
     svc.on_recv(
-        kType(msg::Type::RegisterResponse),
+        kType(msg::MessageType::register_response),
         body_of(msg::RegisterResponse{.result = msg::RegisterResult::failed, .reason = "busy"})
     );
 
@@ -220,7 +220,7 @@ TEST(AgentSessionServiceTest, UnexpectedTypeWhileRegisteringCloses) {
     SessionService svc{make_uuid(1), device, out};
     svc.on_connected();
 
-    svc.on_recv(kType(msg::Type::Heartbeat), body_of(msg::Heartbeat{.timestamp_ms = 0}));
+    svc.on_recv(kType(msg::MessageType::heartbeat), body_of(msg::Heartbeat{.timestamp_ms = 0}));
 
     EXPECT_EQ(out.closes, 1);
 }
@@ -244,7 +244,7 @@ TEST(AgentSessionServiceTest, EnterActiveArmsHeartbeatAndStatusTimers) {
     svc.on_connected();
 
     svc.on_recv(
-        kType(msg::Type::RegisterResponse),
+        kType(msg::MessageType::register_response),
         body_of(msg::RegisterResponse{.result = msg::RegisterResult::success, .reason = {}})
     );
 
@@ -261,7 +261,7 @@ TEST(AgentSessionServiceTest, HeartbeatTimerSendsHeartbeatAndReschedules) {
     svc.on_timer(TimerId::heartbeat);
 
     ASSERT_EQ(out.sends.size(), 1u);
-    EXPECT_EQ(out.sends[0].type, kType(msg::Type::Heartbeat));
+    EXPECT_EQ(out.sends[0].type, kType(msg::MessageType::heartbeat));
     EXPECT_EQ(count_timer(out, TimerId::heartbeat), 1); // 재무장
 }
 
@@ -276,7 +276,7 @@ TEST(AgentSessionServiceTest, StatusTimerSendsStatusFromDeviceAndReschedules) {
     svc.on_timer(TimerId::status);
 
     ASSERT_EQ(out.sends.size(), 1u);
-    EXPECT_EQ(out.sends[0].type, kType(msg::Type::Status));
+    EXPECT_EQ(out.sends[0].type, kType(msg::MessageType::status));
     msg::Status st{};
     auto const& b = out.sends[0].body;
     ASSERT_TRUE(msg::decode({reinterpret_cast<std::byte const*>(b.data()), b.size()}, st));
@@ -294,7 +294,7 @@ TEST(AgentSessionServiceTest, HeartbeatTimerIgnoredWhenNotActive) {
 
     svc.on_timer(TimerId::heartbeat);
 
-    EXPECT_TRUE(out.sends.empty() || out.sends[0].type != kType(msg::Type::Heartbeat));
+    EXPECT_TRUE(out.sends.empty() || out.sends[0].type != kType(msg::MessageType::heartbeat));
 }
 
 TEST(AgentSessionServiceTest, CommandAppliesToDeviceAndAcksThenOutcomes) {
@@ -303,12 +303,12 @@ TEST(AgentSessionServiceTest, CommandAppliesToDeviceAndAcksThenOutcomes) {
     SessionService svc{make_uuid(1), device, out};
     activate(svc, out);
 
-    svc.on_recv(kType(msg::Type::Command), setmode_command(1, ddcs::device::Mode::performance));
+    svc.on_recv(kType(msg::MessageType::command), setmode_command(1, ddcs::device::Mode::performance));
 
     EXPECT_EQ(device.mode(), ddcs::device::Mode::performance); // device 적용
     ASSERT_EQ(out.sends.size(), 2u);
-    EXPECT_EQ(out.sends[0].type, kType(msg::Type::CommandAck)); // ACK 먼저
-    EXPECT_EQ(out.sends[1].type, kType(msg::Type::CommandOutcome));
+    EXPECT_EQ(out.sends[0].type, kType(msg::MessageType::command_ack)); // ACK 먼저
+    EXPECT_EQ(out.sends[1].type, kType(msg::MessageType::command_outcome));
 
     msg::CommandAck ack{};
     auto const& a = out.sends[0].body;
@@ -328,17 +328,17 @@ TEST(AgentSessionServiceTest, DuplicateCommandResendsWithoutReapplying) {
     SessionService svc{make_uuid(1), device, out};
     activate(svc, out);
 
-    svc.on_recv(kType(msg::Type::Command), setmode_command(1, ddcs::device::Mode::performance));
+    svc.on_recv(kType(msg::MessageType::command), setmode_command(1, ddcs::device::Mode::performance));
     ASSERT_EQ(device.mode(), ddcs::device::Mode::performance);
     out.sends.clear();
 
     // 같은 command_id=1 로 다른 mode -> dedup: 재적용 안 함(device 유지) + 응답만 재송신.
-    svc.on_recv(kType(msg::Type::Command), setmode_command(1, ddcs::device::Mode::safe));
+    svc.on_recv(kType(msg::MessageType::command), setmode_command(1, ddcs::device::Mode::safe));
 
     EXPECT_EQ(device.mode(), ddcs::device::Mode::performance); // 재적용 안 됨
     ASSERT_EQ(out.sends.size(), 2u);                           // ACK+Outcome 재송신
-    EXPECT_EQ(out.sends[0].type, kType(msg::Type::CommandAck));
-    EXPECT_EQ(out.sends[1].type, kType(msg::Type::CommandOutcome));
+    EXPECT_EQ(out.sends[0].type, kType(msg::MessageType::command_ack));
+    EXPECT_EQ(out.sends[1].type, kType(msg::MessageType::command_outcome));
 }
 
 TEST(AgentSessionServiceTest, UnknownCommandTypeOutcomesFailed) {
@@ -348,7 +348,7 @@ TEST(AgentSessionServiceTest, UnknownCommandTypeOutcomesFailed) {
     activate(svc, out);
 
     svc.on_recv(
-        kType(msg::Type::Command), body_of(msg::Command{.command_id = 5, .type = 0xFF, .payload = {}})
+        kType(msg::MessageType::command), body_of(msg::Command{.command_id = 5, .type = 0xFF, .payload = {}})
     ); // 미지 CommandType
 
     EXPECT_EQ(device.mode(), ddcs::device::Mode::safe); // device 변동 없음
@@ -365,7 +365,7 @@ TEST(AgentSessionServiceTest, UnexpectedTypeWhileActiveCloses) {
     SessionService svc{make_uuid(1), device, out};
     activate(svc, out);
 
-    svc.on_recv(kType(msg::Type::Heartbeat), body_of(msg::Heartbeat{.timestamp_ms = 0}));
+    svc.on_recv(kType(msg::MessageType::heartbeat), body_of(msg::Heartbeat{.timestamp_ms = 0}));
 
     EXPECT_EQ(out.closes, 1);
 }

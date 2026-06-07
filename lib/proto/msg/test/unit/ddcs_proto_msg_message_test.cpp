@@ -129,11 +129,11 @@ TEST(MessageCodecTest, RejectsInsufficientBytes) {
 }
 
 TEST(MessageCodecTest, MapsTypeOfForEachMessage) {
-    EXPECT_EQ(type_of<RegisterRequest>, Type::RegisterRequest);
-    EXPECT_EQ(type_of<RegisterResponse>, Type::RegisterResponse);
-    EXPECT_EQ(type_of<Heartbeat>, Type::Heartbeat);
-    EXPECT_EQ(type_of<Status>, Type::Status);
-    EXPECT_EQ(type_of<Command>, Type::Command);
-    EXPECT_EQ(type_of<CommandAck>, Type::CommandAck);
-    EXPECT_EQ(type_of<CommandOutcome>, Type::CommandOutcome);
+    EXPECT_EQ(type_of<RegisterRequest>, MessageType::register_request);
+    EXPECT_EQ(type_of<RegisterResponse>, MessageType::register_response);
+    EXPECT_EQ(type_of<Heartbeat>, MessageType::heartbeat);
+    EXPECT_EQ(type_of<Status>, MessageType::status);
+    EXPECT_EQ(type_of<Command>, MessageType::command);
+    EXPECT_EQ(type_of<CommandAck>, MessageType::command_ack);
+    EXPECT_EQ(type_of<CommandOutcome>, MessageType::command_outcome);
 }

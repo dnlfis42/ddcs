@@ -86,7 +86,7 @@ TEST(OperatorServiceTest, SetModeDispatchesCommandToBoundAgent) {
     EXPECT_NE(command_id, 0u);
     ASSERT_EQ(outbound.sends.size(), 1u);
     EXPECT_EQ(outbound.sends[0].id, ConnectionId{1});
-    EXPECT_EQ(outbound.sends[0].type, static_cast<std::uint8_t>(msg::Type::Command));
+    EXPECT_EQ(outbound.sends[0].type, static_cast<std::uint8_t>(msg::MessageType::command));
 
     // Command 봉투 디코드 -> SetMode payload 까지 확인.
     msg::Command sent{};

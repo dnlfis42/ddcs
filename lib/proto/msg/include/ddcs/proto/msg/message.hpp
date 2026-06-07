@@ -74,25 +74,25 @@ struct CommandOutcome {
     bool operator==(CommandOutcome const&) const = default;
 };
 
-// 타입 -> Type 매핑. 인코드 시 frame.type 결정에 사용(잘못된 T 는 컴파일 에러).
+// 메시지 타입 -> MessageType 매핑. 인코드 시 frame 헤더의 type 바이트 결정에 사용한다.
 template <typename T>
-inline constexpr Type type_of = T::__type_specialization_missing;
+inline constexpr MessageType type_of = T::__type_specialization_missing;
 template <>
-inline constexpr Type type_of<RegisterRequest> = Type::RegisterRequest;
+inline constexpr MessageType type_of<RegisterRequest> = MessageType::register_request;
 template <>
-inline constexpr Type type_of<RegisterResponse> = Type::RegisterResponse;
+inline constexpr MessageType type_of<RegisterResponse> = MessageType::register_response;
 template <>
-inline constexpr Type type_of<Heartbeat> = Type::Heartbeat;
+inline constexpr MessageType type_of<Heartbeat> = MessageType::heartbeat;
 template <>
-inline constexpr Type type_of<Status> = Type::Status;
+inline constexpr MessageType type_of<Status> = MessageType::status;
 template <>
-inline constexpr Type type_of<Command> = Type::Command;
+inline constexpr MessageType type_of<Command> = MessageType::command;
 template <>
-inline constexpr Type type_of<CommandAck> = Type::CommandAck;
+inline constexpr MessageType type_of<CommandAck> = MessageType::command_ack;
 template <>
-inline constexpr Type type_of<CommandOutcome> = Type::CommandOutcome;
+inline constexpr MessageType type_of<CommandOutcome> = MessageType::command_outcome;
 
-// Wire format (body, frame.type 바이트 미포함):
+// Wire format (body, frame 헤더의 type 바이트 미포함):
 //   정수      : little-endian
 //   Uuid      : raw 16 byte
 //   string    : u16le 길이 + UTF-8 (단, Command.payload 는 길이 prefix 없이 body 의 나머지 전부)

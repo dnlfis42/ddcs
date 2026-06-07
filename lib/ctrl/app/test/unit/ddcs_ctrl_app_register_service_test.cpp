@@ -115,7 +115,7 @@ TEST(RegisterServiceTest, SendRegisterResponseSendsSuccessFrame) {
 
     ASSERT_EQ(f.outbound.sends.size(), 1u);
     EXPECT_EQ(f.outbound.sends[0].id, ConnectionId{1});
-    EXPECT_EQ(f.outbound.sends[0].type, static_cast<std::uint8_t>(msg::Type::RegisterResponse));
+    EXPECT_EQ(f.outbound.sends[0].type, static_cast<std::uint8_t>(msg::MessageType::register_response));
 
     msg::RegisterResponse resp{};
     auto const& b = f.outbound.sends[0].body;

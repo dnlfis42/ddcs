@@ -85,7 +85,7 @@ public:
     }
 
     template <typename T>
-    void send_message(msg::Type type, T const& m) {
+    void send_message(msg::MessageType type, T const& m) {
         static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 4, std::size_t{256});
         auto buf = pool.acquire();
         ASSERT_TRUE(msg::encode(m, *buf));
@@ -187,11 +187,11 @@ TEST(ControllerE2eTest, RegisterRequestGetsSuccessResponse) {
 
     RawAgent agent;
     ASSERT_TRUE(agent.connect_to(controller.port()));
-    agent.send_message(msg::Type::RegisterRequest, msg::RegisterRequest{.agent_uuid = make_uuid(0xab)});
+    agent.send_message(msg::MessageType::register_request, msg::RegisterRequest{.agent_uuid = make_uuid(0xab)});
 
     auto resp = pump_for_frame(controller, agent);
     ASSERT_TRUE(resp.has_value());
-    EXPECT_EQ(resp->type, static_cast<std::uint8_t>(msg::Type::RegisterResponse));
+    EXPECT_EQ(resp->type, static_cast<std::uint8_t>(msg::MessageType::register_response));
 
     msg::RegisterResponse decoded{};
     ASSERT_TRUE(msg::decode({resp->body.data(), resp->body.size()}, decoded));
@@ -218,12 +218,12 @@ TEST(ControllerE2eTest, ReRegisterSameUuidKicksOldConnection) {
 
     RawAgent first;
     ASSERT_TRUE(first.connect_to(controller.port()));
-    first.send_message(msg::Type::RegisterRequest, msg::RegisterRequest{.agent_uuid = uuid});
+    first.send_message(msg::MessageType::register_request, msg::RegisterRequest{.agent_uuid = uuid});
     ASSERT_TRUE(pump_for_frame(controller, first).has_value()); // 첫 등록 OK
 
     RawAgent second;
     ASSERT_TRUE(second.connect_to(controller.port()));
-    second.send_message(msg::Type::RegisterRequest, msg::RegisterRequest{.agent_uuid = uuid});
+    second.send_message(msg::MessageType::register_request, msg::RegisterRequest{.agent_uuid = uuid});
     ASSERT_TRUE(pump_for_frame(controller, second).has_value()); // 새 등록 OK
 
     // 옛 연결(first)은 RST/FIN 으로 닫혀야 한다.
