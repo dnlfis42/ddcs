@@ -1,8 +1,8 @@
 #include "ddcs/common/clock.hpp"
 
-#include <gtest/gtest.h>
-
 #include <chrono>
+
+#include <gtest/gtest.h>
 
 namespace ddcs::common {
 

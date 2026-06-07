@@ -1,13 +1,12 @@
 #include "ddcs/common/linear_buffer.hpp"
 
-#include <gtest/gtest.h>
-
 #include <array>
-#include <span>
-
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <span>
+
+#include <gtest/gtest.h>
 
 namespace ddcs::common {
 

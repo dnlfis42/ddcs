@@ -1,11 +1,10 @@
 #pragma once
 
+#include <cstddef>
+#include <cstring>
 #include <memory>
 #include <span>
 #include <type_traits>
-
-#include <cstddef>
-#include <cstring>
 
 namespace ddcs::common {
 
@@ -38,6 +37,7 @@ public:
         write_pos_ = n;
         return true;
     }
+
     bool consume(std::size_t n) noexcept {
         if (size() < n) {
             return false;
@@ -45,6 +45,7 @@ public:
         read_pos_ += n;
         return true;
     }
+
     bool commit(std::size_t n) noexcept {
         if (available() < n) {
             return false;
@@ -59,6 +60,7 @@ public:
         write_pos_ = 0;
         stream_failed_ = false;
     }
+
     void reset() noexcept { clear(); }
 
 public:
@@ -69,6 +71,7 @@ public:
         std::memcpy(dst.data(), buffer_.get() + read_pos_, dst.size());
         return true;
     }
+
     bool read(std::span<std::byte> dst) noexcept {
         if (!peek(dst)) {
             return false;
@@ -76,6 +79,7 @@ public:
         read_pos_ += dst.size();
         return true;
     }
+
     bool write(std::span<std::byte const> src) noexcept {
         if (available() < src.size()) {
             return false;
@@ -84,6 +88,7 @@ public:
         write_pos_ += src.size();
         return true;
     }
+
     bool write_front(std::span<std::byte const> src) noexcept {
         if (read_pos_ < src.size()) {
             return false;

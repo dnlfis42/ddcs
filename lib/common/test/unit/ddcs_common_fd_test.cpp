@@ -1,14 +1,13 @@
 #include "ddcs/common/fd.hpp"
 
-#include <gtest/gtest.h>
-
-#include <utility>
-
 #include <cerrno>
+#include <utility>
 
 #include <fcntl.h>
 #include <sys/eventfd.h>
 #include <unistd.h>
+
+#include <gtest/gtest.h>
 
 namespace ddcs::common {
 

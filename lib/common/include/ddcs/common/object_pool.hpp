@@ -20,8 +20,8 @@ template <pool_resettable T>
 class ObjectPool {
 private:
     struct Node {
+        Node* next{nullptr};
         alignas(T) std::byte storage[sizeof(T)];
-        Node* next;
 
         T* ptr() noexcept { return std::launder(reinterpret_cast<T*>(storage)); }
     };
@@ -32,6 +32,7 @@ public:
         Deleter() noexcept = default;
         Deleter(ObjectPool& pool, Node& node) noexcept : pool_{&pool}, node_{&node} {}
 
+    public:
         void operator()(T*) const noexcept {
             if (pool_ != nullptr) {
                 pool_->release(*node_);

@@ -1,10 +1,9 @@
 #include "ddcs/common/endian.hpp"
 
-#include <gtest/gtest.h>
-
 #include <bit>
-
 #include <cstdint>
+
+#include <gtest/gtest.h>
 
 namespace ddcs::common {
 
