@@ -70,7 +70,7 @@ type은 고위 nibble로 그룹을 나눈다:
 - `string`은 `uint16` length prefix(little-endian) + UTF-8 raw bytes. null terminator 없음. 길이는 0 이상이며 frame payload 한계 안에서 임의.
 - `enum`은 underlying type을 raw로 1 byte 기록한다.
 - `f64`는 IEEE 754 binary64 bit pattern을 little-endian으로 기록한다.
-- `Command.payload`만 예외: **length prefix 없이 body의 나머지 전부**를 차지한다(중첩 discriminator 참고).
+- Command body의 `payload(rest)`만 예외: **length prefix 없이 body의 나머지 전부**를 차지한다(중첩 discriminator 참고).
 - decode는 *구조적 검증*만 한다. wire 바이트가 schema 길이 요건과 정확히 부합(부족/trailing 바이트 없음)하는지만 본다. enum 값 유효성, 의미 제약은 호출자 책임.
 
 ## Command body (중첩 discriminator)
@@ -78,15 +78,15 @@ type은 고위 nibble로 그룹을 나눈다:
 `Command`(`0x20`)는 2단계로 종류를 가린다.
 
 1. frame `type` = `0x20` (Command) - message가 명령임을 결정.
-2. `Command.type`(payload 내 uint8) = **CommandType** - 명령 본문(`Command.payload`)의 해석을 결정.
+2. `Command.type`(body 내 uint8) = **CommandType** - 뒤따르는 `payload(rest)`의 해석을 결정.
 
-`Command.payload`는 length prefix 없이 body의 나머지 전부이며, `CommandType`에 따라 디코드한다.
+`payload(rest)`는 length prefix 없이 body의 나머지 전부이며, `CommandType`에 따라 디코드한다.
 
 ### CommandType
 
-| 값     | 이름      | payload(`Command.payload`) |
-| ------ | --------- | -------------------------- |
-| `0x01` | `SetMode` | `mode` : enum(u8)          |
+| 값     | 이름      | payload(rest)     |
+| ------ | --------- | ----------------- |
+| `0x01` | `SetMode` | `mode` : enum(u8) |
 
 `Status.mode`와 `SetMode.mode` enum(u8) 값:
 

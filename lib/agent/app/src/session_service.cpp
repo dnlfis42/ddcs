@@ -5,7 +5,9 @@
 #include "ddcs/proto/msg/message.hpp"
 #include "ddcs/proto/msg/type.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <utility>
 
@@ -131,7 +133,8 @@ void SessionService::send_status() {
 
 void SessionService::handle_command(std::span<std::byte const> body) {
     proto::msg::Command cmd{};
-    if (!proto::msg::decode(body, cmd)) {
+    std::span<std::byte const> payload{};
+    if (!proto::msg::decode(body, cmd, payload)) {
         LOG_WARN("agent.session.cmd.decode_fail");
         outbound_.close();
         return;
@@ -150,9 +153,6 @@ void SessionService::handle_command(std::span<std::byte const> body) {
     // CommandType 별로 payload 해석 후 device 적용.
     bool ok = false;
     std::string reason;
-    std::span<std::byte const> const payload{
-        reinterpret_cast<std::byte const*>(cmd.payload.data()), cmd.payload.size()
-    };
     if (static_cast<proto::cmd::CommandType>(cmd.type) == proto::cmd::CommandType::SetMode) {
         proto::cmd::SetMode set_mode{};
         if (proto::cmd::decode(payload, set_mode)) {

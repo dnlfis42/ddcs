@@ -47,11 +47,10 @@ struct Status {
     bool operator==(Status const&) const = default;
 };
 
-// 제네릭 명령 봉투. type/payload는 opaque - 의미(CommandType)는 proto::cmd 소유.
+// 제네릭 명령 헤더. payload는 codec API가 별도 span으로 전달하고 proto::cmd가 해석한다.
 struct Command {
     std::uint64_t command_id;
-    std::uint8_t type;   // opaque CommandType
-    std::string payload; // opaque 명령 body (proto::cmd가 해석)
+    std::uint8_t type; // opaque CommandType
 
     bool operator==(Command const&) const = default;
 };
@@ -107,8 +106,8 @@ bool decode(std::span<std::byte const>, Heartbeat&) noexcept;
 bool encode(Status const&, common::LinearBuffer&) noexcept;
 bool decode(std::span<std::byte const>, Status&) noexcept;
 
-bool encode(Command const&, common::LinearBuffer&) noexcept;
-bool decode(std::span<std::byte const>, Command&);
+bool encode(Command const&, std::span<std::byte const> payload, common::LinearBuffer&) noexcept;
+bool decode(std::span<std::byte const>, Command&, std::span<std::byte const>& payload) noexcept;
 
 bool encode(CommandAck const&, common::LinearBuffer&) noexcept;
 bool decode(std::span<std::byte const>, CommandAck&) noexcept;

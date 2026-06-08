@@ -164,27 +164,27 @@ bool decode(std::span<std::byte const> in, Status& out) noexcept {
 }
 
 // --- Command: [command_id(u64le)][type(u8)][payload(rest)] ---
-//   type/payload는 opaque - 의미는 proto::cmd가 해석. payload는 length prefix 없이 body의 나머지 전부
-bool encode(Command const& m, common::LinearBuffer& out) noexcept {
+// payload는 구조체가 소유하지 않고 호출자에게 raw tail span으로 전달한다.
+bool encode(Command const& m, std::span<std::byte const> payload, common::LinearBuffer& out) noexcept {
     if (!write_le<std::uint64_t>(out, m.command_id)) {
         return false;
     }
     if (!write_u8(out, m.type)) {
         return false;
     }
-    if (m.payload.empty()) {
+    if (payload.empty()) {
         return true;
     }
-    return out.write({reinterpret_cast<std::byte const*>(m.payload.data()), m.payload.size()});
+    return out.write(payload);
 }
-bool decode(std::span<std::byte const> in, Command& out) {
+bool decode(std::span<std::byte const> in, Command& out, std::span<std::byte const>& payload) noexcept {
     if (!read_le(in, out.command_id)) {
         return false;
     }
     if (!read_u8(in, out.type)) {
         return false;
     }
-    out.payload.assign(reinterpret_cast<char const*>(in.data()), in.size());
+    payload = in;
     return true;
 }
 

@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -69,6 +70,14 @@ PoolHandle<LinearBuffer> body_of(T const& m) {
     return buf;
 }
 
+PoolHandle<LinearBuffer> command_body_of(msg::Command const& m, std::string const& payload) {
+    static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 8, std::size_t{256});
+    auto buf = pool.acquire();
+    std::span<std::byte const> const payload_bytes{reinterpret_cast<std::byte const*>(payload.data()), payload.size()};
+    EXPECT_TRUE(msg::encode(m, payload_bytes, *buf));
+    return buf;
+}
+
 constexpr std::uint8_t kType(msg::MessageType t) { return static_cast<std::uint8_t>(t); }
 
 namespace cmd = ddcs::proto::cmd;
@@ -81,14 +90,11 @@ std::string encode_setmode(ddcs::device::Mode mode) {
     return std::string{reinterpret_cast<char const*>(r.data()), r.size()};
 }
 
-// frame.type=Command 의 body: Command{command_id, type=SetMode, payload=encode(SetMode)}.
+// frame.type=Command 의 body: Command{command_id, type=SetMode} + payload=encode(SetMode).
 PoolHandle<LinearBuffer> setmode_command(std::uint64_t id, ddcs::device::Mode mode) {
-    return body_of(
-        msg::Command{
-            .command_id = id,
-            .type = static_cast<std::uint8_t>(cmd::CommandType::SetMode),
-            .payload = encode_setmode(mode),
-        }
+    auto const payload = encode_setmode(mode);
+    return command_body_of(
+        msg::Command{.command_id = id, .type = static_cast<std::uint8_t>(cmd::CommandType::SetMode)}, payload
     );
 }
 
@@ -345,7 +351,7 @@ TEST(AgentSessionServiceTest, UnknownCommandTypeOutcomesFailed) {
     activate(svc, out);
 
     svc.on_recv(
-        kType(msg::MessageType::command), body_of(msg::Command{.command_id = 5, .type = 0xFF, .payload = {}})
+        kType(msg::MessageType::command), command_body_of(msg::Command{.command_id = 5, .type = 0xFF}, std::string{})
     ); // 미지 CommandType
 
     EXPECT_EQ(device.mode(), ddcs::device::Mode::safe); // device 변동 없음

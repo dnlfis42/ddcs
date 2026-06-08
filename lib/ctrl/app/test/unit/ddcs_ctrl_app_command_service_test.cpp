@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -102,11 +103,12 @@ TEST(CommandServiceTest, DispatchSendsCommandAndTracksPending) {
     EXPECT_EQ(outbound.sends[0].type, static_cast<std::uint8_t>(msg::MessageType::command));
 
     msg::Command sent{};
+    std::span<std::byte const> payload{};
     auto const& b = outbound.sends[0].body;
-    ASSERT_TRUE(msg::decode({reinterpret_cast<std::byte const*>(b.data()), b.size()}, sent));
+    ASSERT_TRUE(msg::decode({reinterpret_cast<std::byte const*>(b.data()), b.size()}, sent, payload));
     EXPECT_EQ(sent.command_id, command_id);
     EXPECT_EQ(sent.type, 0x01);
-    EXPECT_EQ(sent.payload, "payload");
+    EXPECT_EQ(std::string(reinterpret_cast<char const*>(payload.data()), payload.size()), "payload");
 }
 
 TEST(CommandServiceTest, DispatchOfflineAgentReturnsInvalid) {

@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 
 #include <gtest/gtest.h>
@@ -82,17 +83,31 @@ TEST(MessageCodecTest, RoundTripsStatusWithZeroValues) {
 }
 
 TEST(MessageCodecTest, RoundTripsCommandWithPayload) {
-    Command const in{.command_id = 99, .type = 0x01, .payload = std::string{"\x02", 1}};
+    LinearBuffer buf{buf_capacity};
+    std::array<std::byte, 1> const payload{std::byte{0x02}};
+    Command const in{.command_id = 99, .type = 0x01};
+
+    ASSERT_TRUE(encode(in, payload, buf));
+
     Command out{};
-    ASSERT_TRUE(roundtrip(in, out));
-    EXPECT_EQ(in, out);
+    std::span<std::byte const> decoded_payload{};
+    ASSERT_TRUE(decode(buf.readable(), out, decoded_payload));
+    EXPECT_EQ(out, in);
+    ASSERT_EQ(decoded_payload.size(), payload.size());
+    EXPECT_EQ(decoded_payload[0], payload[0]);
 }
 
 TEST(MessageCodecTest, RoundTripsCommandEmptyPayload) {
-    Command const in{.command_id = 1, .type = 0x01, .payload = ""};
+    LinearBuffer buf{buf_capacity};
+    Command const in{.command_id = 1, .type = 0x01};
+
+    ASSERT_TRUE(encode(in, std::span<std::byte const>{}, buf));
+
     Command out{};
-    ASSERT_TRUE(roundtrip(in, out));
-    EXPECT_EQ(in, out);
+    std::span<std::byte const> decoded_payload{};
+    ASSERT_TRUE(decode(buf.readable(), out, decoded_payload));
+    EXPECT_EQ(out, in);
+    EXPECT_TRUE(decoded_payload.empty());
 }
 
 TEST(MessageCodecTest, RoundTripsCommandAck) {

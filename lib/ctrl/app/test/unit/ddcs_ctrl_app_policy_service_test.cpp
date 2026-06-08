@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -73,9 +74,12 @@ Uuid make_uuid(std::uint8_t seed) {
 // 캡처된 Command body -> SetMode.mode 디코드.
 Mode mode_of(std::string const& command_body) {
     msg::Command c{};
-    EXPECT_TRUE(msg::decode({reinterpret_cast<std::byte const*>(command_body.data()), command_body.size()}, c));
+    std::span<std::byte const> payload{};
+    EXPECT_TRUE(
+        msg::decode({reinterpret_cast<std::byte const*>(command_body.data()), command_body.size()}, c, payload)
+    );
     cmd::SetMode sm{};
-    EXPECT_TRUE(cmd::decode({reinterpret_cast<std::byte const*>(c.payload.data()), c.payload.size()}, sm));
+    EXPECT_TRUE(cmd::decode(payload, sm));
     return sm.mode;
 }
 

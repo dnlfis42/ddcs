@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -87,14 +88,15 @@ TEST(OperatorServiceTest, SetModeDispatchesCommandToBoundAgent) {
     EXPECT_EQ(outbound.sends[0].id, ConnectionId{1});
     EXPECT_EQ(outbound.sends[0].type, static_cast<std::uint8_t>(msg::MessageType::command));
 
-    // Command 봉투 디코드 -> SetMode payload 까지 확인.
+    // Command 헤더 디코드 -> SetMode payload까지 확인.
     msg::Command sent{};
+    std::span<std::byte const> payload{};
     auto const& b = outbound.sends[0].body;
-    ASSERT_TRUE(msg::decode({reinterpret_cast<std::byte const*>(b.data()), b.size()}, sent));
+    ASSERT_TRUE(msg::decode({reinterpret_cast<std::byte const*>(b.data()), b.size()}, sent, payload));
     EXPECT_EQ(sent.command_id, command_id);
     EXPECT_EQ(sent.type, static_cast<std::uint8_t>(cmd::CommandType::SetMode));
     cmd::SetMode set_mode{};
-    ASSERT_TRUE(cmd::decode({reinterpret_cast<std::byte const*>(sent.payload.data()), sent.payload.size()}, set_mode));
+    ASSERT_TRUE(cmd::decode(payload, set_mode));
     EXPECT_EQ(set_mode.mode, ddcs::device::Mode::performance);
 }
 

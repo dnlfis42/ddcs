@@ -26,8 +26,8 @@ inline constexpr CommandType type_of = T::__type_specialization_missing;
 template <>
 inline constexpr CommandType type_of<SetMode> = CommandType::SetMode;
 
-// payload codec - msg::Command.payload <-> 명령 struct.
-// (command_id와 type 바이트는 msg::Command 소관. 여기는 payload 본문만 다룬다.)
+// payload codec - Command body의 raw tail <-> 명령 struct.
+// command_id와 type 바이트는 msg::Command 소관. 여기는 payload 본문만 다룬다.
 //   SetMode: [mode(u8)]
 bool encode(SetMode const&, common::LinearBuffer&) noexcept;
 bool decode(std::span<std::byte const>, SetMode&) noexcept;

@@ -5,7 +5,9 @@
 #include "ddcs/proto/msg/type.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -28,9 +30,10 @@ CommandService::CommandService(
 bool CommandService::send_command(
     ConnectionId conn, std::uint64_t command_id, std::uint8_t type, std::string const& payload
 ) {
-    proto::msg::Command const cmd{.command_id = command_id, .type = type, .payload = payload};
+    proto::msg::Command const cmd{.command_id = command_id, .type = type};
+    std::span<std::byte const> const payload_bytes{reinterpret_cast<std::byte const*>(payload.data()), payload.size()};
     auto buf = outbound_.send_buffer();
-    if (!proto::msg::encode(cmd, *buf)) {
+    if (!proto::msg::encode(cmd, payload_bytes, *buf)) {
         LOG_WARN("command.encode_fail", ddcs::logger::kv("command", command_id));
         return false;
     }
