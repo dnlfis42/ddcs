@@ -14,5 +14,4 @@ target_sources(
 )
 target_link_libraries(ddcs_ctrl_port INTERFACE compile_option ddcs::common)
 
-# 테스트 경로
 add_subdirectory(test/unit)

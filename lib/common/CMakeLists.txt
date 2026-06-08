@@ -19,5 +19,4 @@ target_sources(
 )
 target_link_libraries(ddcs_common INTERFACE compile_option)
 
-# 테스트 경로
 add_subdirectory(test/unit)

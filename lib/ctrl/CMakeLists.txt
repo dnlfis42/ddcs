@@ -1,10 +1,10 @@
-# 라이브러리 경로
+# 하위 라이브러리
 add_subdirectory(domain)
 add_subdirectory(port)
-add_subdirectory(infra)
 add_subdirectory(app)
+add_subdirectory(infra)
 
-# 조립 루트 (facade)
+# 공개 facade 타깃
 add_library(ddcs_ctrl STATIC)
 add_library(ddcs::ctrl ALIAS ddcs_ctrl)
 target_sources(
@@ -27,5 +27,4 @@ target_link_libraries(
     PUBLIC ddcs::common ddcs::device ddcs::logger
 )
 
-# 테스트 경로
 add_subdirectory(test/unit)

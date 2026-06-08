@@ -9,7 +9,10 @@ target_sources(
             BASE_DIRS include
             FILES include/ddcs/proto/cmd/command.hpp
 )
-target_link_libraries(ddcs_proto_cmd PRIVATE compile_option PUBLIC ddcs::common ddcs::device)
+target_link_libraries(
+    ddcs_proto_cmd
+    PRIVATE compile_option
+    PUBLIC ddcs::common ddcs::device
+)
 
-# 테스트 경로
 add_subdirectory(test/unit)

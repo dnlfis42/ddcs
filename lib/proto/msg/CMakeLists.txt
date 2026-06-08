@@ -13,5 +13,4 @@ target_sources(
 )
 target_link_libraries(ddcs_proto_msg PRIVATE compile_option PUBLIC ddcs::common)
 
-# 테스트 경로
 add_subdirectory(test/unit)

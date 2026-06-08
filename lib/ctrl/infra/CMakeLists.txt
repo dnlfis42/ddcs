@@ -1,7 +1,6 @@
 add_library(ddcs_ctrl_infra STATIC)
 add_library(ddcs::ctrl::infra ALIAS ddcs_ctrl_infra)
 
-# 5a Endpoint, 5b Connection, 5c ConnectionManager, 5d ConnectionAcceptor.
 target_sources(
     ddcs_ctrl_infra
     PRIVATE
@@ -28,5 +27,4 @@ target_link_libraries(
     PUBLIC ddcs::common ddcs::ctrl::port ddcs::runtime
 )
 
-# 테스트 경로
 add_subdirectory(test/unit)

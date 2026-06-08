@@ -19,5 +19,4 @@ target_link_libraries(
     PUBLIC ddcs::common ddcs::device
 )
 
-# 테스트 경로
 add_subdirectory(test/unit)

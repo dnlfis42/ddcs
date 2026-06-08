@@ -38,7 +38,7 @@ message(STATUS "[ddcs] Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "[ddcs] Warning as error: ${DDCS_WARNING_AS_ERROR}")
 message(STATUS "[ddcs] ASan: ${DDCS_ENABLE_ASAN}  TSan: ${DDCS_ENABLE_TSAN}")
 
-# 컴파일 옵션 (INTERFACE 타깃으로 격리 — 외부 의존성에 새지 않게)
+# 컴파일 옵션 (INTERFACE 타깃으로 격리)
 add_library(compile_option INTERFACE)
 target_compile_options(
     compile_option
@@ -60,7 +60,7 @@ target_link_options(
         $<$<BOOL:${DDCS_ENABLE_TSAN}>:-fsanitize=thread>
 )
 
-# ccache (있으면 사용)
+# ccache
 find_program(CCACHE ccache)
 if(CCACHE)
     set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE})
@@ -101,5 +101,5 @@ add_subdirectory(lib)
 # 실행 파일 경로
 add_subdirectory(apps)
 
-# 테스트 경로
+# 통합 테스트 경로
 add_subdirectory(test)

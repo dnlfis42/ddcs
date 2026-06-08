@@ -1,10 +1,10 @@
-# 라이브러리 경로 (새 agent, proto 기반 / 헥사고널)
+# 라이브러리 경로
 add_subdirectory(domain)
 add_subdirectory(port)
 add_subdirectory(app)
 add_subdirectory(infra)
 
-# 조립 루트 (facade)
+# 공개 facade 타깃
 add_library(ddcs_agent STATIC)
 add_library(ddcs::agent ALIAS ddcs_agent)
 target_sources(
@@ -24,5 +24,4 @@ target_link_libraries(
         ddcs::agent::infra
 )
 
-# 테스트 경로
 add_subdirectory(test/unit)

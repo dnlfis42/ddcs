@@ -1,7 +1,6 @@
 add_library(ddcs_ctrl_app STATIC)
 add_library(ddcs::ctrl::app ALIAS ddcs_ctrl_app)
 
-# app::session / app::agent / app::ops / app::policy / app::metrics.
 target_sources(
     ddcs_ctrl_app
     PRIVATE
@@ -41,5 +40,4 @@ target_link_libraries(
         ddcs::json
 )
 
-# 테스트 경로
 add_subdirectory(test/unit)

@@ -34,12 +34,18 @@ add_test(
     COMMAND ddcs_runtime_timer_queue_test
 )
 
-add_executable(ddcs_runtime_timer_scheduler_test ddcs_runtime_timer_scheduler_test.cpp)
+add_executable(
+    ddcs_runtime_timer_scheduler_test
+    ddcs_runtime_timer_scheduler_test.cpp
+)
 target_link_libraries(
     ddcs_runtime_timer_scheduler_test
     PRIVATE compile_option ddcs::runtime GTest::gtest_main
 )
-add_test(NAME ddcs_runtime_timer_scheduler_test COMMAND ddcs_runtime_timer_scheduler_test)
+add_test(
+    NAME ddcs_runtime_timer_scheduler_test
+    COMMAND ddcs_runtime_timer_scheduler_test
+)
 
 add_executable(ddcs_runtime_reactor_test ddcs_runtime_reactor_test.cpp)
 target_link_libraries(
@@ -48,15 +54,9 @@ target_link_libraries(
 )
 add_test(NAME ddcs_runtime_reactor_test COMMAND ddcs_runtime_reactor_test)
 
-add_executable(
-    ddcs_runtime_signal_fd_test
-    ddcs_runtime_signal_fd_test.cpp
-)
+add_executable(ddcs_runtime_signal_fd_test ddcs_runtime_signal_fd_test.cpp)
 target_link_libraries(
     ddcs_runtime_signal_fd_test
     PRIVATE compile_option ddcs::runtime GTest::gtest_main
 )
-add_test(
-    NAME ddcs_runtime_signal_fd_test
-    COMMAND ddcs_runtime_signal_fd_test
-)
+add_test(NAME ddcs_runtime_signal_fd_test COMMAND ddcs_runtime_signal_fd_test)
