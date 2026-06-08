@@ -94,7 +94,7 @@ public:
         frame::Header const h{
             .magic = frame::magic,
             .type = static_cast<std::uint8_t>(type),
-            .payload_size = static_cast<std::uint16_t>(body.size()),
+            .length = static_cast<std::uint16_t>(body.size()),
         };
         auto const hb = frame::encode(h);
 
@@ -141,7 +141,7 @@ public:
             return std::nullopt;
         }
         auto const header = *parsed_header;
-        std::size_t const total = frame::header_size + header.payload_size;
+        std::size_t const total = frame::header_size + header.length;
         if (rx_.size() < total) {
             return std::nullopt;
         }

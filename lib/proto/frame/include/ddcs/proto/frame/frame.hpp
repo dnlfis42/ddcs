@@ -8,15 +8,15 @@
 
 namespace ddcs::proto::frame {
 
-// DDCS frame 헤더: [magic(BE u16) | type(u8) | payload_size(BE u16)]
+// DDCS frame 헤더: [magic(BE u16) | type(u8) | length(BE u16)]
 inline constexpr std::uint16_t magic{0xDDC5};
 inline constexpr std::size_t header_size{5};
-inline constexpr std::size_t payload_size_limit{std::numeric_limits<std::uint16_t>::max()};
+inline constexpr std::size_t length_limit{std::numeric_limits<std::uint16_t>::max()};
 
 struct Header {
     std::uint16_t magic;
     std::uint8_t type;
-    std::uint16_t payload_size;
+    std::uint16_t length;
 
     bool operator==(Header const&) const = default;
 };

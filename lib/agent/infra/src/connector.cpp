@@ -21,10 +21,12 @@
 namespace ddcs::agent::infra {
 
 namespace {
+
 constexpr std::size_t pool_chunk{64};
-constexpr std::size_t payload_buf_capacity{proto::frame::header_size + proto::frame::payload_size_limit};
+constexpr std::size_t payload_buf_capacity{proto::frame::header_size + proto::frame::length_limit};
 constexpr std::uint32_t connect_interest{EPOLLOUT | EPOLLET}; // 완료를 EPOLLOUT 으로 감지
 constexpr std::uint32_t read_interest{EPOLLIN | EPOLLET};
+
 } // namespace
 
 Connector::Connector(runtime::Reactor& reactor, runtime::TimerScheduler& timers, std::string host, std::uint16_t port)
@@ -52,12 +54,12 @@ void Connector::send(std::uint8_t type, common::PoolHandle<common::LinearBuffer>
     if (connection_.state() != Connection::State::connected) {
         return; // 미연결 -> 드롭
     }
-    if (body->size() > proto::frame::payload_size_limit) {
-        assert(false && "payload size exceeds payload_size_limit");
+    if (body->size() > proto::frame::length_limit) {
+        assert(false && "payload length exceeds length_limit");
         return;
     }
     auto const hdr = proto::frame::encode(
-        {.magic = proto::frame::magic, .type = type, .payload_size = static_cast<std::uint16_t>(body->size())}
+        {.magic = proto::frame::magic, .type = type, .length = static_cast<std::uint16_t>(body->size())}
     );
     if (!body->write_front({hdr.data(), hdr.size()})) {
         assert(false && "payload_buffer() 로 받지 않은 버퍼 - headroom 없음");
@@ -237,7 +239,7 @@ void Connector::framing() {
             return;
         }
         auto const header = *parsed_header;
-        std::size_t const total = proto::frame::header_size + header.payload_size;
+        std::size_t const total = proto::frame::header_size + header.length;
         if (total > inbound_buffer_capacity) {
             LOG_WARN("agent_transport.frame_too_long");
             disconnect_and_reconnect();
@@ -249,10 +251,10 @@ void Connector::framing() {
 
         connection_.rx_consume(proto::frame::header_size);
         auto payload = payload_pool_.acquire();
-        if (header.payload_size > 0) {
+        if (header.length > 0) {
             auto const w = payload->writable();
-            connection_.rx_read({w.data(), header.payload_size});
-            payload->commit(header.payload_size);
+            connection_.rx_read({w.data(), header.length});
+            payload->commit(header.length);
         }
         handler_->on_recv(header.type, std::move(payload));
         if (connection_.state() != Connection::State::connected) {

@@ -85,9 +85,9 @@ TEST(ConnectionAcceptorTest, AcceptsConnectionAndDeliversFrame) {
     reactor.run_once(1000ms); // accept -> on_connected
     ASSERT_EQ(inbound.connected.size(), 1u);
 
-    // 프레임 전송: magic | type=0x07 | payload_size=2 | "ok"
+    // 프레임 전송: magic | type=0x07 | length=2 | "ok"
     namespace frame = ddcs::proto::frame;
-    auto const hb = frame::encode({.magic = frame::magic, .type = 0x07, .payload_size = 2});
+    auto const hb = frame::encode({.magic = frame::magic, .type = 0x07, .length = 2});
     char const body[] = "ok";
     ASSERT_EQ(::write(client.get(), hb.data(), hb.size()), static_cast<ssize_t>(hb.size()));
     ASSERT_EQ(::write(client.get(), body, 2), 2);

@@ -8,36 +8,36 @@
 namespace ddcs::proto::frame {
 
 TEST(FrameTest, RoundTripsTypicalHeader) {
-    Header const in{.magic = magic, .type = 0x20, .payload_size = 1024};
+    Header const in{.magic = magic, .type = 0x20, .length = 1024};
     EXPECT_EQ(decode(encode(in)), in);
 }
 
 TEST(FrameTest, RoundTripsEmptyPayload) {
-    Header const in{.magic = magic, .type = 0x10, .payload_size = 0};
+    Header const in{.magic = magic, .type = 0x10, .length = 0};
     EXPECT_EQ(decode(encode(in)), in);
 }
 
-TEST(FrameTest, RoundTripsMaxPayloadSize) {
-    Header const in{.magic = magic, .type = 0x01, .payload_size = static_cast<std::uint16_t>(payload_size_limit)};
+TEST(FrameTest, RoundTripsMaxLength) {
+    Header const in{.magic = magic, .type = 0x01, .length = static_cast<std::uint16_t>(length_limit)};
     EXPECT_EQ(decode(encode(in)), in);
 }
 
 TEST(FrameTest, PreservesOpaqueTypeByte) {
-    Header const in{.magic = magic, .type = 0xAB, .payload_size = 7};
+    Header const in{.magic = magic, .type = 0xAB, .length = 7};
     auto const bytes = encode(in);
     EXPECT_EQ(std::to_integer<unsigned>(bytes[2]), 0xABu);
     EXPECT_EQ(decode(bytes).type, std::uint8_t{0xAB});
 }
 
 TEST(FrameTest, EncodesMagicAsBigEndian) {
-    Header const in{.magic = magic, .type = 0, .payload_size = 0};
+    Header const in{.magic = magic, .type = 0, .length = 0};
     auto const bytes = encode(in);
     EXPECT_EQ(std::to_integer<unsigned>(bytes[0]), 0xDDu);
     EXPECT_EQ(std::to_integer<unsigned>(bytes[1]), 0xC5u);
 }
 
-TEST(FrameTest, EncodesPayloadSizeAsBigEndian) {
-    Header const in{.magic = magic, .type = 0, .payload_size = 0x1234};
+TEST(FrameTest, EncodesLengthAsBigEndian) {
+    Header const in{.magic = magic, .type = 0, .length = 0x1234};
     auto const bytes = encode(in);
     EXPECT_EQ(std::to_integer<unsigned>(bytes[3]), 0x12u);
     EXPECT_EQ(std::to_integer<unsigned>(bytes[4]), 0x34u);
@@ -51,7 +51,7 @@ TEST(FrameTest, DecodesInvalidMagicWithoutValidation) {
 }
 
 TEST(FrameTest, ParsesHeaderWithExpectedMagic) {
-    Header const in{.magic = magic, .type = 0x22, .payload_size = 9};
+    Header const in{.magic = magic, .type = 0x22, .length = 9};
     auto const parsed = parse(encode(in));
     ASSERT_TRUE(parsed);
     EXPECT_EQ(*parsed, in);

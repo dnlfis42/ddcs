@@ -18,7 +18,7 @@ namespace ddcs::ctrl::infra::transport {
 namespace {
 
 constexpr std::size_t pool_chunk{64};
-constexpr std::size_t payload_buf_capacity{proto::frame::header_size + proto::frame::payload_size_limit};
+constexpr std::size_t payload_buf_capacity{proto::frame::header_size + proto::frame::length_limit};
 constexpr std::uint32_t read_interest{EPOLLIN | EPOLLET};
 constexpr std::chrono::nanoseconds pw_timeout{std::chrono::seconds{5}};        // passive_wait: peer FIN 대기 한도
 constexpr std::chrono::nanoseconds handshake_timeout{std::chrono::seconds{3}}; // accept -> 첫 프레임 한도
@@ -42,12 +42,12 @@ void ConnectionManager::send(ConnectionId id, std::uint8_t type, common::PoolHan
     if (conn == nullptr || conn->state() != Connection::State::open) {
         return; // 없거나 이미 닫는 중 - 드롭
     }
-    if (body->size() > proto::frame::payload_size_limit) {
-        assert(false && "payload size exceeds payload_size_limit - caller error");
+    if (body->size() > proto::frame::length_limit) {
+        assert(false && "payload length exceeds length_limit - caller error");
         return; // 드롭: uint16 truncation 방지
     }
     auto const hdr = proto::frame::encode(
-        {.magic = proto::frame::magic, .type = type, .payload_size = static_cast<std::uint16_t>(body->size())}
+        {.magic = proto::frame::magic, .type = type, .length = static_cast<std::uint16_t>(body->size())}
     );
     if (!body->write_front({hdr.data(), hdr.size()})) {
         assert(false && "send_buffer() 로 받지 않은 버퍼 - headroom 없음");
@@ -186,7 +186,7 @@ void ConnectionManager::handle_readable(Connection* conn) {
             }
             auto const header = *parsed_header;
 
-            std::size_t const total = proto::frame::header_size + header.payload_size;
+            std::size_t const total = proto::frame::header_size + header.length;
             if (total > inbound_buffer_capacity) {
                 fail(conn, DisconnectReason::protocol_error); // 링에 못 담는 길이 - 손상/악성
                 return;
@@ -197,10 +197,10 @@ void ConnectionManager::handle_readable(Connection* conn) {
 
             conn->rx_consume(proto::frame::header_size);
             auto payload = payload_pool_.acquire();
-            if (header.payload_size > 0) {
+            if (header.length > 0) {
                 auto const w = payload->writable();
-                conn->rx_read({w.data(), header.payload_size});
-                payload->commit(header.payload_size);
+                conn->rx_read({w.data(), header.length});
+                payload->commit(header.length);
             }
             cancel_handshake(conn->id());                                   // 첫 완성 프레임 -> handshake 한도 해제
             handler_->on_recv(conn->id(), header.type, std::move(payload)); // type 은 opaque 전달
