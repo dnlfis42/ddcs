@@ -2,13 +2,12 @@
 
 #include "ddcs/proto/msg/type.hpp"
 
-#include <gtest/gtest.h>
-
 #include <array>
-#include <string>
-
 #include <cstddef>
 #include <cstdint>
+#include <string>
+
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -34,14 +33,14 @@ TEST(MessageCodecTest, RoundTripsRegisterRequest) {
     for (std::size_t i = 0; i < tag.size(); ++i) {
         tag[i] = std::byte{static_cast<std::uint8_t>(i + 1)};
     }
-    RegisterRequest const in{.agent_uuid = Uuid{tag}, .group = "sensors", .version = "1.2.3"};
+    RegisterRequest const in{.id = Uuid{tag}, .group = "sensors"};
     RegisterRequest out{};
     ASSERT_TRUE(roundtrip(in, out));
     EXPECT_EQ(in, out);
 }
 
-TEST(MessageCodecTest, RoundTripsRegisterRequestEmptyAttributes) {
-    RegisterRequest const in{.agent_uuid = Uuid{}, .group = "", .version = ""};
+TEST(MessageCodecTest, RoundTripsRegisterRequestWithEmptyGroup) {
+    RegisterRequest const in{.id = Uuid{}, .group = ""};
     RegisterRequest out{};
     ASSERT_TRUE(roundtrip(in, out));
     EXPECT_EQ(in, out);
@@ -62,21 +61,21 @@ TEST(MessageCodecTest, RoundTripsRegisterResponseWithReason) {
 }
 
 TEST(MessageCodecTest, RoundTripsHeartbeat) {
-    Heartbeat const in{.timestamp_ms = 1'700'000'000'123ULL};
+    Heartbeat const in{};
     Heartbeat out{};
     ASSERT_TRUE(roundtrip(in, out));
     EXPECT_EQ(in, out);
 }
 
-TEST(MessageCodecTest, RoundTripsStatusWithJson) {
-    Status const in{.timestamp_ms = 1'700'000'000'456ULL, .status_json = R"({"mode":"performance"})"};
+TEST(MessageCodecTest, RoundTripsStatus) {
+    Status const in{.mode = 2, .load = 75.5, .temp = 50.25};
     Status out{};
     ASSERT_TRUE(roundtrip(in, out));
     EXPECT_EQ(in, out);
 }
 
-TEST(MessageCodecTest, RoundTripsStatusEmptyJson) {
-    Status const in{.timestamp_ms = 1, .status_json = ""};
+TEST(MessageCodecTest, RoundTripsStatusWithZeroValues) {
+    Status const in{.mode = 0, .load = 0.0, .temp = 0.0};
     Status out{};
     ASSERT_TRUE(roundtrip(in, out));
     EXPECT_EQ(in, out);
@@ -112,7 +111,7 @@ TEST(MessageCodecTest, RoundTripsCommandOutcome) {
 
 TEST(MessageCodecTest, RejectsTrailingBytes) {
     LinearBuffer buf{buf_capacity};
-    Heartbeat const in{.timestamp_ms = 42};
+    Heartbeat const in{};
     ASSERT_TRUE(encode(in, buf));
     std::byte const extra{0xAB};
     ASSERT_TRUE(buf.write({&extra, 1}));
@@ -122,9 +121,9 @@ TEST(MessageCodecTest, RejectsTrailingBytes) {
 
 TEST(MessageCodecTest, RejectsInsufficientBytes) {
     LinearBuffer buf{buf_capacity};
-    std::array<std::byte, 4> too_short{}; // u64 도 안 됨
+    std::array<std::byte, 4> too_short{}; // Status 최소 길이보다 짧음
     ASSERT_TRUE(buf.write({too_short.data(), too_short.size()}));
-    Heartbeat out{};
+    Status out{};
     EXPECT_FALSE(decode(buf.readable(), out));
 }
 

@@ -4,10 +4,9 @@
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/device/status.hpp"
 
+#include <cstddef>
 #include <string>
 #include <unordered_map>
-
-#include <cstddef>
 
 namespace ddcs::ctrl::domain {
 
@@ -27,8 +26,8 @@ public:
     // unordered_map 요소는 rehash에도 안정적이므로 const& 반환 안전.
     Device const& find_or_create(DeviceId id);
 
-    // 등록 시 선언된 가변 속성(group/version) 갱신. 미지의 id는 무시.
-    void set_attributes(DeviceId id, std::string group, std::string version);
+    // 등록 시 선언된 group 갱신. 미지의 id는 무시.
+    void set_group(DeviceId id, std::string group);
 
     // 최근 관측 상태(device::Status) 반영. 미지의 id는 무시.
     void update_status(DeviceId id, device::Status status);

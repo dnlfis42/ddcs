@@ -3,21 +3,21 @@
 #include "ddcs/common/endian.hpp"
 
 #include <array>
+#include <bit>
 #include <concepts>
-#include <string>
-
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
 
 namespace ddcs::proto::msg {
 
 namespace {
 
 template <std::unsigned_integral T>
-bool write_le(common::LinearBuffer& buf, T v) noexcept {
-    T const le = common::to_le(v);
-    return buf.write({reinterpret_cast<std::byte const*>(&le), sizeof(T)});
+bool write_le(common::LinearBuffer& out, T value) noexcept {
+    T const le = common::to_le(value);
+    return out.write({reinterpret_cast<std::byte const*>(&le), sizeof(T)});
 }
 
 template <std::unsigned_integral T>
@@ -32,27 +32,54 @@ bool read_le(std::span<std::byte const>& in, T& out) noexcept {
     return true;
 }
 
-bool read_bytes(std::span<std::byte const>& in, std::byte* dst, std::size_t n) noexcept {
-    if (in.size() < n) {
+bool write_u8(common::LinearBuffer& out, std::uint8_t value) noexcept {
+    std::byte const byte{value};
+    return out.write({&byte, 1});
+}
+
+bool read_u8(std::span<std::byte const>& in, std::uint8_t& out) noexcept {
+    if (in.empty()) {
         return false;
     }
-    std::memcpy(dst, in.data(), n);
-    in = in.subspan(n);
+    out = static_cast<std::uint8_t>(in[0]);
+    in = in.subspan(1);
     return true;
 }
 
-// string: [len u16le][utf8 N]
-bool write_string(common::LinearBuffer& out, std::string const& s) noexcept {
-    if (s.size() > 0xFFFFu) {
+bool write_f64_le(common::LinearBuffer& out, double value) noexcept {
+    return write_le<std::uint64_t>(out, std::bit_cast<std::uint64_t>(value));
+}
+
+bool read_f64_le(std::span<std::byte const>& in, double& out) noexcept {
+    std::uint64_t bits{};
+    if (!read_le(in, bits)) {
         return false;
     }
-    if (!write_le<std::uint16_t>(out, static_cast<std::uint16_t>(s.size()))) {
+    out = std::bit_cast<double>(bits);
+    return true;
+}
+
+bool read_bytes(std::span<std::byte const>& in, std::byte* dst, std::size_t size) noexcept {
+    if (in.size() < size) {
         return false;
     }
-    if (s.empty()) {
+    std::memcpy(dst, in.data(), size);
+    in = in.subspan(size);
+    return true;
+}
+
+// string은 [len(u16le)][UTF-8 bytes] 형식
+bool write_string(common::LinearBuffer& out, std::string const& value) noexcept {
+    if (value.size() > 0xFFFFu) {
+        return false;
+    }
+    if (!write_le<std::uint16_t>(out, static_cast<std::uint16_t>(value.size()))) {
+        return false;
+    }
+    if (value.empty()) {
         return true;
     }
-    return out.write({reinterpret_cast<std::byte const*>(s.data()), s.size()});
+    return out.write({reinterpret_cast<std::byte const*>(value.data()), value.size()});
 }
 
 bool read_string(std::span<std::byte const>& in, std::string& out) {
@@ -70,27 +97,21 @@ bool read_string(std::span<std::byte const>& in, std::string& out) {
 
 } // namespace
 
-// --- RegisterRequest: [uuid(16)][group: str][version: str] ---
+// --- RegisterRequest: [id: uuid(16)][group: str] ---
 bool encode(RegisterRequest const& m, common::LinearBuffer& out) noexcept {
-    auto const& b = m.agent_uuid.bytes();
+    auto const& b = m.id.bytes();
     if (!out.write({b.data(), b.size()})) {
         return false;
     }
-    if (!write_string(out, m.group)) {
-        return false;
-    }
-    return write_string(out, m.version);
+    return write_string(out, m.group);
 }
 bool decode(std::span<std::byte const> in, RegisterRequest& out) {
     std::array<std::byte, 16> b{};
     if (!read_bytes(in, b.data(), 16)) {
         return false;
     }
-    out.agent_uuid = common::Uuid{b};
+    out.id = common::Uuid{b};
     if (!read_string(in, out.group)) {
-        return false;
-    }
-    if (!read_string(in, out.version)) {
         return false;
     }
     return in.empty();
@@ -98,60 +119,57 @@ bool decode(std::span<std::byte const> in, RegisterRequest& out) {
 
 // --- RegisterResponse: [result(u8)][reason: str] ---
 bool encode(RegisterResponse const& m, common::LinearBuffer& out) noexcept {
-    std::byte const result_b{static_cast<std::uint8_t>(m.result)};
-    if (!out.write({&result_b, 1})) {
+    if (!write_u8(out, static_cast<std::uint8_t>(m.result))) {
         return false;
     }
     return write_string(out, m.reason);
 }
 bool decode(std::span<std::byte const> in, RegisterResponse& out) {
-    if (in.empty()) {
+    std::uint8_t result{};
+    if (!read_u8(in, result)) {
         return false;
     }
-    out.result = static_cast<RegisterResult>(static_cast<std::uint8_t>(in[0]));
-    in = in.subspan(1);
+    out.result = static_cast<RegisterResult>(result);
     if (!read_string(in, out.reason)) {
         return false;
     }
     return in.empty();
 }
 
-// --- Heartbeat: [timestamp_ms(u64le)] ---
-bool encode(Heartbeat const& m, common::LinearBuffer& out) noexcept {
-    return write_le<std::uint64_t>(out, m.timestamp_ms);
-}
-bool decode(std::span<std::byte const> in, Heartbeat& out) noexcept {
-    if (!read_le(in, out.timestamp_ms)) {
-        return false;
-    }
-    return in.empty();
-}
+// --- Heartbeat: empty ---
+bool encode(Heartbeat const&, common::LinearBuffer&) noexcept { return true; }
+bool decode(std::span<std::byte const> in, Heartbeat&) noexcept { return in.empty(); }
 
-// --- Status: [timestamp_ms(u64le)][status_json: str] ---
+// --- Status: [mode(u8)][load(f64le)][temp(f64le)] ---
 bool encode(Status const& m, common::LinearBuffer& out) noexcept {
-    if (!write_le<std::uint64_t>(out, m.timestamp_ms)) {
+    if (!write_u8(out, m.mode)) {
         return false;
     }
-    return write_string(out, m.status_json);
+    if (!write_f64_le(out, m.load)) {
+        return false;
+    }
+    return write_f64_le(out, m.temp);
 }
-bool decode(std::span<std::byte const> in, Status& out) {
-    if (!read_le(in, out.timestamp_ms)) {
+bool decode(std::span<std::byte const> in, Status& out) noexcept {
+    if (!read_u8(in, out.mode)) {
         return false;
     }
-    if (!read_string(in, out.status_json)) {
+    if (!read_f64_le(in, out.load)) {
+        return false;
+    }
+    if (!read_f64_le(in, out.temp)) {
         return false;
     }
     return in.empty();
 }
 
 // --- Command: [command_id(u64le)][type(u8)][payload(rest)] ---
-//   type/payload 는 opaque - 의미는 proto::cmd 가 해석. payload 는 길이 prefix 없이 body 의 나머지.
+//   type/payload는 opaque - 의미는 proto::cmd가 해석. payload는 length prefix 없이 body의 나머지 전부
 bool encode(Command const& m, common::LinearBuffer& out) noexcept {
     if (!write_le<std::uint64_t>(out, m.command_id)) {
         return false;
     }
-    std::byte const type_b{m.type};
-    if (!out.write({&type_b, 1})) {
+    if (!write_u8(out, m.type)) {
         return false;
     }
     if (m.payload.empty()) {
@@ -163,12 +181,10 @@ bool decode(std::span<std::byte const> in, Command& out) {
     if (!read_le(in, out.command_id)) {
         return false;
     }
-    if (in.empty()) {
+    if (!read_u8(in, out.type)) {
         return false;
     }
-    out.type = static_cast<std::uint8_t>(in[0]);
-    in = in.subspan(1);
-    out.payload.assign(reinterpret_cast<char const*>(in.data()), in.size()); // 나머지 전부
+    out.payload.assign(reinterpret_cast<char const*>(in.data()), in.size());
     return true;
 }
 
@@ -188,8 +204,7 @@ bool encode(CommandOutcome const& m, common::LinearBuffer& out) noexcept {
     if (!write_le<std::uint64_t>(out, m.command_id)) {
         return false;
     }
-    std::byte const result_b{static_cast<std::uint8_t>(m.result)};
-    if (!out.write({&result_b, 1})) {
+    if (!write_u8(out, static_cast<std::uint8_t>(m.result))) {
         return false;
     }
     return write_string(out, m.reason);
@@ -198,11 +213,11 @@ bool decode(std::span<std::byte const> in, CommandOutcome& out) {
     if (!read_le(in, out.command_id)) {
         return false;
     }
-    if (in.empty()) {
+    std::uint8_t result{};
+    if (!read_u8(in, result)) {
         return false;
     }
-    out.result = static_cast<CommandResult>(static_cast<std::uint8_t>(in[0]));
-    in = in.subspan(1);
+    out.result = static_cast<CommandResult>(result);
     if (!read_string(in, out.reason)) {
         return false;
     }

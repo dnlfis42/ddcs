@@ -12,8 +12,8 @@ using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::domain::DeviceRegistry;
 using ddcs::ctrl::port::transport::ConnectionId;
 
-// 텔레메트리(Status) 소비 use-case. status_json(JSON) 파싱 -> conn->device 해소 -> Device telemetry 갱신.
-// 비활성 conn/decode 실패/malformed JSON 은 비치명적으로 드롭.
+// 텔레메트리(Status) 소비 use-case. Status DTO -> conn->device 해소 -> Device telemetry 갱신.
+// 비활성 conn/decode 실패는 비치명적으로 드롭. 미지의 mode 값은 safe로 해석한다.
 class StatusService {
 public:
     StatusService(SessionRegistry& sessions, DeviceRegistry& registry) noexcept

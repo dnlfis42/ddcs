@@ -3,11 +3,10 @@
 #include "ddcs/ctrl/app/session/session.hpp"
 #include "ddcs/device/mode.hpp"
 #include "ddcs/device/status.hpp"
-#include "ddcs/json/value.hpp"
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/msg/message.hpp"
 
-#include <string_view>
+#include <cstdint>
 
 namespace ddcs::ctrl::app::agent {
 
@@ -15,15 +14,16 @@ using ddcs::ctrl::app::session::State;
 
 namespace {
 
-double double_of(json::Value const& obj, std::string_view key) noexcept {
-    auto const* v = obj.find(key);
-    return (v != nullptr) ? v->as_double().value_or(0.0) : 0.0;
-}
-
-device::Mode mode_of(json::Value const& obj) noexcept {
-    auto const* m = obj.find("mode");
-    auto const sv = (m != nullptr) ? m->as_string().value_or(std::string_view{}) : std::string_view{};
-    return device::from_string(sv).value_or(device::Mode::safe); // 미지 -> safe
+device::Mode mode_of(std::uint8_t mode) noexcept {
+    switch (static_cast<device::Mode>(mode)) {
+    case device::Mode::safe:
+        return device::Mode::safe;
+    case device::Mode::normal:
+        return device::Mode::normal;
+    case device::Mode::performance:
+        return device::Mode::performance;
+    }
+    return device::Mode::safe;
 }
 
 } // namespace
@@ -40,19 +40,11 @@ void StatusService::handle_status(ConnectionId conn, common::PoolHandle<common::
         return; // 미등록/비활성 conn 의 status -> 무시
     }
 
-    auto const parsed = json::Value::parse(st.status_json);
-    if (!parsed || !parsed->is_object()) {
-        LOG_WARN("agent.status.bad_json", ddcs::logger::kv("conn", conn.value()));
-        return;
-    }
-
-    registry_.update_status(
-        session->agent,
-        device::Status{.mode = mode_of(*parsed), .load = double_of(*parsed, "load"), .temp = double_of(*parsed, "temp")}
-    );
+    registry_.update_status(session->agent, device::Status{.mode = mode_of(st.mode), .load = st.load, .temp = st.temp});
     LOG_DEBUG(
         "agent.status", ddcs::logger::kv("agent", session->agent.to_string()),
-        ddcs::logger::kv("status", st.status_json)
+        ddcs::logger::kv("mode", static_cast<std::uint64_t>(st.mode)), ddcs::logger::kv("load", st.load),
+        ddcs::logger::kv("temp", st.temp)
     );
 }
 

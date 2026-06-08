@@ -10,16 +10,15 @@
 #include "ddcs/proto/msg/message.hpp"
 #include "ddcs/proto/msg/type.hpp"
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <cstddef>
-#include <cstdint>
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -174,8 +173,8 @@ TEST(CommandServiceTest, AckExtendsDeadline) {
     bind_agent(sessions, ConnectionId{1}, make_uuid(1));
 
     auto const command_id = svc.dispatch(make_uuid(1), 0x01, "payload"); // deadline = t0 + 5s
-    clock.advance(std::chrono::seconds{4});                             // t0 + 4s
-    svc.handle_ack(ConnectionId{1}, make_ack_body(command_id));         // deadline = t0 + 9s 로 연장
+    clock.advance(std::chrono::seconds{4});                              // t0 + 4s
+    svc.handle_ack(ConnectionId{1}, make_ack_body(command_id));          // deadline = t0 + 9s 로 연장
 
     clock.advance(std::chrono::seconds{4}); // t0 + 8s (원 deadline 초과지만 연장됨)
     svc.sweep();
@@ -280,7 +279,7 @@ TEST(CommandServiceTest, GivesUpAfterMaxAttempts) {
     CommandService svc{sessions, outbound, clock, kTimeout, 2, std::chrono::milliseconds{100}}; // max=2
     bind_agent(sessions, ConnectionId{1}, make_uuid(1));
 
-    svc.dispatch(make_uuid(1), 0x01, "payload");        // attempt 1
+    svc.dispatch(make_uuid(1), 0x01, "payload");       // attempt 1
     clock.advance(kTimeout + std::chrono::seconds{1}); // timeout
     svc.sweep();                                       // -> backoff
     clock.advance(std::chrono::seconds{1});            // backoff 경과

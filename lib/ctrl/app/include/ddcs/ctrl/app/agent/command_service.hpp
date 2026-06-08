@@ -9,11 +9,10 @@
 #include "ddcs/ctrl/port/transport/outbound.hpp"
 
 #include <chrono>
-#include <string>
-#include <unordered_map>
-
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <unordered_map>
 
 namespace ddcs::ctrl::app::agent {
 
@@ -22,14 +21,14 @@ using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
 
-// 명령 발송/상관(command_id) use-case. controller->agent 로 Command 를 보내고
-// CommandAck/CommandOutcome 으로 미결(pending)을 닫는다. 타임아웃은 app 측 Clock + sweep.
+// 명령 발송/상관(command_id) use-case. controller->agent로 Command를 보내고
+// CommandAck로 미결 deadline을 연장하고, CommandOutcome으로 미결을 닫는다. 타임아웃은 app 측 Clock + sweep.
 //  - dispatch       : command_id 발급 + Command 송신 + pending 등록(deadline = now + timeout)
 //  - handle_ack     : 수신 확인 -> deadline 연장(agent 작동 중)
 //  - handle_outcome : success -> 종료(RTT 기록), NACK -> 실패 시도(재시도/포기)
 //  - sweep          : in_flight deadline 초과 -> 실패 시도. backoff 경과 -> 재발송.
-// 부분실패 보상: 무응답(timeout) 또는 NACK 시 지수 backoff 후 **새 command_id** 로 재발송(agent dedup 회피),
-// max_attempts 초과 시 포기(WARN + gave_up). payload 는 재발송 위해 Pending 에 보관. 주기 구동은 조립 루트.
+// 부분실패 보상: 무응답(timeout) 또는 NACK시 지수 backoff 후 **새 command_id**로 재발송(agent dedup 회피),
+// max_attempts 초과 시 포기(WARN + gave_up). payload는 재발송 위해 Pending에 보관. 주기 구동은 조립 루트.
 class CommandService {
 public:
     CommandService(
@@ -38,7 +37,7 @@ public:
         std::chrono::nanoseconds backoff_base = std::chrono::milliseconds{500}
     ) noexcept;
 
-    // agent 의 현재 conn 으로 Command(type/payload 는 opaque) 송신 + pending 등록.
+    // agent의 현재 conn으로 Command(type/payload는 opaque) 송신 + pending 등록.
     // 반환: 발급된 command_id. agent 미연결이면 0(무효, 송신 안 함).
     std::uint64_t dispatch(DeviceId agent, std::uint8_t type, std::string payload);
 

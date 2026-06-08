@@ -11,16 +11,15 @@
 #include "ddcs/proto/msg/message.hpp"
 #include "ddcs/proto/msg/type.hpp"
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <cstddef>
-#include <cstdint>
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -148,16 +147,15 @@ TEST(AgentSessionServiceTest, OnConnectedSendsRegisterAndArmsTimeout) {
     msg::RegisterRequest req{};
     auto const& b = out.sends[0].body;
     ASSERT_TRUE(msg::decode({reinterpret_cast<std::byte const*>(b.data()), b.size()}, req));
-    EXPECT_EQ(req.agent_uuid, make_uuid(0xab));
+    EXPECT_EQ(req.id, make_uuid(0xab));
     EXPECT_TRUE(has_timer(out, TimerId::register_timeout));
 }
 
-TEST(AgentSessionServiceTest, RegisterRequestCarriesConfiguredGroupAndVersion) {
+TEST(AgentSessionServiceTest, RegisterRequestCarriesConfiguredGroup) {
     DummyDevice device;
     MockOutbound out;
     SessionService::Config cfg{};
     cfg.group = "sensors";
-    cfg.version = "1.2.3";
     SessionService svc{make_uuid(0xcd), device, out, cfg};
 
     svc.on_connected();
@@ -168,7 +166,6 @@ TEST(AgentSessionServiceTest, RegisterRequestCarriesConfiguredGroupAndVersion) {
     auto const& b = out.sends[0].body;
     ASSERT_TRUE(msg::decode({reinterpret_cast<std::byte const*>(b.data()), b.size()}, req));
     EXPECT_EQ(req.group, "sensors");
-    EXPECT_EQ(req.version, "1.2.3");
 }
 
 TEST(AgentSessionServiceTest, RegisterResponseSuccessEntersActive) {
@@ -220,7 +217,7 @@ TEST(AgentSessionServiceTest, UnexpectedTypeWhileRegisteringCloses) {
     SessionService svc{make_uuid(1), device, out};
     svc.on_connected();
 
-    svc.on_recv(kType(msg::MessageType::heartbeat), body_of(msg::Heartbeat{.timestamp_ms = 0}));
+    svc.on_recv(kType(msg::MessageType::heartbeat), body_of(msg::Heartbeat{}));
 
     EXPECT_EQ(out.closes, 1);
 }
@@ -280,10 +277,10 @@ TEST(AgentSessionServiceTest, StatusTimerSendsStatusFromDeviceAndReschedules) {
     msg::Status st{};
     auto const& b = out.sends[0].body;
     ASSERT_TRUE(msg::decode({reinterpret_cast<std::byte const*>(b.data()), b.size()}, st));
-    EXPECT_NE(st.status_json.find("performance"), std::string::npos);  // mode 반영
-    EXPECT_NE(st.status_json.find(R"("load":80)"), std::string::npos); // load 반영
-    EXPECT_NE(st.status_json.find(R"("temp":55)"), std::string::npos); // temp 반영
-    EXPECT_EQ(count_timer(out, TimerId::status), 1);                   // 재무장
+    EXPECT_EQ(st.mode, static_cast<std::uint8_t>(ddcs::device::Mode::performance)); // mode 반영
+    EXPECT_DOUBLE_EQ(st.load, 80.0);                                                // load 반영
+    EXPECT_DOUBLE_EQ(st.temp, 55.0);                                                // temp 반영
+    EXPECT_EQ(count_timer(out, TimerId::status), 1);                                // 재무장
 }
 
 TEST(AgentSessionServiceTest, HeartbeatTimerIgnoredWhenNotActive) {
@@ -365,7 +362,7 @@ TEST(AgentSessionServiceTest, UnexpectedTypeWhileActiveCloses) {
     SessionService svc{make_uuid(1), device, out};
     activate(svc, out);
 
-    svc.on_recv(kType(msg::MessageType::heartbeat), body_of(msg::Heartbeat{.timestamp_ms = 0}));
+    svc.on_recv(kType(msg::MessageType::heartbeat), body_of(msg::Heartbeat{}));
 
     EXPECT_EQ(out.closes, 1);
 }

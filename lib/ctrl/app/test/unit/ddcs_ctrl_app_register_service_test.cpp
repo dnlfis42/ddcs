@@ -9,15 +9,14 @@
 #include "ddcs/proto/msg/message.hpp"
 #include "ddcs/proto/msg/type.hpp"
 
-#include <gtest/gtest.h>
-
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <cstddef>
-#include <cstdint>
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -57,10 +56,10 @@ Uuid make_uuid(std::uint8_t seed) {
     return Uuid{b};
 }
 
-PoolHandle<LinearBuffer> make_register_body(Uuid uuid, std::string group = "", std::string version = "") {
+PoolHandle<LinearBuffer> make_register_body(Uuid id, std::string group = "") {
     static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 8, std::size_t{256});
     auto buf = pool.acquire();
-    msg::RegisterRequest const req{.agent_uuid = uuid, .group = std::move(group), .version = std::move(version)};
+    msg::RegisterRequest const req{.id = id, .group = std::move(group)};
     EXPECT_TRUE(msg::encode(req, *buf));
     return buf;
 }
@@ -89,13 +88,12 @@ TEST(RegisterServiceTest, ResolveReturnsSameIdForSameUuid) {
     EXPECT_EQ(a, b); // 영속 identity (재접속 가로질러 안정)
 }
 
-TEST(RegisterServiceTest, ResolveStoresDeclaredGroupAndVersion) {
+TEST(RegisterServiceTest, ResolveStoresDeclaredGroup) {
     Fixture f;
-    f.svc.resolve(ConnectionId{1}, make_register_body(make_uuid(1), "sensors", "1.2.3"));
+    f.svc.resolve(ConnectionId{1}, make_register_body(make_uuid(1), "sensors"));
     auto const* a = f.registry.find(make_uuid(1));
     ASSERT_NE(a, nullptr);
     EXPECT_EQ(a->group, "sensors");
-    EXPECT_EQ(a->version, "1.2.3");
 }
 
 TEST(RegisterServiceTest, ResolveReturnsInvalidOnDecodeFail) {
@@ -105,7 +103,7 @@ TEST(RegisterServiceTest, ResolveReturnsInvalidOnDecodeFail) {
     std::array<std::byte, 4> junk{};
     ASSERT_TRUE(bad->write({junk.data(), junk.size()}));
     auto const id = f.svc.resolve(ConnectionId{1}, std::move(bad));
-    EXPECT_FALSE(id.valid());          // 식별 불가
+    EXPECT_FALSE(id.valid());              // 식별 불가
     EXPECT_TRUE(f.outbound.sends.empty()); // 응답 없음 (close 는 호출자 SessionManager 소관)
 }
 

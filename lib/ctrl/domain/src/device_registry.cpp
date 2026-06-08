@@ -9,13 +9,12 @@ Device const& DeviceRegistry::find_or_create(DeviceId id) {
     return devices_.try_emplace(id, Device{.id = id}).first->second;
 }
 
-void DeviceRegistry::set_attributes(DeviceId id, std::string group, std::string version) {
+void DeviceRegistry::set_group(DeviceId id, std::string group) {
     auto const it = devices_.find(id);
     if (it == devices_.end()) {
         return; // 미지의 id - 방어적 무시
     }
     it->second.group = std::move(group);
-    it->second.version = std::move(version);
 }
 
 void DeviceRegistry::update_status(DeviceId id, device::Status status) {

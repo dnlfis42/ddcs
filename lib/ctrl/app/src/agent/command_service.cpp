@@ -5,11 +5,10 @@
 #include "ddcs/proto/msg/type.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <cstdint>
 
 namespace ddcs::ctrl::app::agent {
 
@@ -100,7 +99,9 @@ void CommandService::handle_outcome(ConnectionId conn, common::PoolHandle<common
         return;
     }
     if (outcome.result != proto::msg::CommandResult::success) {
-        LOG_WARN("command.nack", ddcs::logger::kv("command", outcome.command_id));
+        LOG_WARN(
+            "command.nack", ddcs::logger::kv("command", outcome.command_id), ddcs::logger::kv("reason", outcome.reason)
+        );
         fail_attempt(outcome.command_id); // NACK -> 재시도 또는 포기
         return;
     }

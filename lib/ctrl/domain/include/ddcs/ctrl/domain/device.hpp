@@ -11,7 +11,6 @@ namespace ddcs::ctrl::domain {
 struct Device {
     DeviceId id;
     std::string group{};     // 논리 그룹(정책 타깃팅). 빈 문자열 = 미지정
-    std::string version{};   // device(agent) 앱/빌드 버전
     device::Status status{}; // 최근 관측 상태(기본 safe/0)
 };
 

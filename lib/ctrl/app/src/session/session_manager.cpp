@@ -5,9 +5,8 @@
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/msg/type.hpp"
 
-#include <utility>
-
 #include <cstdint>
+#include <utility>
 
 namespace ddcs::ctrl::app::session {
 

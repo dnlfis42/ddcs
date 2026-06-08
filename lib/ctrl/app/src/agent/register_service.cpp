@@ -4,9 +4,8 @@
 #include "ddcs/proto/msg/message.hpp"
 #include "ddcs/proto/msg/type.hpp"
 
-#include <utility>
-
 #include <cstdint>
+#include <utility>
 
 namespace ddcs::ctrl::app::agent {
 
@@ -16,8 +15,8 @@ DeviceId RegisterService::resolve(ConnectionId conn, common::PoolHandle<common::
         LOG_WARN("agent.register.decode_fail", ddcs::logger::kv("conn", conn.value()));
         return DeviceId{}; // 식별 불가 -> 무효(호출자가 close)
     }
-    auto const& agent = registry_.find_or_create(req.agent_uuid);                     // uuid -> 영속 DeviceId
-    registry_.set_attributes(agent.id, std::move(req.group), std::move(req.version)); // 선언된 group/version 갱신
+    auto const& agent = registry_.find_or_create(req.id);
+    registry_.set_group(agent.id, std::move(req.group));
     return agent.id;
 }
 

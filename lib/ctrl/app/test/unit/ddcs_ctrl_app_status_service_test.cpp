@@ -9,14 +9,12 @@
 #include "ddcs/device/mode.hpp"
 #include "ddcs/proto/msg/message.hpp"
 
-#include <gtest/gtest.h>
-
 #include <array>
-#include <string>
-#include <utility>
-
 #include <cstddef>
 #include <cstdint>
+#include <utility>
+
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -39,11 +37,12 @@ Uuid make_uuid(std::uint8_t seed) {
     return Uuid{b};
 }
 
-PoolHandle<LinearBuffer> make_status_body(std::string json) {
+std::uint8_t mode_code(Mode mode) noexcept { return static_cast<std::uint8_t>(mode); }
+
+PoolHandle<LinearBuffer> make_status_body(msg::Status status) {
     static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 8, std::size_t{256});
     auto buf = pool.acquire();
-    msg::Status const st{.timestamp_ms = 0, .status_json = std::move(json)};
-    EXPECT_TRUE(msg::encode(st, *buf));
+    EXPECT_TRUE(msg::encode(status, *buf));
     return buf;
 }
 
@@ -66,13 +65,15 @@ TEST(StatusServiceTest, UpdatesAgentTelemetryFromStatus) {
     Fixture f;
     auto const id = f.activate(ConnectionId{1}, make_uuid(1));
 
-    f.svc.handle_status(ConnectionId{1}, make_status_body(R"({"mode":"performance","load":75,"temp":50.5})"));
+    f.svc.handle_status(
+        ConnectionId{1}, make_status_body(msg::Status{.mode = mode_code(Mode::performance), .load = 75.0, .temp = 50.5})
+    );
 
     auto const* a = f.registry.find(id);
     ASSERT_NE(a, nullptr);
     EXPECT_EQ(a->status.mode, Mode::performance);
-    EXPECT_EQ(a->status.load, 75.0);
-    EXPECT_EQ(a->status.temp, 50.5);
+    EXPECT_DOUBLE_EQ(a->status.load, 75.0);
+    EXPECT_DOUBLE_EQ(a->status.temp, 50.5);
 }
 
 TEST(StatusServiceTest, DropsStatusFromInactiveConnection) {
@@ -80,12 +81,14 @@ TEST(StatusServiceTest, DropsStatusFromInactiveConnection) {
     auto const id = f.registry.find_or_create(make_uuid(2)).id;
     f.sessions.open(ConnectionId{2}); // handshaking - active 아님
 
-    f.svc.handle_status(ConnectionId{2}, make_status_body(R"({"mode":"normal","load":10,"temp":20})"));
+    f.svc.handle_status(
+        ConnectionId{2}, make_status_body(msg::Status{.mode = mode_code(Mode::normal), .load = 10.0, .temp = 20.0})
+    );
 
     auto const* a = f.registry.find(id);
     ASSERT_NE(a, nullptr);
     EXPECT_EQ(a->status.mode, Mode::safe); // 갱신 안 됨(기본값 유지)
-    EXPECT_EQ(a->status.load, 0.0);
+    EXPECT_DOUBLE_EQ(a->status.load, 0.0);
 }
 
 TEST(StatusServiceTest, DropsUndecodableStatusSilently) {
@@ -93,15 +96,23 @@ TEST(StatusServiceTest, DropsUndecodableStatusSilently) {
     f.activate(ConnectionId{3}, make_uuid(3));
     static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 4, std::size_t{64});
     auto bad = pool.acquire();
-    std::array<std::byte, 3> junk{}; // timestamp(8B) 미달 -> decode 실패
+    std::array<std::byte, 3> junk{}; // Status 최소 길이보다 짧음 -> decode 실패
     ASSERT_TRUE(bad->write({junk.data(), junk.size()}));
     f.svc.handle_status(ConnectionId{3}, std::move(bad));
     SUCCEED(); // 조용히 드롭(크래시 없음)
 }
 
-TEST(StatusServiceTest, DropsBadJsonSilently) {
+TEST(StatusServiceTest, MapsUnknownModeToSafe) {
     Fixture f;
     auto const id = f.activate(ConnectionId{4}, make_uuid(4));
-    f.svc.handle_status(ConnectionId{4}, make_status_body("not json"));
-    EXPECT_EQ(f.registry.find(id)->status.mode, Mode::safe); // 파싱 실패 -> 갱신 안 됨
+    f.svc.handle_status(
+        ConnectionId{4},
+        make_status_body(msg::Status{.mode = static_cast<std::uint8_t>(0xFF), .load = 10.0, .temp = 20.0})
+    );
+
+    auto const* a = f.registry.find(id);
+    ASSERT_NE(a, nullptr);
+    EXPECT_EQ(a->status.mode, Mode::safe);
+    EXPECT_DOUBLE_EQ(a->status.load, 10.0);
+    EXPECT_DOUBLE_EQ(a->status.temp, 20.0);
 }

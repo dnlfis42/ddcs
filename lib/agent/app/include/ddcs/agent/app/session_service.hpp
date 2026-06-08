@@ -9,11 +9,10 @@
 #include "ddcs/proto/msg/message.hpp"
 
 #include <chrono>
-#include <span>
-#include <string>
-
 #include <cstddef>
 #include <cstdint>
+#include <span>
+#include <string>
 
 namespace ddcs::agent::app {
 
@@ -31,8 +30,7 @@ public:
         std::chrono::nanoseconds heartbeat{std::chrono::seconds{1}};
         std::chrono::nanoseconds status_update{std::chrono::seconds{5}};
         std::chrono::nanoseconds register_timeout{std::chrono::seconds{2}};
-        std::string group;   // 등록 시 controller 에 선언할 그룹(정책 타깃팅). 빈 문자열 = 미지정
-        std::string version; // 등록 시 controller 에 선언할 agent 버전
+        std::string group; // 등록 시 controller 에 선언할 그룹(정책 타깃팅). 빈 문자열 = 미지정
     };
 
     enum class State : std::uint8_t {

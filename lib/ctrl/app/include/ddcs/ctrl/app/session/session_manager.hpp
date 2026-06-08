@@ -18,8 +18,8 @@ namespace ddcs::ctrl::app::session {
 using ddcs::ctrl::app::agent::CommandService;
 using ddcs::ctrl::app::agent::RegisterService;
 using ddcs::ctrl::app::agent::StatusService;
-using ddcs::ctrl::port::transport::DisconnectReason;
 using ddcs::ctrl::port::transport::ConnectionId;
+using ddcs::ctrl::port::transport::DisconnectReason;
 using ddcs::ctrl::port::transport::Inbound;
 using ddcs::ctrl::port::transport::Outbound;
 

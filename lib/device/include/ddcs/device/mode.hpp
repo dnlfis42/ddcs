@@ -1,9 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string_view>
-
-#include <cstdint>
 
 namespace ddcs::device {
 
@@ -16,8 +15,8 @@ enum class Mode : std::uint8_t {
     performance = 2,
 };
 
-// Mode <-> 정규 문자열. 양 끝(agent status_json 쓰기 / controller 읽기)이 같은 이름을 쓰도록 여기서 공유 -
-// 분산 정의 시 "perf" vs "performance" 같은 drift 로 텔레메트리가 조용히 깨지는 걸 방지.
+// Mode <-> 정규 문자열. config/policy 같은 텍스트 경계가 같은 이름을 쓰도록 여기서 공유.
+// 분산 정의 시 "perf" vs "performance" 같은 drift 로 설정이 조용히 깨지는 걸 방지.
 constexpr std::string_view to_string(Mode m) noexcept {
     switch (m) {
     case Mode::safe:

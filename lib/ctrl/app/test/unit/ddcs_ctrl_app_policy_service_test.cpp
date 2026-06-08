@@ -17,16 +17,15 @@
 #include "ddcs/proto/cmd/command.hpp"
 #include "ddcs/proto/msg/message.hpp"
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <cstddef>
-#include <cstdint>
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -95,7 +94,7 @@ struct Fixture {
 
     DeviceId add_agent(std::uint8_t seed, ConnectionId conn, std::string const& group, double load) {
         auto const id = registry.find_or_create(make_uuid(seed)).id;
-        registry.set_attributes(id, group, "v");
+        registry.set_group(id, group);
         registry.update_status(id, ddcs::device::Status{.mode = Mode::normal, .load = load, .temp = 0.0});
         sessions.open(conn);
         sessions.bind(conn, id, {});

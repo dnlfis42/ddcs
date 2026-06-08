@@ -1,36 +1,20 @@
 #include "ddcs/agent/app/session_service.hpp"
 
-#include "ddcs/device/mode.hpp"
-#include "ddcs/json/value.hpp"
 #include "ddcs/logger/log.hpp"
 #include "ddcs/proto/cmd/command.hpp"
 #include "ddcs/proto/msg/message.hpp"
 #include "ddcs/proto/msg/type.hpp"
 
-#include <chrono>
+#include <cstdint>
 #include <string>
 #include <utility>
-
-#include <cstdint>
 
 namespace ddcs::agent::app {
 
 namespace {
 
-std::uint64_t now_realtime_ms() noexcept {
-    auto const now = std::chrono::system_clock::now();
-    return static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count()
-    );
-}
-
-// DeviceState -> 텔레메트리 JSON(mode/load/temp). controller 가 파싱해 Agent 상태 갱신.
-std::string status_json_of(domain::DeviceState const& ds) {
-    json::Value v = json::Value::object();
-    v.set("mode", std::string{device::to_string(ds.mode)});
-    v.set("load", ds.load);
-    v.set("temp", ds.temp);
-    return v.dump();
+proto::msg::Status status_of(domain::DeviceState const& state) noexcept {
+    return proto::msg::Status{.mode = static_cast<std::uint8_t>(state.mode), .load = state.load, .temp = state.temp};
 }
 
 } // namespace
@@ -126,21 +110,22 @@ void SessionService::enter_active() {
 }
 
 void SessionService::send_register_request() {
-    send_message(proto::msg::RegisterRequest{.agent_uuid = agent_uuid_, .group = cfg_.group, .version = cfg_.version});
+    send_message(proto::msg::RegisterRequest{.id = agent_uuid_, .group = cfg_.group});
 }
 
 void SessionService::send_heartbeat() {
-    auto const ts = now_realtime_ms();
-    send_message(proto::msg::Heartbeat{.timestamp_ms = ts});
+    send_message(proto::msg::Heartbeat{});
     outbound_.schedule_timer(TimerId::heartbeat, cfg_.heartbeat); // 주기 재무장
-    LOG_DEBUG("agent.session.heartbeat", ddcs::logger::kv("ts", ts));
+    LOG_DEBUG("agent.session.heartbeat");
 }
 
 void SessionService::send_status() {
-    auto const ds = device_.query();
-    auto status_json = status_json_of(ds);
-    LOG_DEBUG("agent.session.status", ddcs::logger::kv("status", status_json));
-    send_message(proto::msg::Status{.timestamp_ms = now_realtime_ms(), .status_json = std::move(status_json)});
+    auto const status = status_of(device_.query());
+    LOG_DEBUG(
+        "agent.session.status", ddcs::logger::kv("mode", static_cast<std::uint64_t>(status.mode)),
+        ddcs::logger::kv("load", status.load), ddcs::logger::kv("temp", status.temp)
+    );
+    send_message(status);
     outbound_.schedule_timer(TimerId::status, cfg_.status_update);
 }
 

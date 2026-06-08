@@ -15,12 +15,12 @@ using ddcs::ctrl::port::transport::ConnectionId;
 using ddcs::ctrl::port::transport::Outbound;
 
 // 등록 핸드셰이크의 identity/ack 책임.
-// RegisterRequest를 decode 해 uuid->DeviceId(영속)로 해소하고 선언된 group/version을 갱신.
+// RegisterRequest를 decode 해 id->DeviceId(영속)로 해소하고 선언된 group을 갱신한다.
 class RegisterService {
 public:
     RegisterService(DeviceRegistry& registry, Outbound& outbound) noexcept : registry_{registry}, outbound_{outbound} {}
 
-    // RegisterRequest decode -> DeviceId 해소(+ group/version 갱신). decode 실패 시 무효 DeviceId{}.
+    // RegisterRequest decode -> DeviceId 해소(+ group 갱신). decode 실패 시 무효 DeviceId{}.
     // conn은 decode_fail 로그 식별용.
     DeviceId resolve(ConnectionId conn, common::PoolHandle<common::LinearBuffer> body);
 

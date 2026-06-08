@@ -2,12 +2,11 @@
 
 #include "ddcs/common/uuid.hpp"
 
-#include <gtest/gtest.h>
-
 #include <array>
-
 #include <cstddef>
 #include <cstdint>
+
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -69,31 +68,29 @@ TEST(DeviceRegistryTest, FindsById) {
     EXPECT_EQ(reg.find(make_uuid(99)), nullptr);
 }
 
-TEST(DeviceRegistryTest, SetAttributesUpdatesGroupAndVersion) {
+TEST(DeviceRegistryTest, SetsGroup) {
     DeviceRegistry reg;
     auto const u = make_uuid(8);
     DeviceId const id = reg.find_or_create(u).id;
-    reg.set_attributes(id, "sensors", "1.2.3");
+    reg.set_group(id, "sensors");
     Device const* d = reg.find(u);
     ASSERT_NE(d, nullptr);
     EXPECT_EQ(d->group, "sensors");
-    EXPECT_EQ(d->version, "1.2.3");
 }
 
-TEST(DeviceRegistryTest, SetAttributesRefreshesOnReRegister) {
+TEST(DeviceRegistryTest, RefreshesGroupOnReRegister) {
     DeviceRegistry reg;
     auto const u = make_uuid(9);
     DeviceId const id = reg.find_or_create(u).id;
-    reg.set_attributes(id, "g1", "v1");
-    reg.set_attributes(id, "g2", "v2"); // 재등록 -> 갱신
+    reg.set_group(id, "g1");
+    reg.set_group(id, "g2"); // 재등록 -> 갱신
     Device const* d = reg.find(u);
     ASSERT_NE(d, nullptr);
     EXPECT_EQ(d->group, "g2");
-    EXPECT_EQ(d->version, "v2");
 }
 
-TEST(DeviceRegistryTest, SetAttributesIgnoresUnknownId) {
+TEST(DeviceRegistryTest, IgnoresUnknownIdWhenSettingGroup) {
     DeviceRegistry reg;
-    reg.set_attributes(make_uuid(200), "g", "v"); // 미지 id -> no-op (크래시 없음)
+    reg.set_group(make_uuid(200), "g"); // 미지 id -> no-op (크래시 없음)
     EXPECT_EQ(reg.size(), 0u);
 }

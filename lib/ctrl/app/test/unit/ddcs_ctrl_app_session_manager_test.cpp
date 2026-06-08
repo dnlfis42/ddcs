@@ -17,16 +17,15 @@
 #include "ddcs/proto/msg/message.hpp"
 #include "ddcs/proto/msg/type.hpp"
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <cstddef>
-#include <cstdint>
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -42,8 +41,8 @@ using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::app::session::State;
 using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::domain::DeviceRegistry;
-using ddcs::ctrl::port::transport::DisconnectReason;
 using ddcs::ctrl::port::transport::ConnectionId;
+using ddcs::ctrl::port::transport::DisconnectReason;
 using ddcs::ctrl::port::transport::Outbound;
 namespace msg = ddcs::proto::msg;
 
@@ -98,7 +97,7 @@ struct Harness {
 
     void register_active(ConnectionId conn, Uuid uuid) {
         mgr.on_connected(conn);
-        mgr.on_recv(conn, kType(msg::MessageType::register_request), encode_body(msg::RegisterRequest{.agent_uuid = uuid}));
+        mgr.on_recv(conn, kType(msg::MessageType::register_request), encode_body(msg::RegisterRequest{.id = uuid}));
         outbound.sends.clear();
         outbound.drops.clear();
     }
@@ -119,7 +118,7 @@ TEST(SessionManagerTest, RoutesRegisterRequestActivatesSession) {
     h.mgr.on_connected(ConnectionId{1});
     h.mgr.on_recv(
         ConnectionId{1}, kType(msg::MessageType::register_request),
-        encode_body(msg::RegisterRequest{.agent_uuid = make_uuid(1)})
+        encode_body(msg::RegisterRequest{.id = make_uuid(1)})
     );
 
     auto* s = h.sessions.find(ConnectionId{1});
@@ -133,7 +132,7 @@ TEST(SessionManagerTest, ActiveRecvUpdatesLastSeen) {
     Harness h;
     h.register_active(ConnectionId{1}, make_uuid(1)); // last_seen = t0
     h.clock.advance(std::chrono::seconds{2});
-    h.mgr.on_recv(ConnectionId{1}, kType(msg::MessageType::heartbeat), encode_body(msg::Heartbeat{.timestamp_ms = 0}));
+    h.mgr.on_recv(ConnectionId{1}, kType(msg::MessageType::heartbeat), encode_body(msg::Heartbeat{}));
 
     auto* s = h.sessions.find(ConnectionId{1});
     ASSERT_NE(s, nullptr);
@@ -145,7 +144,7 @@ TEST(SessionManagerTest, RoutesStatusAsTelemetry) {
     Harness h;
     h.register_active(ConnectionId{1}, make_uuid(1));
     h.mgr.on_recv(
-        ConnectionId{1}, kType(msg::MessageType::status), encode_body(msg::Status{.timestamp_ms = 0, .status_json = "{}"})
+        ConnectionId{1}, kType(msg::MessageType::status), encode_body(msg::Status{.mode = 0, .load = 0.0, .temp = 0.0})
     );
     EXPECT_TRUE(h.outbound.drops.empty()); // 비치명적
 }
@@ -215,7 +214,7 @@ TEST(SessionManagerTest, PreRegisterUnexpectedTypeCloses) {
     h.mgr.on_connected(ConnectionId{1}); // handshaking
     // 등록 전 비-Register 프레임 -> 프로토콜 위반 -> close (register-or-die gap-fix).
     h.mgr.on_recv(
-        ConnectionId{1}, kType(msg::MessageType::status), encode_body(msg::Status{.timestamp_ms = 0, .status_json = "{}"})
+        ConnectionId{1}, kType(msg::MessageType::status), encode_body(msg::Status{.mode = 0, .load = 0.0, .temp = 0.0})
     );
     ASSERT_EQ(h.outbound.drops.size(), 1u);
     EXPECT_EQ(h.outbound.drops[0], ConnectionId{1});
@@ -228,12 +227,12 @@ TEST(SessionManagerTest, KicksOldConnectionOnSameUuidReRegister) {
     h.mgr.on_connected(ConnectionId{2});
     h.mgr.on_recv(
         ConnectionId{2}, kType(msg::MessageType::register_request),
-        encode_body(msg::RegisterRequest{.agent_uuid = make_uuid(1)})
+        encode_body(msg::RegisterRequest{.id = make_uuid(1)})
     );
 
     EXPECT_EQ(h.mgr.kicked_total(), 1u);
     ASSERT_EQ(h.outbound.drops.size(), 1u);
-    EXPECT_EQ(h.outbound.drops[0], ConnectionId{1}); // 옛 conn drop
+    EXPECT_EQ(h.outbound.drops[0], ConnectionId{1});              // 옛 conn drop
     EXPECT_EQ(h.sessions.resolve(make_uuid(1)), ConnectionId{2}); // 현재 바인딩 = 새 conn
 }
 

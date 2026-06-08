@@ -48,10 +48,10 @@ Frame payload 위에서 동작하는 논리 단위. Frame header의 `type`이 me
 
 | type   | 이름               | 방향 | payload                                                       |
 | ------ | ------------------ | ---- | ------------------------------------------------------------- |
-| `0x01` | `RegisterRequest`  | A->C | `agent_uuid` : uuid(16B)                                      |
+| `0x01` | `RegisterRequest`  | A->C | `id` : uuid(16B), `group` : string                            |
 | `0x02` | `RegisterResponse` | C->A | `result` : enum(u8), `reason` : string                        |
-| `0x10` | `Heartbeat`        | A->C | `timestamp_ms` : uint64                                       |
-| `0x11` | `Status`           | A->C | `timestamp_ms` : uint64, `status_json` : string               |
+| `0x10` | `Heartbeat`        | A->C | empty                                                         |
+| `0x11` | `Status`           | A->C | `mode` : uint8, `load` : f64, `temp` : f64                    |
 | `0x20` | `Command`          | C->A | `command_id` : uint64, `type` : uint8, `payload` : raw bytes  |
 | `0x21` | `CommandAck`       | A->C | `command_id` : uint64                                         |
 | `0x22` | `CommandOutcome`   | A->C | `command_id` : uint64, `result` : enum(u8), `reason` : string |
@@ -69,9 +69,9 @@ type은 고위 nibble로 그룹을 나눈다:
 - `uuid`는 **raw 16 byte** (길이 prefix 없음).
 - `string`은 `uint16` length prefix(little-endian) + UTF-8 raw bytes. null terminator 없음. 길이는 0 이상이며 frame payload 한계 안에서 임의.
 - `enum`은 underlying type을 raw로 1 byte 기록한다.
+- `f64`는 IEEE 754 binary64 bit pattern을 little-endian으로 기록한다.
 - `Command.payload`만 예외: **length prefix 없이 body의 나머지 전부**를 차지한다(중첩 discriminator 참고).
-- JSON 타입(`status_json`)은 wire 표현상 `string`과 동일하다. JSON 텍스트의 유효성은 application 책임이며 protocol은 검증하지 않는다.
-- decode는 *구조적 검증*만 한다. wire 바이트가 schema 길이 요건과 정확히 부합(부족/trailing 바이트 없음)하는지만 본다. enum 값 유효성, JSON 파싱, 의미 제약은 호출자 책임.
+- decode는 *구조적 검증*만 한다. wire 바이트가 schema 길이 요건과 정확히 부합(부족/trailing 바이트 없음)하는지만 본다. enum 값 유효성, 의미 제약은 호출자 책임.
 
 ## Command body (중첩 discriminator)
 
@@ -88,7 +88,7 @@ type은 고위 nibble로 그룹을 나눈다:
 | ------ | --------- | -------------------------- |
 | `0x01` | `SetMode` | `mode` : enum(u8)          |
 
-`SetMode.mode` enum(u8) 값:
+`Status.mode`와 `SetMode.mode` enum(u8) 값:
 
 | 값  | 이름          |
 | --- | ------------- |
@@ -98,11 +98,11 @@ type은 고위 nibble로 그룹을 나눈다:
 
 ## 의미론
 
-- **Liveness**는 `Heartbeat`로만 갱신한다. `Status`는 텔레메트리이며 liveness 타이머를 건드리지 않는다.
+- **Liveness**는 active 세션에서 수신한 모든 정상 message로 갱신한다. `Heartbeat`는 payload 없는 keepalive다.
   controller는 liveness 타임아웃 시 연결을 강제 종료한다.
 - `RegisterResponse`는 *상대를 식별한 뒤*에만 송신한다. 식별 자체가 불가능하면(RegisterRequest decode 실패) 응답 없이 connection을 종료한다.
-- **kick-old(new-wins)**: 같은 `agent_uuid`로 새 연결이 등록하면 controller가 옛 연결을 강제 종료하고 새 연결을 바인딩한다.
-- TCP 연결이 곧 transport 식별 단위다. controller 내부 `AgentId`는 wire에 박지 않으며, `agent_uuid`가 재접속을 가로질러 agent를 식별한다.
+- **kick-old(new-wins)**: 같은 `RegisterRequest.id`로 새 연결이 등록하면 controller가 옛 연결을 강제 종료하고 새 연결을 바인딩한다.
+- TCP 연결이 곧 transport 식별 단위다. controller 내부 식별자는 wire에 별도로 싣지 않으며, `RegisterRequest.id`가 재접속을 가로질러 등록 주체를 식별한다.
 - `Command`는 `command_id`로 상관(correlation)한다. controller는 미결 명령에 타임아웃을 두고, `CommandAck`/`CommandOutcome`이 같은 연결에서 오는지 검증한다.
 
 ## Unknown / 비정상 type
