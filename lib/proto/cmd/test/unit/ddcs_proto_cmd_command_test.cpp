@@ -1,12 +1,12 @@
-#include "ddcs/device/mode.hpp"
 #include "ddcs/proto/cmd/command.hpp"
 
-#include <gtest/gtest.h>
+#include "ddcs/device/mode.hpp"
 
 #include <array>
+#include <cstddef>
 #include <span>
 
-#include <cstddef>
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -14,12 +14,12 @@ using namespace ddcs::proto::cmd;
 using ddcs::common::LinearBuffer;
 using ddcs::device::Mode;
 
-constexpr std::size_t buf_capacity{64};
+constexpr std::size_t buffer_capacity{64};
 
 } // namespace
 
 TEST(CommandCodecTest, RoundTripsSetMode) {
-    LinearBuffer buf{buf_capacity};
+    LinearBuffer buf{buffer_capacity};
     SetMode const in{.mode = Mode::performance};
     ASSERT_TRUE(encode(in, buf));
     SetMode out{};
@@ -38,4 +38,4 @@ TEST(CommandCodecTest, RejectsOversizedPayload) {
     EXPECT_FALSE(decode({two.data(), two.size()}, out));
 }
 
-TEST(CommandCodecTest, MapsTypeOfSetMode) { EXPECT_EQ(type_of<SetMode>, CommandType::SetMode); }
+TEST(CommandCodecTest, MapsSetModeToCommandType) { EXPECT_EQ(type_of<SetMode>, CommandType::set_mode); }

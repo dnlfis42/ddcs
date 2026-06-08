@@ -36,7 +36,7 @@ std::uint64_t OperatorService::set_mode(common::Uuid const& device_uuid, device:
     std::string payload{reinterpret_cast<char const*>(r.data()), r.size()};
 
     auto const command_id =
-        commands_.dispatch(device->id, static_cast<std::uint8_t>(proto::cmd::CommandType::SetMode), std::move(payload));
+        commands_.dispatch(device->id, static_cast<std::uint8_t>(proto::cmd::CommandType::set_mode), std::move(payload));
     LOG_INFO(
         "operator.set_mode", ddcs::logger::kv("agent", device->id.to_string()),
         ddcs::logger::kv("mode", static_cast<std::uint64_t>(mode)), ddcs::logger::kv("command", command_id)

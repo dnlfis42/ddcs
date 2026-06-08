@@ -15,7 +15,7 @@ using ddcs::ctrl::app::agent::CommandService;
 using ddcs::ctrl::domain::DeviceRegistry;
 
 // operator(운영자) 의도를 device 명령으로 옮기는 use-case (driving).
-// uuid -> DeviceId resolve 후 proto::cmd 로 payload 인코드 -> CommandService.dispatch 로 c->a Command 발신.
+// uuid -> DeviceId resolve 후 proto::cmd로 payload 인코드 -> CommandService.dispatch로 c->a Command 발신.
 // (ns 'operator'는 키워드라 'ops'.)
 class OperatorService {
 public:

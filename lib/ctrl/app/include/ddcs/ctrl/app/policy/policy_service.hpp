@@ -37,7 +37,7 @@ public:
     void evaluate();                             // 주기 호출(Controller sweep tick)
 
 private:
-    void command_group(std::string const& group, device::Mode mode); // 그룹 활성 agent 에 SetMode
+    void command_group(std::string const& group, device::Mode mode); // 그룹 활성 agent에 SetMode
 
 private:
     SessionRegistry& sessions_;

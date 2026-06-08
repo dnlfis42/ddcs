@@ -150,10 +150,9 @@ void SessionService::handle_command(std::span<std::byte const> body) {
 
     send_command_ack(cmd.command_id); // decode 성공 후, apply 전 ACK
 
-    // CommandType 별로 payload 해석 후 device 적용.
     bool ok = false;
     std::string reason;
-    if (static_cast<proto::cmd::CommandType>(cmd.type) == proto::cmd::CommandType::SetMode) {
+    if (static_cast<proto::cmd::CommandType>(cmd.type) == proto::cmd::CommandType::set_mode) {
         proto::cmd::SetMode set_mode{};
         if (proto::cmd::decode(payload, set_mode)) {
             ok = device_.apply(set_mode);

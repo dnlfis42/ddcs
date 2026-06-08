@@ -90,11 +90,10 @@ std::string encode_setmode(ddcs::device::Mode mode) {
     return std::string{reinterpret_cast<char const*>(r.data()), r.size()};
 }
 
-// frame.type=Command 의 body: Command{command_id, type=SetMode} + payload=encode(SetMode).
 PoolHandle<LinearBuffer> setmode_command(std::uint64_t id, ddcs::device::Mode mode) {
     auto const payload = encode_setmode(mode);
     return command_body_of(
-        msg::Command{.command_id = id, .type = static_cast<std::uint8_t>(cmd::CommandType::SetMode)}, payload
+        msg::Command{.command_id = id, .type = static_cast<std::uint8_t>(cmd::CommandType::set_mode)}, payload
     );
 }
 

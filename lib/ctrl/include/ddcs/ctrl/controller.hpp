@@ -51,7 +51,7 @@ public:
     // metrics 엔드포인트 바인드 포트. 비활성이면 0.
     std::uint16_t metrics_port() const;
 
-    // operator API (driving): agent 에게 SetMode 명령 발신. 반환 command_id(미지/미연결 0).
+    // operator API (driving): agent에게 SetMode 명령 발신. 반환 command_id(미지/미연결 0).
     std::uint64_t set_mode(common::Uuid const& agent_uuid, device::Mode mode);
 
 private:

@@ -71,7 +71,6 @@ Uuid make_uuid(std::uint8_t seed) {
     return Uuid{b};
 }
 
-// 캡처된 Command body -> SetMode.mode 디코드.
 Mode mode_of(std::string const& command_body) {
     msg::Command c{};
     std::span<std::byte const> payload{};
@@ -159,7 +158,7 @@ TEST(PolicyServiceTest, CommandsBusyModeWhenGroupLoadExceedsHigh) {
 
     f.policy.evaluate();
 
-    ASSERT_EQ(f.outbound.sends.size(), 2u); // 그룹의 두 agent 에 SetMode
+    ASSERT_EQ(f.outbound.sends.size(), 2u); // 그룹의 두 agent에 SetMode
     EXPECT_EQ(mode_of(f.outbound.sends[0]), Mode::performance);
     EXPECT_EQ(mode_of(f.outbound.sends[1]), Mode::performance);
 }
