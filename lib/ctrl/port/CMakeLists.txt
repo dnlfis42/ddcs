@@ -8,6 +8,9 @@ target_sources(
             BASE_DIRS include
             FILES
                 include/ddcs/ctrl/port/metrics/inbound.hpp
+                include/ddcs/ctrl/port/timer/timer_handler.hpp
+                include/ddcs/ctrl/port/timer/timer_id.hpp
+                include/ddcs/ctrl/port/timer/timer_scheduler.hpp
                 include/ddcs/ctrl/port/transport/connection_id.hpp
                 include/ddcs/ctrl/port/transport/inbound.hpp
                 include/ddcs/ctrl/port/transport/outbound.hpp
