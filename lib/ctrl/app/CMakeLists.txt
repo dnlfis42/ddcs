@@ -17,6 +17,10 @@ target_sources(
         FILE_SET HEADERS
             BASE_DIRS include
             FILES
+                include/ddcs/ctrl/app/agent/port/connection_id.hpp
+                include/ddcs/ctrl/app/agent/port/disconnect_reason.hpp
+                include/ddcs/ctrl/app/agent/port/inbound.hpp
+                include/ddcs/ctrl/app/agent/port/outbound.hpp
                 include/ddcs/ctrl/app/agent/command_service.hpp
                 include/ddcs/ctrl/app/agent/register_service.hpp
                 include/ddcs/ctrl/app/agent/status_service.hpp
