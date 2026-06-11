@@ -19,16 +19,16 @@ public:
     Reactor(Reactor&&) noexcept = delete;
     Reactor& operator=(Reactor&&) noexcept = delete;
 
-public:
+    [[nodiscard]] bool running() const noexcept;
+
     [[nodiscard]] bool add(Channel& channel);
     [[nodiscard]] bool modify(Channel& channel, ChannelEvents interests);
+    // idempotent
     void remove(Channel& channel) noexcept;
 
-public:
     void run();
     void run_once(std::chrono::milliseconds timeout);
     void stop() noexcept;
-    [[nodiscard]] bool running() const noexcept;
 
 private:
     struct Impl;

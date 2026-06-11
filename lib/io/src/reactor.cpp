@@ -7,13 +7,13 @@
 #include "ddcs/io/detail/channel_registry.hpp"
 
 #include <array>
-#include <chrono>
-#include <limits>
-#include <memory>
-
+#include <cassert>
 #include <cerrno>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <memory>
 
 #include <sys/epoll.h>
 
@@ -73,26 +73,37 @@ constexpr std::chrono::milliseconds wait_forever{-1};
 } // namespace
 
 struct Reactor::Impl {
+    enum class State {
+        ready,
+        running,
+    };
+
     common::Fd epoll_fd{};
+    State state{State::ready};
     detail::ChannelRegistry channel_registry;
-    bool running{false};
 };
 
 Reactor::Reactor() : impl_{std::make_unique<Impl>()} {
-    impl_->epoll_fd.reset(::epoll_create1(EPOLL_CLOEXEC));
-    if (!impl_->epoll_fd.valid()) {
-        common::throw_errno(errno, "epoll_create1");
+    int const fd = ::epoll_create1(EPOLL_CLOEXEC);
+    if (fd < 0) {
+        int const err = errno;
+        common::throw_errno(err, "epoll_create1");
     }
+
+    impl_->epoll_fd.reset(fd);
+    impl_->state = Impl::State::ready;
 }
 
 Reactor::~Reactor() = default;
 
+bool Reactor::running() const noexcept { return impl_->state == Impl::State::running; }
+
 bool Reactor::add(Channel& channel) {
-    if (!channel.valid()) {
-        return false;
-    }
     if (channel.registered()) {
         return true;
+    }
+    if (!channel.valid()) {
+        return false;
     }
 
     epoll_event ev{};
@@ -109,7 +120,7 @@ bool Reactor::add(Channel& channel) {
 }
 
 bool Reactor::modify(Channel& channel, ChannelEvents interests) {
-    if (!channel.valid() || !channel.registered()) {
+    if (!channel.registered()) {
         return false;
     }
 
@@ -130,22 +141,23 @@ void Reactor::remove(Channel& channel) noexcept {
         return;
     }
 
-    if (channel.valid()) {
-        (void)::epoll_ctl(impl_->epoll_fd.get(), EPOLL_CTL_DEL, channel.fd(), nullptr);
-    }
-
+    (void)::epoll_ctl(impl_->epoll_fd.get(), EPOLL_CTL_DEL, channel.fd(), nullptr);
     (void)impl_->channel_registry.erase(channel);
-    channel.mark_unregistered();
+    channel.mark_deregistered();
 }
 
 void Reactor::run() {
-    impl_->running = true;
-    while (impl_->running) {
+    assert(impl_->state == Impl::State::ready);
+
+    impl_->state = Impl::State::running;
+    while (impl_->state == Impl::State::running) {
         run_once(wait_forever);
     }
 }
 
 void Reactor::run_once(std::chrono::milliseconds timeout) {
+    assert(impl_->state == Impl::State::ready || impl_->state == Impl::State::running);
+
     std::array<epoll_event, max_epoll_events> events{};
 
     int const n =
@@ -166,8 +178,10 @@ void Reactor::run_once(std::chrono::milliseconds timeout) {
     }
 }
 
-void Reactor::stop() noexcept { impl_->running = false; }
-
-bool Reactor::running() const noexcept { return impl_->running; }
+void Reactor::stop() noexcept {
+    if (impl_->state == Impl::State::running) {
+        impl_->state = Impl::State::ready;
+    }
+}
 
 } // namespace ddcs::io

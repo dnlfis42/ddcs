@@ -3,25 +3,33 @@
 #include "ddcs/common/fd.hpp"
 #include "ddcs/common/throw_errno.hpp"
 #include "ddcs/io/channel.hpp"
+#include "ddcs/io/channel_handler.hpp"
 #include "ddcs/io/reactor.hpp"
-
-#include <utility>
-#include <vector>
 
 #include <cerrno>
 #include <csignal>
+#include <utility>
+#include <vector>
 
+#include <pthread.h>
 #include <sys/signalfd.h>
 #include <unistd.h>
 
 namespace ddcs::io {
 
-struct SignalSource::Impl {
-    Impl(SignalSource& owner_ref, Reactor& reactor_ref, std::initializer_list<int> signal_list, Callback callback_fn)
-        : owner{owner_ref}, reactor{reactor_ref}, signals{signal_list}, callback{std::move(callback_fn)} {}
+struct SignalSource::Impl final : ChannelHandler {
+    enum class State {
+        ready,
+        active,
+    };
+
+    Impl(Reactor& reactor_ref, std::initializer_list<int> signal_list, Callback callback_fn)
+        : reactor{reactor_ref}, signals{signal_list}, callback{std::move(callback_fn)} {}
+
+    [[nodiscard]] bool active() const noexcept { return state == State::active; }
 
     void start() {
-        if (channel.registered()) {
+        if (state == State::active) {
             return;
         }
 
@@ -31,8 +39,8 @@ struct SignalSource::Impl {
             sigaddset(&signal_mask, signal);
         }
 
-        if (::sigprocmask(SIG_BLOCK, &signal_mask, &previous_signal_mask) < 0) {
-            common::throw_errno(errno, "sigprocmask");
+        if (int const err = ::pthread_sigmask(SIG_BLOCK, &signal_mask, &previous_signal_mask); err != 0) {
+            common::throw_errno(err, "pthread_sigmask");
         }
         has_previous_signal_mask = true;
 
@@ -43,30 +51,37 @@ struct SignalSource::Impl {
             common::throw_errno(err, "signalfd");
         }
 
-        if (!channel.init(std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, owner)) {
+        if (!channel.init(std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this)) {
             restore_previous_signal_mask();
             common::throw_errno(EINVAL, "signal channel init");
         }
 
         if (!reactor.add(channel)) {
-            int const err = errno;
             channel.reset();
             restore_previous_signal_mask();
-            common::throw_errno(err, "epoll_ctl ADD signalfd");
+            common::throw_errno(EINVAL, "reactor add signal channel");
         }
+
+        state = State::active;
     }
 
     void stop() noexcept {
+        if (state != State::active) {
+            return;
+        }
+
         if (channel.registered()) {
             reactor.remove(channel);
         }
-        channel.reset();
+        if (channel.valid()) {
+            channel.reset();
+        }
+
         restore_previous_signal_mask();
+        state = State::ready;
     }
 
-    [[nodiscard]] bool running() const noexcept { return channel.registered(); }
-
-    void on_ready(Channel& event_channel, ChannelEvents events) {
+    void on_ready(Channel& event_channel, ChannelEvents events) override {
         if (&event_channel != &channel || !contains(events, ChannelEvents::readable)) {
             return;
         }
@@ -105,31 +120,29 @@ struct SignalSource::Impl {
             return;
         }
 
-        if (::sigprocmask(SIG_SETMASK, &previous_signal_mask, nullptr) == 0) {
+        if (::pthread_sigmask(SIG_SETMASK, &previous_signal_mask, nullptr) == 0) {
             has_previous_signal_mask = false;
         }
     }
 
-    SignalSource& owner;
     Reactor& reactor;
     std::vector<int> signals;
     Callback callback;
+    State state{State::ready};
     Channel channel;
     sigset_t previous_signal_mask{};
     bool has_previous_signal_mask{false};
 };
 
 SignalSource::SignalSource(Reactor& reactor, std::initializer_list<int> signals, Callback callback)
-    : impl_{std::make_unique<Impl>(*this, reactor, signals, std::move(callback))} {}
+    : impl_{std::make_unique<Impl>(reactor, signals, std::move(callback))} {}
 
 SignalSource::~SignalSource() { stop(); }
+
+bool SignalSource::active() const noexcept { return impl_->active(); }
 
 void SignalSource::start() { impl_->start(); }
 
 void SignalSource::stop() noexcept { impl_->stop(); }
-
-bool SignalSource::running() const noexcept { return impl_->running(); }
-
-void SignalSource::on_ready(Channel& channel, ChannelEvents events) { impl_->on_ready(channel, events); }
 
 } // namespace ddcs::io

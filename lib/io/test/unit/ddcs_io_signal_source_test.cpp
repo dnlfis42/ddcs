@@ -58,14 +58,14 @@ TEST(SignalSourceTest, InvokesCallbackWithRaisedSignalNumber) {
                         }};
 
     source.start();
-    ASSERT_TRUE(source.running());
+    ASSERT_TRUE(source.active());
     ASSERT_EQ(::raise(SIGUSR1), 0);
     reactor.run_once(1000ms);
 
     EXPECT_EQ(delivered, SIGUSR1);
 
     source.stop();
-    EXPECT_FALSE(source.running());
+    EXPECT_FALSE(source.active());
 }
 
 TEST(SignalSourceTest, StartsAndStopsIdempotently) {
@@ -77,11 +77,11 @@ TEST(SignalSourceTest, StartsAndStopsIdempotently) {
 
     source.start();
     source.start();
-    EXPECT_TRUE(source.running());
+    EXPECT_TRUE(source.active());
 
     source.stop();
     source.stop();
-    EXPECT_FALSE(source.running());
+    EXPECT_FALSE(source.active());
 }
 
 TEST(SignalSourceTest, RestoresSignalMaskWhenStopped) {
@@ -118,5 +118,5 @@ TEST(SignalSourceTest, StopsSafelyFromCallback) {
     reactor.run_once(1000ms);
 
     EXPECT_EQ(delivered, SIGUSR1);
-    EXPECT_FALSE(source.running());
+    EXPECT_FALSE(source.active());
 }

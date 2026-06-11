@@ -4,21 +4,21 @@
 #include "ddcs/common/fd.hpp"
 #include "ddcs/common/throw_errno.hpp"
 #include "ddcs/io/channel.hpp"
+#include "ddcs/io/channel_handler.hpp"
 #include "ddcs/io/detail/timer_queue.hpp"
 #include "ddcs/io/detail/timer_registration_table.hpp"
 #include "ddcs/io/reactor.hpp"
 #include "ddcs/io/timer_handler.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
+#include <cstdint>
+#include <ctime>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <utility>
-
-#include <cerrno>
-#include <cstdint>
-#include <ctime>
 
 #include <sys/timerfd.h>
 #include <unistd.h>
@@ -53,47 +53,17 @@ itimerspec make_timerfd_spec(std::chrono::nanoseconds delay) noexcept {
 
 } // namespace
 
-struct TimerScheduler::Impl {
-    explicit Impl(TimerScheduler& owner_ref, Reactor& reactor_ref)
-        : owner{owner_ref}, reactor{reactor_ref}, clock{default_clock} {}
+struct TimerScheduler::Impl final : ChannelHandler {
+    enum class State {
+        ready,
+        active,
+    };
 
-    Impl(TimerScheduler& owner_ref, Reactor& reactor_ref, common::Clock& injected_clock)
-        : owner{owner_ref}, reactor{reactor_ref}, clock{injected_clock} {}
+    explicit Impl(Reactor& reactor_ref) : reactor{reactor_ref}, clock{default_clock} {}
 
-    void start() {
-        if (channel.registered()) {
-            return;
-        }
+    Impl(Reactor& reactor_ref, common::Clock& injected_clock) : reactor{reactor_ref}, clock{injected_clock} {}
 
-        common::Fd fd{::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)};
-        if (!fd.valid()) {
-            common::throw_errno(errno, "timerfd_create");
-        }
-
-        if (!channel.init(std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, owner)) {
-            common::throw_errno(EINVAL, "timer channel init");
-        }
-
-        if (!reactor.add(channel)) {
-            int const err = errno;
-            channel.reset();
-            common::throw_errno(err, "epoll_ctl ADD timerfd");
-        }
-
-        try {
-            update_timerfd();
-        } catch (...) {
-            stop();
-            throw;
-        }
-    }
-
-    void stop() noexcept {
-        if (channel.registered()) {
-            reactor.remove(channel);
-        }
-        channel.reset();
-    }
+    [[nodiscard]] bool active() const noexcept { return state == State::active; }
 
     [[nodiscard]] TimerId schedule(std::chrono::nanoseconds delay, TimerHandler& handler) {
         auto const deadline = clock.now() + delay;
@@ -123,6 +93,43 @@ struct TimerScheduler::Impl {
         }
     }
 
+    void start() {
+        if (state == State::active) {
+            return;
+        }
+
+        common::Fd fd{::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)};
+        if (!fd.valid()) {
+            common::throw_errno(errno, "timerfd_create");
+        }
+
+        if (!channel.init(std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this)) {
+            common::throw_errno(EINVAL, "timer channel init");
+        }
+
+        if (!reactor.add(channel)) {
+            channel.reset();
+            common::throw_errno(EINVAL, "reactor add timer channel");
+        }
+
+        try {
+            update_timerfd();
+            state = State::active;
+        } catch (...) {
+            stop_timerfd();
+            throw;
+        }
+    }
+
+    void stop() noexcept {
+        if (state != State::active) {
+            return;
+        }
+
+        stop_timerfd();
+        state = State::ready;
+    }
+
     void dispatch_expired() {
         auto const now = clock.now();
 
@@ -147,7 +154,7 @@ struct TimerScheduler::Impl {
         update_timerfd();
     }
 
-    void on_ready(Channel& event_channel, ChannelEvents events) {
+    void on_ready(Channel& event_channel, ChannelEvents events) override {
         if (&event_channel != &channel || !contains(events, ChannelEvents::readable)) {
             return;
         }
@@ -215,24 +222,32 @@ struct TimerScheduler::Impl {
         }
     }
 
-    TimerScheduler& owner;
+    void stop_timerfd() noexcept {
+        if (channel.registered()) {
+            reactor.remove(channel);
+        }
+        if (channel.valid()) {
+            channel.reset();
+        }
+    }
+
     Reactor& reactor;
     common::SteadyClock default_clock;
     common::Clock& clock;
+    State state{State::ready};
     Channel channel;
     detail::TimerQueue timer_queue;
     detail::TimerRegistrationTable timer_registrations;
 };
-TimerScheduler::TimerScheduler(Reactor& reactor) : impl_{std::make_unique<Impl>(*this, reactor)} {}
+
+TimerScheduler::TimerScheduler(Reactor& reactor) : impl_{std::make_unique<Impl>(reactor)} {}
 
 TimerScheduler::TimerScheduler(Reactor& reactor, common::Clock& clock)
-    : impl_{std::make_unique<Impl>(*this, reactor, clock)} {}
+    : impl_{std::make_unique<Impl>(reactor, clock)} {}
 
 TimerScheduler::~TimerScheduler() { stop(); }
 
-void TimerScheduler::start() { impl_->start(); }
-
-void TimerScheduler::stop() noexcept { impl_->stop(); }
+bool TimerScheduler::active() const noexcept { return impl_->active(); }
 
 TimerId TimerScheduler::schedule(std::chrono::nanoseconds delay, TimerHandler& handler) {
     return impl_->schedule(delay, handler);
@@ -240,8 +255,10 @@ TimerId TimerScheduler::schedule(std::chrono::nanoseconds delay, TimerHandler& h
 
 void TimerScheduler::cancel(TimerId id) { impl_->cancel(id); }
 
-void TimerScheduler::dispatch_expired() { impl_->dispatch_expired(); }
+void TimerScheduler::start() { impl_->start(); }
 
-void TimerScheduler::on_ready(Channel& channel, ChannelEvents events) { impl_->on_ready(channel, events); }
+void TimerScheduler::stop() noexcept { impl_->stop(); }
+
+void TimerScheduler::dispatch_expired() { impl_->dispatch_expired(); }
 
 } // namespace ddcs::io

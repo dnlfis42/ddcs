@@ -1,7 +1,5 @@
 #pragma once
 
-#include "ddcs/io/channel_events.hpp"
-#include "ddcs/io/channel_handler.hpp"
 #include "ddcs/io/timer_id.hpp"
 
 #include <chrono>
@@ -15,34 +13,30 @@ class Clock;
 
 namespace ddcs::io {
 
-class Channel;
 class Reactor;
 class TimerHandler;
 
-class TimerScheduler final : private ChannelHandler {
+class TimerScheduler {
 public:
     TimerScheduler(Reactor& reactor);
     TimerScheduler(Reactor& reactor, common::Clock& clock);
-    ~TimerScheduler() override;
+    ~TimerScheduler();
 
     TimerScheduler(TimerScheduler const&) = delete;
     TimerScheduler& operator=(TimerScheduler const&) = delete;
     TimerScheduler(TimerScheduler&&) noexcept = delete;
     TimerScheduler& operator=(TimerScheduler&&) noexcept = delete;
 
-public:
-    void start();
-    void stop() noexcept;
+    [[nodiscard]] bool active() const noexcept;
 
-public:
     [[nodiscard]] TimerId schedule(std::chrono::nanoseconds delay, TimerHandler& handler);
     void cancel(TimerId id);
 
-public: // 테스트 지원
-    void dispatch_expired();
+    void start();
+    void stop() noexcept;
 
-private: // ChannelHandler
-    void on_ready(Channel& channel, ChannelEvents events) override;
+    // 테스트 지원
+    void dispatch_expired();
 
 private:
     struct Impl;
