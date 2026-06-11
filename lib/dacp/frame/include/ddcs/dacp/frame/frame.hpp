@@ -11,7 +11,10 @@ namespace ddcs::dacp::frame {
 // DACP frame header의 wire layout: [magic(be16)][type(u8)][length(be16)]
 inline constexpr std::uint16_t magic{0xDDC5};
 inline constexpr std::size_t header_size{5};
+inline constexpr std::size_t max_length{128};
 inline constexpr std::size_t length_limit{std::numeric_limits<std::uint16_t>::max()};
+
+static_assert(max_length <= length_limit);
 
 struct Header {
     std::uint16_t magic;

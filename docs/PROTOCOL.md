@@ -27,15 +27,17 @@ DDCS는 controller와 agent 사이 TCP 위에서 동작하는 자체 wire protoc
 ### 바이트 순서
 
 헤더의 multi-byte 필드(`magic`, `length`)는 **big-endian** (network byte order).
-(payload 내부 정수는 little-endian - 아래 인코딩 규칙 참고.)
 
 ### 상수
 
-| 이름        | 값           |
-| ----------- | ------------ |
-| magic       | `0xDDC5`     |
-| header size | 5 bytes      |
-| max payload | 65,535 bytes |
+| 이름         | 값           |
+| ------------ | ------------ |
+| magic        | `0xDDC5`     |
+| header size  | 5 bytes      |
+| max length   | 128 bytes    |
+| length limit | 65,535 bytes |
+
+`length limit`은 `length` 필드의 표현 한계고, `max length`는 protocol이 실제로 허용하는 payload 상한이다. `length > max length`인 frame은 protocol violation으로 connection을 끊는다.
 
 > `type`/`payload`는 frame/infra 계층에서 **opaque**다. 의미를 해석하는 곳은 app 계층뿐이다.
 > wire format을 incompatible하게 바꿔야 한다면 `magic`을 새 값으로 재발급해 별개 protocol family로 다룬다.
@@ -61,7 +63,7 @@ type은 고위 nibble로 그룹을 나눈다:
 - `0x0x` Register, `0x1x` Telemetry(Heartbeat/Status), `0x2x` Command.
 - 같은 그룹 내 확장은 저위 nibble 안에서 추가한다.
 
-`result` enum(u8) 값: `success = 0`, `failed = 1`. (RegisterResponse / CommandOutcome 공용 의미.)
+`result` enum(u8) 값: `success = 0`, `failed = 1` (RegisterResponse / CommandOutcome 공용 의미)
 
 ### 인코딩 규칙
 
@@ -77,8 +79,8 @@ type은 고위 nibble로 그룹을 나눈다:
 
 `Command`(`0x20`)는 2단계로 종류를 가린다.
 
-1. frame `type` = `0x20` (Command) - message가 명령임을 결정.
-2. `Command.type`(body 내 uint8) = **CommandType** - 뒤따르는 `payload(rest)`의 해석을 결정.
+1. frame `type` = `0x20` (Command) - message가 명령임을 결정
+2. `Command.type` (body 내 uint8) = **CommandType** - 뒤따르는 `payload(rest)`의 해석을 결정
 
 `payload(rest)`는 length prefix 없이 body의 나머지 전부이며, `CommandType`에 따라 디코드한다.
 
