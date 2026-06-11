@@ -4,6 +4,10 @@ add_library(ddcs::ctrl::infra ALIAS ddcs_ctrl_infra)
 target_sources(
     ddcs_ctrl_infra
     PRIVATE
+        src/dacp/acceptor.cpp
+        src/dacp/connection.cpp
+        src/dacp/peer_address.cpp
+        src/dacp/server.cpp
         src/metrics/connection.cpp
         src/metrics/server.cpp
         src/transport/connection.cpp
@@ -14,6 +18,10 @@ target_sources(
         FILE_SET HEADERS
             BASE_DIRS include
             FILES
+                include/ddcs/ctrl/infra/dacp/acceptor.hpp
+                include/ddcs/ctrl/infra/dacp/connection.hpp
+                include/ddcs/ctrl/infra/dacp/peer_address.hpp
+                include/ddcs/ctrl/infra/dacp/server.hpp
                 include/ddcs/ctrl/infra/metrics/connection.hpp
                 include/ddcs/ctrl/infra/metrics/server.hpp
                 include/ddcs/ctrl/infra/transport/connection.hpp
@@ -23,8 +31,8 @@ target_sources(
 )
 target_link_libraries(
     ddcs_ctrl_infra
-    PRIVATE compile_option ddcs::logger ddcs::proto::frame
-    PUBLIC ddcs::common ddcs::ctrl::port ddcs::runtime
+    PRIVATE compile_option ddcs::logger ddcs::proto::frame ddcs::dacp::frame
+    PUBLIC ddcs::common ddcs::ctrl::app ddcs::ctrl::port ddcs::io ddcs::runtime
 )
 
 add_subdirectory(test/unit)
