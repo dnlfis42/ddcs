@@ -18,7 +18,6 @@ public:
     Clock(Clock&&) = delete;
     Clock& operator=(Clock&&) = delete;
 
-public:
     virtual time_point now() const noexcept = 0;
 };
 
@@ -31,11 +30,10 @@ class ManualClock final : public Clock {
 public:
     explicit ManualClock(time_point t = time_point{}) noexcept : now_{t} {}
 
-public:
     time_point now() const noexcept override { return now_; }
 
-    void advance(duration d) noexcept { now_ += d; }
     void set(time_point t) noexcept { now_ = t; }
+    void advance(duration d) noexcept { now_ += d; }
 
 private:
     time_point now_;

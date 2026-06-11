@@ -10,21 +10,29 @@ template <typename Tag, typename T>
     requires std::default_initializable<T> && std::equality_comparable<T>
 class StrongValue {
 public:
+    static constexpr T invalid{};
+
+public:
     constexpr StrongValue() = default;
     constexpr explicit StrongValue(T value) noexcept : value_{value} {}
 
-public:
     constexpr T value() const noexcept { return value_; }
-    constexpr bool valid() const noexcept { return value_ != T{}; }
+    constexpr bool valid() const noexcept { return value_ != invalid; }
 
-public:
-    constexpr void reset() noexcept { value_ = {}; }
+    constexpr void clear() noexcept { value_ = invalid; }
 
-public:
+    constexpr void reset(T val = invalid) noexcept {
+        if (value_ == val) {
+            return;
+        }
+        clear();
+        value_ = val;
+    }
+
     constexpr bool operator==(StrongValue const&) const = default;
 
 private:
-    T value_{};
+    T value_{invalid};
 };
 
 } // namespace ddcs::common

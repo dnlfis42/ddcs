@@ -42,14 +42,12 @@ public:
     RingBuffer(RingBuffer&&) noexcept = delete;
     RingBuffer& operator=(RingBuffer&&) noexcept = delete;
 
-public:
     static constexpr std::size_t capacity() noexcept { return N; }
     std::size_t size() const noexcept { return write_pos_ - read_pos_; }
     std::size_t available() const noexcept { return N - size(); }
     bool empty() const noexcept { return read_pos_ == write_pos_; }
     bool full() const noexcept { return size() == N; }
 
-public:
     std::span<std::byte const> readable() const noexcept {
         std::size_t const idx = read_pos_ & (N - 1);
         return {buffer_.get() + idx, std::min(size(), N - idx)};
@@ -60,15 +58,6 @@ public:
         return {buffer_.get() + idx, std::min(available(), N - idx)};
     }
 
-public:
-    bool consume(std::size_t n) noexcept {
-        if (size() < n) {
-            return false;
-        }
-        read_pos_ += n;
-        return true;
-    }
-
     bool commit(std::size_t n) noexcept {
         if (available() < n) {
             return false;
@@ -77,33 +66,11 @@ public:
         return true;
     }
 
-    void clear() noexcept {
-        read_pos_ = 0;
-        write_pos_ = 0;
-    }
-
-    void reset() noexcept { clear(); }
-
-public:
-    bool peek(std::span<std::byte> dst) const noexcept {
-        if (size() < dst.size()) {
+    bool consume(std::size_t n) noexcept {
+        if (size() < n) {
             return false;
         }
-        std::size_t const idx = read_pos_ & (N - 1);
-        std::size_t const first = std::min(dst.size(), N - idx);
-        detail::copy_bytes(dst.data(), buffer_.get() + idx, first);
-        std::size_t const second = dst.size() - first;
-        if (second > 0) {
-            detail::copy_bytes(dst.data() + first, buffer_.get(), second);
-        }
-        return true;
-    }
-
-    bool read(std::span<std::byte> dst) noexcept {
-        if (!peek(dst)) {
-            return false;
-        }
-        read_pos_ += dst.size();
+        read_pos_ += n;
         return true;
     }
 
@@ -121,6 +88,35 @@ public:
         write_pos_ += src.size();
         return true;
     }
+
+    bool read(std::span<std::byte> dst) noexcept {
+        if (!peek(dst)) {
+            return false;
+        }
+        read_pos_ += dst.size();
+        return true;
+    }
+
+    bool peek(std::span<std::byte> dst) const noexcept {
+        if (size() < dst.size()) {
+            return false;
+        }
+        std::size_t const idx = read_pos_ & (N - 1);
+        std::size_t const first = std::min(dst.size(), N - idx);
+        detail::copy_bytes(dst.data(), buffer_.get() + idx, first);
+        std::size_t const second = dst.size() - first;
+        if (second > 0) {
+            detail::copy_bytes(dst.data() + first, buffer_.get(), second);
+        }
+        return true;
+    }
+
+    void clear() noexcept {
+        read_pos_ = 0;
+        write_pos_ = 0;
+    }
+
+    void reset() noexcept { clear(); }
 
 private:
     std::unique_ptr<std::byte[]> buffer_;

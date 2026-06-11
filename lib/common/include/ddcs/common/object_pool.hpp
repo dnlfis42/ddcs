@@ -32,7 +32,6 @@ public:
         Deleter() noexcept = default;
         Deleter(ObjectPool& pool, Node& node) noexcept : pool_{&pool}, node_{&node} {}
 
-    public:
         void operator()(T*) const noexcept {
             if (pool_ != nullptr) {
                 pool_->release(*node_);
@@ -68,13 +67,11 @@ public:
     ObjectPool(ObjectPool&&) = delete;
     ObjectPool& operator=(ObjectPool&&) = delete;
 
-public:
     std::size_t chunk_size() const noexcept { return chunk_size_; }
     std::size_t capacity() const noexcept { return capacity_; }
     std::size_t available() const noexcept { return available_; }
     std::size_t in_use() const noexcept { return capacity_ - available_; }
 
-public:
     [[nodiscard]] Handle acquire() {
         if (head_free_ == nullptr) [[unlikely]] {
             grow();

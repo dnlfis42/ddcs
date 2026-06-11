@@ -14,13 +14,9 @@ public:
     constexpr Uuid() noexcept = default;
     constexpr explicit Uuid(std::array<std::byte, 16> const& bytes) noexcept : bytes_{bytes} {}
 
-public:
     std::array<std::byte, 16> const& bytes() const noexcept { return bytes_; }
-
-    // nil(전부 0)은 무효/부재 센티넬이다. default-constructed Uuid{}도 nil이다.
     constexpr bool valid() const noexcept { return *this != Uuid{}; }
 
-public:
     std::string to_string() const {
         constexpr char hex[] = "0123456789abcdef";
         std::string out(36, '-');
@@ -36,7 +32,6 @@ public:
         return out;
     }
 
-public:
     constexpr bool operator==(Uuid const&) const noexcept = default;
     constexpr auto operator<=>(Uuid const&) const noexcept = default;
 

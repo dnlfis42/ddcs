@@ -12,7 +12,7 @@ public:
 public:
     Fd() noexcept = default;
     explicit Fd(int fd) noexcept : fd_{fd} {}
-    ~Fd() noexcept { reset(); }
+    ~Fd() noexcept { close(); }
 
     Fd(Fd const&) = delete;
     Fd& operator=(Fd const&) = delete;
@@ -24,24 +24,27 @@ public:
         return *this;
     }
 
-public:
     [[nodiscard]] int get() const noexcept { return fd_; }
     [[nodiscard]] bool valid() const noexcept { return fd_ != invalid; }
 
-public:
     [[nodiscard]] int release() noexcept {
         int tmp = fd_;
         fd_ = invalid;
         return tmp;
     }
 
+    void close() noexcept {
+        if (valid()) {
+            (void)::close(fd_);
+            fd_ = invalid;
+        }
+    }
+
     void reset(int fd = invalid) noexcept {
         if (fd_ == fd) {
             return;
         }
-        if (fd_ != invalid) {
-            (void)::close(fd_);
-        }
+        close();
         fd_ = fd;
     }
 
