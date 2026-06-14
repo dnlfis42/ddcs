@@ -50,8 +50,8 @@ struct Server::Impl final : public port::Outbound {
 
     Impl(Server& owner_ref, io::Reactor& reactor_ref, std::uint16_t port, int backlog)
         : owner{owner_ref}, reactor{reactor_ref}, acceptor{owner_ref, port, backlog},
-          connection_pool{common::make_pool<Connection>(0, connection_pool_chunk_size)},
-          message_pool{common::make_pool<common::LinearBuffer>(0, message_pool_chunk_size, message_buffer_capacity)} {}
+          connection_pool{common::make_object_pool<Connection>(0, connection_pool_chunk_size)},
+          message_pool{common::make_object_pool<common::LinearBuffer>(0, message_pool_chunk_size, message_buffer_capacity)} {}
 
     [[nodiscard]] bool init(port::Inbound& inbound_ref) noexcept {
         if (state != State::idle) {

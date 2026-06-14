@@ -4,7 +4,7 @@
 
 namespace ddcs::common {
 
-// POSIX fd 소유권을 표현한다. reset과 소멸자는 보유 fd를 close(2) 한다.
+// POSIX fd 래퍼
 class Fd {
 public:
     static constexpr int invalid{-1};

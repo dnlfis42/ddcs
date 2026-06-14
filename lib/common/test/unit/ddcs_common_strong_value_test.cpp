@@ -32,15 +32,6 @@ TEST(StrongValueTest, ReportsNonDefaultValueAsValid) {
     EXPECT_TRUE(value.valid());
 }
 
-TEST(StrongValueTest, ResetsToDefaultValue) {
-    FirstValue value{42};
-    ASSERT_TRUE(value.valid());
-
-    value.reset();
-    EXPECT_EQ(value.value(), 0u);
-    EXPECT_FALSE(value.valid());
-}
-
 TEST(StrongValueTest, ComparesValuesWithSameTag) {
     EXPECT_EQ(FirstValue{42}, FirstValue{42});
     EXPECT_NE(FirstValue{42}, FirstValue{7});

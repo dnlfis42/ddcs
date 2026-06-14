@@ -11,7 +11,7 @@ namespace ddcs::common {
 namespace detail {
 
 // PERF: compile-time N이 memcpy 크기로 전파되면 중간 크기에서 rep movsq 인라인이 발생한다.
-// PERF: noinline은 인라인을, GCC noclone은 IPA-CP constprop 클론 생성을 막는다.
+// PERF  noinline은 인라인을, GCC noclone은 IPA-CP constprop 클론 생성을 막는다.
 #if defined(__GNUC__) && !defined(__clang__)
 #define DDCS_RINGBUF_NOINLINE_NOCLONE [[gnu::noinline, gnu::noclone]]
 #elif defined(__GNUC__) || defined(__clang__)

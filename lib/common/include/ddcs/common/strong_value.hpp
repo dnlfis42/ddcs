@@ -19,17 +19,9 @@ public:
     constexpr T value() const noexcept { return value_; }
     constexpr bool valid() const noexcept { return value_ != invalid; }
 
-    constexpr void clear() noexcept { value_ = invalid; }
-
-    constexpr void reset(T val = invalid) noexcept {
-        if (value_ == val) {
-            return;
-        }
-        clear();
-        value_ = val;
-    }
-
     constexpr bool operator==(StrongValue const&) const = default;
+
+    constexpr void clear() noexcept { value_ = invalid; }
 
 private:
     T value_{invalid};

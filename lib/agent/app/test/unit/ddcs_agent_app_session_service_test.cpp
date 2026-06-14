@@ -35,7 +35,7 @@ namespace msg = ddcs::proto::msg;
 
 class MockOutbound : public Outbound {
 public:
-    ddcs::common::ObjectPool<LinearBuffer> pool{ddcs::common::make_pool<LinearBuffer>(0, 8, std::size_t{1024})};
+    ddcs::common::ObjectPool<LinearBuffer> pool{ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{1024})};
 
     struct Sent {
         std::uint8_t type;
@@ -64,14 +64,14 @@ Uuid make_uuid(std::uint8_t seed) {
 
 template <typename T>
 PoolHandle<LinearBuffer> body_of(T const& m) {
-    static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 8, std::size_t{256});
+    static auto pool = ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{256});
     auto buf = pool.acquire();
     EXPECT_TRUE(msg::encode(m, *buf));
     return buf;
 }
 
 PoolHandle<LinearBuffer> command_body_of(msg::Command const& m, std::string const& payload) {
-    static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 8, std::size_t{256});
+    static auto pool = ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{256});
     auto buf = pool.acquire();
     std::span<std::byte const> const payload_bytes{reinterpret_cast<std::byte const*>(payload.data()), payload.size()};
     EXPECT_TRUE(msg::encode(m, payload_bytes, *buf));
@@ -83,7 +83,7 @@ constexpr std::uint8_t kType(msg::MessageType t) { return static_cast<std::uint8
 namespace cmd = ddcs::proto::cmd;
 
 std::string encode_setmode(ddcs::device::Mode mode) {
-    static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 8, std::size_t{64});
+    static auto pool = ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{64});
     auto buf = pool.acquire();
     EXPECT_TRUE(cmd::encode(cmd::SetMode{.mode = mode}, *buf));
     auto const r = buf->readable();

@@ -86,7 +86,7 @@ public:
 
     template <typename T>
     void send_message(msg::MessageType type, T const& m) {
-        static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 4, std::size_t{256});
+        static auto pool = ddcs::common::make_object_pool<LinearBuffer>(0, 4, std::size_t{256});
         auto buf = pool.acquire();
         ASSERT_TRUE(msg::encode(m, *buf));
         auto const body = buf->readable();

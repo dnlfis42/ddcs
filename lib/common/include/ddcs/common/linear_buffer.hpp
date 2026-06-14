@@ -45,12 +45,13 @@ public:
         return true;
     }
 
+    // NOTE: 버퍼가 빈 경우에만 예약 가능
     bool reserve_front(std::size_t n) noexcept {
-        if (read_pos_ != 0 || write_pos_ != 0 || n > capacity_) {
+        if (!empty() || read_pos_ + n > capacity_) {
             return false;
         }
-        read_pos_ = n;
-        write_pos_ = n;
+        read_pos_ += n;
+        write_pos_ = read_pos_;
         return true;
     }
 

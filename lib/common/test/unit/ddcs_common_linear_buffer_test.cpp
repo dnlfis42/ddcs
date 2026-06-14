@@ -126,6 +126,31 @@ TEST(LinearBufferTest, RejectsReserveFrontLargerThanCapacity) {
     EXPECT_FALSE(lb.reserve_front(5));
 }
 
+TEST(LinearBufferTest, StacksReserveFrontWhileEmpty) {
+    // frame 헤더 위에 message 헤더를 적층하는 시나리오: reserve(5) -> reserve(9) -> payload ->
+    // write_front 역순 소모 후 read 커서가 정확히 0으로 돌아온다.
+    LinearBuffer lb{32};
+    ASSERT_TRUE(lb.reserve_front(5));
+    ASSERT_TRUE(lb.reserve_front(9));
+    EXPECT_EQ(lb.available(), 32u - 14u);
+
+    std::array<std::byte, 2> const payload{std::byte{0xaa}, std::byte{0xbb}};
+    std::array<std::byte, 9> const inner{};
+    std::array<std::byte, 5> const outer{};
+    ASSERT_TRUE(lb.write(payload));
+    ASSERT_TRUE(lb.write_front(inner));
+    ASSERT_TRUE(lb.write_front(outer));
+
+    EXPECT_EQ(lb.size(), 16u);                       // 5 + 9 + 2, read_pos == 0
+    EXPECT_FALSE(lb.write_front({outer.data(), 1})); // headroom 소진
+}
+
+TEST(LinearBufferTest, RejectsStackedReserveFrontBeyondCapacity) {
+    LinearBuffer lb{8};
+    ASSERT_TRUE(lb.reserve_front(5));
+    EXPECT_FALSE(lb.reserve_front(4)); // 5 + 4 > 8
+}
+
 TEST(LinearBufferTest, ExposesExternallyFilledDataOnCommit) {
     LinearBuffer lb{test_capacity};
     auto region = lb.writable();

@@ -31,7 +31,7 @@ struct ConstructedItem {
 } // namespace
 
 TEST(ObjectPoolTest, TracksUseCountAcrossAcquireAndRelease) {
-    auto pool = make_pool<Item>(0, 64);
+    auto pool = make_object_pool<Item>(0, 64);
     EXPECT_EQ(pool.capacity(), 0u);
     EXPECT_EQ(pool.available(), 0u);
     EXPECT_EQ(pool.in_use(), 0u);
@@ -50,7 +50,7 @@ TEST(ObjectPoolTest, TracksUseCountAcrossAcquireAndRelease) {
 }
 
 TEST(ObjectPoolTest, ResetsObjectWhenHandleIsReleased) {
-    auto pool = make_pool<Item>(0, 1);
+    auto pool = make_object_pool<Item>(0, 1);
 
     Item* released{};
     {
@@ -66,7 +66,7 @@ TEST(ObjectPoolTest, ResetsObjectWhenHandleIsReleased) {
 }
 
 TEST(ObjectPoolTest, ReusesReleasedSlotsInLifoOrder) {
-    auto pool = make_pool<Item>(0, 64);
+    auto pool = make_object_pool<Item>(0, 64);
 
     auto first = pool.acquire();
     auto second = pool.acquire();
@@ -85,7 +85,7 @@ TEST(ObjectPoolTest, ReusesReleasedSlotsInLifoOrder) {
 }
 
 TEST(ObjectPoolTest, GrowsWhenFreeListIsEmpty) {
-    auto pool = make_pool<Item>(0, 4);
+    auto pool = make_object_pool<Item>(0, 4);
     std::array<PoolHandle<Item>, 5> handles{};
 
     EXPECT_EQ(pool.capacity(), 0u);
@@ -104,7 +104,7 @@ TEST(ObjectPoolTest, GrowsWhenFreeListIsEmpty) {
 }
 
 TEST(ObjectPoolTest, RoundsInitialCapacityToChunkSize) {
-    auto pool = make_pool<Item>(5, 4);
+    auto pool = make_object_pool<Item>(5, 4);
 
     EXPECT_EQ(pool.chunk_size(), 4u);
     EXPECT_EQ(pool.capacity(), 8u);
@@ -113,7 +113,7 @@ TEST(ObjectPoolTest, RoundsInitialCapacityToChunkSize) {
 }
 
 TEST(ObjectPoolTest, NormalizesZeroChunkSizeToOne) {
-    auto pool = make_pool<Item>(0, 0);
+    auto pool = make_object_pool<Item>(0, 0);
 
     EXPECT_EQ(pool.chunk_size(), 1u);
 
@@ -126,7 +126,7 @@ TEST(ObjectPoolTest, NormalizesZeroChunkSizeToOne) {
 }
 
 TEST(ObjectPoolTest, ConstructsObjectsWithMakePoolArguments) {
-    auto pool = make_pool<ConstructedItem>(0, 2, 42);
+    auto pool = make_object_pool<ConstructedItem>(0, 2, 42);
 
     auto handle = pool.acquire();
     ASSERT_NE(handle.get(), nullptr);
@@ -134,7 +134,7 @@ TEST(ObjectPoolTest, ConstructsObjectsWithMakePoolArguments) {
 }
 
 TEST(ObjectPoolTest, ReturnsSlotWhenHandleIsDestroyed) {
-    auto pool = make_pool<Item>(0, 64);
+    auto pool = make_object_pool<Item>(0, 64);
 
     Item* released{};
     {
@@ -147,7 +147,7 @@ TEST(ObjectPoolTest, ReturnsSlotWhenHandleIsDestroyed) {
 }
 
 TEST(ObjectPoolTest, TransfersHandleOwnershipOnMove) {
-    auto pool = make_pool<Item>(0, 64);
+    auto pool = make_object_pool<Item>(0, 64);
 
     auto first = pool.acquire();
     ASSERT_TRUE(static_cast<bool>(first));

@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <new>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -15,7 +16,6 @@ concept pool_resettable = requires(T& t) {
     { t.reset() } noexcept -> std::same_as<void>;
 };
 
-// 객체 주소를 유지한 채 슬롯을 재사용한다. Handle 반환 시 객체는 파괴하지 않고 reset()으로 초기화한다.
 template <pool_resettable T>
 class ObjectPool {
 private:
@@ -99,6 +99,8 @@ private:
             for (; constructed < chunk_size_; ++constructed) {
                 constructor_(chunk[constructed].storage);
             }
+
+            chunks_.push_back(std::move(chunk));
         } catch (...) {
             // 생성 중 예외가 나면 이미 생성된 슬롯만 직접 되돌린다.
             for (std::size_t i = 0; i < constructed; ++i) {
@@ -107,16 +109,17 @@ private:
             throw;
         }
 
-        for (std::size_t i = 0; i + 1 < chunk_size_; ++i) {
-            chunk[i].next = &chunk[i + 1];
-        }
-        chunk[chunk_size_ - 1].next = head_free_;
+        Node* const new_chunk = chunks_.back().get();
 
-        head_free_ = &chunk[0];
+        for (std::size_t i = 0; i + 1 < chunk_size_; ++i) {
+            new_chunk[i].next = &new_chunk[i + 1];
+        }
+        new_chunk[chunk_size_ - 1].next = head_free_;
+
+        // CAUTION: chunk은 위 push_back에서 이미 move됐다. 새 슬롯은 chunks_가 소유한 new_chunk로만 가리킨다.
+        head_free_ = &new_chunk[0];
         capacity_ += chunk_size_;
         available_ += chunk_size_;
-
-        chunks_.push_back(std::move(chunk));
     }
 
 private:
@@ -132,8 +135,14 @@ template <typename T>
 using PoolHandle = typename ObjectPool<T>::Handle;
 
 template <typename T, typename... Args>
-[[nodiscard]] ObjectPool<T> make_pool(std::size_t initial_capacity, std::size_t chunk_size, Args&&... args) {
-    return ObjectPool<T>([args...](void* p) { new (p) T(args...); }, initial_capacity, chunk_size);
+    requires std::constructible_from<T, std::decay_t<Args> const&...> &&
+             (std::copy_constructible<std::decay_t<Args>> && ...)
+[[nodiscard]] ObjectPool<T>
+make_object_pool(std::size_t initial_capacity, std::size_t chunk_size, Args&&... args) {
+    return ObjectPool<T>{
+        [... args = std::forward<Args>(args)](void* p) { std::construct_at(static_cast<T*>(p), args...); },
+        initial_capacity, chunk_size
+    };
 }
 
 } // namespace ddcs::common

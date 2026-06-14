@@ -31,7 +31,7 @@ constexpr std::uint32_t read_interest{EPOLLIN | EPOLLET};
 
 Connector::Connector(runtime::Reactor& reactor, runtime::TimerScheduler& timers, std::string host, std::uint16_t port)
     : reactor_{reactor}, timers_{timers}, host_{std::move(host)}, port_{port},
-      payload_pool_{common::make_pool<common::LinearBuffer>(0, pool_chunk, payload_buf_capacity)} {}
+      payload_pool_{common::make_object_pool<common::LinearBuffer>(0, pool_chunk, payload_buf_capacity)} {}
 
 Connector::~Connector() {
     if (connection_.in_epoll()) {
