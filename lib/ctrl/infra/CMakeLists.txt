@@ -8,12 +8,8 @@ target_sources(
         src/dacp/connection.cpp
         src/dacp/peer_address.cpp
         src/dacp/server.cpp
-        src/metrics/connection.cpp
-        src/metrics/server.cpp
-        src/transport/connection.cpp
-        src/transport/connection_acceptor.cpp
-        src/transport/connection_manager.cpp
-        src/transport/endpoint.cpp
+        src/prometheus/connection.cpp
+        src/prometheus/server.cpp
     PUBLIC
         FILE_SET HEADERS
             BASE_DIRS include
@@ -22,17 +18,13 @@ target_sources(
                 include/ddcs/ctrl/infra/dacp/connection.hpp
                 include/ddcs/ctrl/infra/dacp/peer_address.hpp
                 include/ddcs/ctrl/infra/dacp/server.hpp
-                include/ddcs/ctrl/infra/metrics/connection.hpp
-                include/ddcs/ctrl/infra/metrics/server.hpp
-                include/ddcs/ctrl/infra/transport/connection.hpp
-                include/ddcs/ctrl/infra/transport/connection_acceptor.hpp
-                include/ddcs/ctrl/infra/transport/connection_manager.hpp
-                include/ddcs/ctrl/infra/transport/endpoint.hpp
+                include/ddcs/ctrl/infra/prometheus/connection.hpp
+                include/ddcs/ctrl/infra/prometheus/server.hpp
 )
 target_link_libraries(
     ddcs_ctrl_infra
-    PRIVATE compile_option ddcs::logger ddcs::proto::frame ddcs::dacp::frame
-    PUBLIC ddcs::common ddcs::ctrl::app ddcs::ctrl::port ddcs::io ddcs::runtime
+    PRIVATE compile_option ddcs::logger ddcs::dacp::frame
+    PUBLIC ddcs::common ddcs::ctrl::app ddcs::io
 )
 
 add_subdirectory(test/unit)

@@ -1,7 +1,5 @@
 #pragma once
 
-#include "ddcs/common/uuid.hpp"
-#include "ddcs/device/mode.hpp"
 #include "ddcs/logger/log.hpp"
 
 #include <chrono>
@@ -21,6 +19,7 @@ public:
         int accept_backlog{128};
         // nullopt = metrics 엔드포인트 비활성. 값이 있으면 그 포트로 바인드(0 = ephemeral).
         std::optional<std::uint16_t> metrics_port{};
+        std::chrono::nanoseconds handshake_timeout{std::chrono::seconds{3}}; // 등록 미완(handshaking/confirming) 시한
         std::chrono::nanoseconds liveness_timeout{std::chrono::seconds{3}};
         std::chrono::nanoseconds command_timeout{std::chrono::seconds{5}};
         int command_max_attempts{3}; // 부분실패 재시도(1 = 재시도 없음)
@@ -50,9 +49,6 @@ public:
     std::uint16_t port() const;
     // metrics 엔드포인트 바인드 포트. 비활성이면 0.
     std::uint16_t metrics_port() const;
-
-    // operator API (driving): agent에게 SetMode 명령 발신. 반환 command_id(미지/미연결 0).
-    std::uint64_t set_mode(common::Uuid const& agent_uuid, device::Mode mode);
 
 private:
     class Impl;

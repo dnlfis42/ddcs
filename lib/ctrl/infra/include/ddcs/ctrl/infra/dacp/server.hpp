@@ -19,8 +19,9 @@ class Reactor;
 
 namespace ddcs::ctrl::app::agent::port {
 
-class Inbound;
-class Outbound;
+class ConnectionObserver;
+class Disconnector;
+class MessageSender;
 
 } // namespace ddcs::ctrl::app::agent::port
 
@@ -44,13 +45,14 @@ public:
     [[nodiscard]] std::uint16_t port() const noexcept;
     [[nodiscard]] bool active() const noexcept;
 
-    [[nodiscard]] bool init(port::Inbound& inbound) noexcept;
+    [[nodiscard]] bool init(port::ConnectionObserver& observer) noexcept;
     [[nodiscard]] bool start();
     void stop() noexcept;
     void close() noexcept;
 
     // app 배선용 함수
-    [[nodiscard]] port::Outbound& outbound() noexcept;
+    [[nodiscard]] port::MessageSender& sender() noexcept;
+    [[nodiscard]] port::Disconnector& disconnector() noexcept;
 
 public: // Acceptor callback
     void handle_accepted(common::Fd&& fd, PeerAddress peer);

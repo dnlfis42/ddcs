@@ -2,10 +2,11 @@
 
 #include "ddcs/common/fd.hpp"
 #include "ddcs/ctrl/app/agent/port/connection_id.hpp"
+#include "ddcs/ctrl/app/agent/port/connection_observer.hpp"
 #include "ddcs/ctrl/app/agent/port/disconnect_reason.hpp"
-#include "ddcs/ctrl/app/agent/port/inbound.hpp"
+#include "ddcs/ctrl/app/agent/port/disconnector.hpp"
 #include "ddcs/ctrl/app/agent/port/message_buffer.hpp"
-#include "ddcs/ctrl/app/agent/port/outbound.hpp"
+#include "ddcs/ctrl/app/agent/port/message_sender.hpp"
 #include "ddcs/ctrl/infra/dacp/peer_address.hpp"
 #include "ddcs/dacp/frame/frame.hpp"
 #include "ddcs/io/reactor.hpp"
@@ -30,16 +31,16 @@ namespace frame = ddcs::dacp::frame;
 
 using ddcs::common::Fd;
 using ddcs::ctrl::app::agent::port::ConnectionId;
+using ddcs::ctrl::app::agent::port::ConnectionObserver;
 using ddcs::ctrl::app::agent::port::DisconnectReason;
-using ddcs::ctrl::app::agent::port::Inbound;
 using ddcs::ctrl::app::agent::port::MessageBuffer;
 using ddcs::ctrl::infra::dacp::PeerAddress;
 using ddcs::ctrl::infra::dacp::Server;
 using ddcs::io::Reactor;
 using namespace std::chrono_literals;
 
-// 이벤트 기록용 mock Inbound (app 측 대역).
-class MockInbound : public Inbound {
+// 이벤트 기록용 mock observer (app 측 대역).
+class MockObserver : public ConnectionObserver {
 public:
     std::vector<ConnectionId> connected;
     std::vector<std::pair<ConnectionId, DisconnectReason>> disconnected;
@@ -82,22 +83,22 @@ void write_frame(int fd, std::uint8_t type, std::string_view body) {
     }
 }
 
-// reactor + server + mock inbound 조립. accept는 handle_accepted로 직접 주입.
-// inbound는 server보다 먼저 선언: server dtor가 notify하므로 server가 먼저 파괴돼야 한다.
+// reactor + server + mock observer 조립. accept는 handle_accepted로 직접 주입.
+// observer는 server보다 먼저 선언: server dtor가 notify하므로 server가 먼저 파괴돼야 한다.
 struct ServerFixture {
     Reactor reactor;
-    MockInbound inbound;
+    MockObserver observer;
     Server server{reactor, 0, 8};
 
     ServerFixture() {
-        EXPECT_TRUE(server.init(inbound));
+        EXPECT_TRUE(server.init(observer));
         EXPECT_TRUE(server.start()); // 미시작 상태로 connection을 주입하면 dtor가 reap하지 않는다
     }
 
     ConnectionId accept(SocketPair& sp) {
         server.handle_accepted(sp.take_conn(), PeerAddress{});
-        EXPECT_FALSE(inbound.connected.empty());
-        return inbound.connected.back();
+        EXPECT_FALSE(observer.connected.empty());
+        return observer.connected.back();
     }
 };
 
@@ -110,7 +111,7 @@ TEST(DacpServerTest, AcceptNotifiesConnected) {
     ConnectionId const id = f.accept(sp);
 
     EXPECT_TRUE(id.valid());
-    EXPECT_EQ(f.inbound.connected.size(), 1u);
+    EXPECT_EQ(f.observer.connected.size(), 1u);
 }
 
 TEST(DacpServerTest, FramedMessageDeliveredToOnMessage) {
@@ -121,9 +122,9 @@ TEST(DacpServerTest, FramedMessageDeliveredToOnMessage) {
     write_frame(sp.peer, 0x42, "abc");
     f.reactor.run_once(1000ms);
 
-    ASSERT_EQ(f.inbound.message_type.size(), 1u);
-    EXPECT_EQ(f.inbound.message_type[0], 0x42);
-    EXPECT_EQ(f.inbound.message_body[0], "abc");
+    ASSERT_EQ(f.observer.message_type.size(), 1u);
+    EXPECT_EQ(f.observer.message_type[0], 0x42);
+    EXPECT_EQ(f.observer.message_body[0], "abc");
 }
 
 TEST(DacpServerTest, EmptyBodyFrameDelivered) {
@@ -134,9 +135,9 @@ TEST(DacpServerTest, EmptyBodyFrameDelivered) {
     write_frame(sp.peer, 0x10, "");
     f.reactor.run_once(1000ms);
 
-    ASSERT_EQ(f.inbound.message_type.size(), 1u);
-    EXPECT_EQ(f.inbound.message_type[0], 0x10);
-    EXPECT_TRUE(f.inbound.message_body[0].empty());
+    ASSERT_EQ(f.observer.message_type.size(), 1u);
+    EXPECT_EQ(f.observer.message_type[0], 0x10);
+    EXPECT_TRUE(f.observer.message_body[0].empty());
 }
 
 TEST(DacpServerTest, PartialFrameWaitsForCompletion) {
@@ -147,15 +148,15 @@ TEST(DacpServerTest, PartialFrameWaitsForCompletion) {
     auto const hb = frame::encode({.magic = frame::magic, .type = 0x42, .length = 3});
     ASSERT_EQ(::write(sp.peer, hb.data(), 2), 2); // header 일부만
     f.reactor.run_once(1000ms);
-    EXPECT_TRUE(f.inbound.message_type.empty());
+    EXPECT_TRUE(f.observer.message_type.empty());
 
     ASSERT_EQ(::write(sp.peer, hb.data() + 2, hb.size() - 2), static_cast<ssize_t>(hb.size() - 2));
     ASSERT_EQ(::write(sp.peer, "abc", 3), 3);
     f.reactor.run_once(1000ms);
 
-    ASSERT_EQ(f.inbound.message_type.size(), 1u);
-    EXPECT_EQ(f.inbound.message_body[0], "abc");
-    EXPECT_TRUE(f.inbound.disconnected.empty()); // 부분 frame은 오류가 아님
+    ASSERT_EQ(f.observer.message_type.size(), 1u);
+    EXPECT_EQ(f.observer.message_body[0], "abc");
+    EXPECT_TRUE(f.observer.disconnected.empty()); // 부분 frame은 오류가 아님
 }
 
 TEST(DacpServerTest, MultipleFramesInOneBurstAllDelivered) {
@@ -167,11 +168,11 @@ TEST(DacpServerTest, MultipleFramesInOneBurstAllDelivered) {
     write_frame(sp.peer, 0x02, "two");
     f.reactor.run_once(1000ms);
 
-    ASSERT_EQ(f.inbound.message_type.size(), 2u);
-    EXPECT_EQ(f.inbound.message_type[0], 0x01);
-    EXPECT_EQ(f.inbound.message_body[0], "one");
-    EXPECT_EQ(f.inbound.message_type[1], 0x02);
-    EXPECT_EQ(f.inbound.message_body[1], "two");
+    ASSERT_EQ(f.observer.message_type.size(), 2u);
+    EXPECT_EQ(f.observer.message_type[0], 0x01);
+    EXPECT_EQ(f.observer.message_body[0], "one");
+    EXPECT_EQ(f.observer.message_type[1], 0x02);
+    EXPECT_EQ(f.observer.message_body[1], "two");
 }
 
 TEST(DacpServerTest, BadMagicDisconnectsWithDacpError) {
@@ -183,10 +184,10 @@ TEST(DacpServerTest, BadMagicDisconnectsWithDacpError) {
     ASSERT_EQ(::write(sp.peer, junk.data(), junk.size()), static_cast<ssize_t>(junk.size()));
     f.reactor.run_once(1000ms);
 
-    EXPECT_TRUE(f.inbound.message_type.empty());
-    ASSERT_EQ(f.inbound.disconnected.size(), 1u);
-    EXPECT_EQ(f.inbound.disconnected[0].first, id);
-    EXPECT_EQ(f.inbound.disconnected[0].second, DisconnectReason::dacp_error);
+    EXPECT_TRUE(f.observer.message_type.empty());
+    ASSERT_EQ(f.observer.disconnected.size(), 1u);
+    EXPECT_EQ(f.observer.disconnected[0].first, id);
+    EXPECT_EQ(f.observer.disconnected[0].second, DisconnectReason::dacp_error);
 }
 
 TEST(DacpServerTest, OversizedLengthDisconnectsWithDacpError) {
@@ -199,8 +200,8 @@ TEST(DacpServerTest, OversizedLengthDisconnectsWithDacpError) {
     ASSERT_EQ(::write(sp.peer, hb.data(), hb.size()), static_cast<ssize_t>(hb.size()));
     f.reactor.run_once(1000ms);
 
-    ASSERT_EQ(f.inbound.disconnected.size(), 1u);
-    EXPECT_EQ(f.inbound.disconnected[0].second, DisconnectReason::dacp_error);
+    ASSERT_EQ(f.observer.disconnected.size(), 1u);
+    EXPECT_EQ(f.observer.disconnected[0].second, DisconnectReason::dacp_error);
 }
 
 TEST(DacpServerTest, SendFramesMessageOnWire) {
@@ -208,10 +209,10 @@ TEST(DacpServerTest, SendFramesMessageOnWire) {
     SocketPair sp;
     ConnectionId const id = f.accept(sp);
 
-    auto buf = f.server.outbound().make_message_buffer();
+    auto buf = f.server.sender().make_message_buffer();
     char const body[] = "hi";
     ASSERT_TRUE(buf->write({reinterpret_cast<std::byte const*>(body), 2}));
-    f.server.outbound().send(id, 0x11, std::move(buf));
+    f.server.sender().send(id, 0x11, std::move(buf));
     f.reactor.run_once(1000ms); // writable -> transmit
 
     std::array<std::byte, 16> got{};
@@ -236,11 +237,11 @@ TEST(DacpServerTest, PeerFinDisconnectsAfterDeliveringPendingFrames) {
     f.reactor.run_once(1000ms);
 
     // FIN 처리 전에 도착분이 먼저 전달된다.
-    ASSERT_EQ(f.inbound.message_type.size(), 1u);
-    EXPECT_EQ(f.inbound.message_body[0], "last");
-    ASSERT_EQ(f.inbound.disconnected.size(), 1u);
-    EXPECT_EQ(f.inbound.disconnected[0].first, id);
-    EXPECT_EQ(f.inbound.disconnected[0].second, DisconnectReason::peer_closed);
+    ASSERT_EQ(f.observer.message_type.size(), 1u);
+    EXPECT_EQ(f.observer.message_body[0], "last");
+    ASSERT_EQ(f.observer.disconnected.size(), 1u);
+    EXPECT_EQ(f.observer.disconnected[0].first, id);
+    EXPECT_EQ(f.observer.disconnected[0].second, DisconnectReason::peer_closed);
 }
 
 TEST(DacpServerTest, DisconnectReapsAndNotifies) {
@@ -248,41 +249,41 @@ TEST(DacpServerTest, DisconnectReapsAndNotifies) {
     SocketPair sp;
     ConnectionId const id = f.accept(sp);
 
-    f.server.outbound().disconnect(id);
+    f.server.disconnector().disconnect(id);
 
-    ASSERT_EQ(f.inbound.disconnected.size(), 1u);
-    EXPECT_EQ(f.inbound.disconnected[0].first, id);
-    EXPECT_EQ(f.inbound.disconnected[0].second, DisconnectReason::local_drop);
+    ASSERT_EQ(f.observer.disconnected.size(), 1u);
+    EXPECT_EQ(f.observer.disconnected[0].first, id);
+    EXPECT_EQ(f.observer.disconnected[0].second, DisconnectReason::local_drop);
 }
 
 TEST(DacpServerTest, DisconnectInsideOnMessageIsSafe) {
     // on_message 재진입: 콜백 안에서 disconnect해도 dispatch 루프가 안전해야 한다.
-    class DisconnectingInbound : public MockInbound {
+    class DisconnectingObserver : public MockObserver {
     public:
         Server* server{nullptr};
         void on_message(ConnectionId id, std::uint8_t type, MessageBuffer body) override {
-            MockInbound::on_message(id, type, std::move(body));
-            server->outbound().disconnect(id);
+            MockObserver::on_message(id, type, std::move(body));
+            server->disconnector().disconnect(id);
         }
     };
 
     Reactor reactor;
-    DisconnectingInbound inbound;
-    Server server{reactor, 0, 8}; // inbound보다 늦게 생성 - dtor에서 notify하므로 먼저 파괴
-    inbound.server = &server;
-    ASSERT_TRUE(server.init(inbound));
+    DisconnectingObserver observer;
+    Server server{reactor, 0, 8}; // observer보다 늦게 생성 - dtor에서 notify하므로 먼저 파괴
+    observer.server = &server;
+    ASSERT_TRUE(server.init(observer));
     ASSERT_TRUE(server.start());
 
     SocketPair sp;
     server.handle_accepted(sp.take_conn(), PeerAddress{});
-    ConnectionId const id = inbound.connected.at(0);
+    ConnectionId const id = observer.connected.at(0);
 
     write_frame(sp.peer, 0x01, "one");
     write_frame(sp.peer, 0x02, "two"); // 첫 frame 처리 중 끊기므로 전달되지 않아야 함
     reactor.run_once(1000ms);
 
-    ASSERT_EQ(inbound.message_type.size(), 1u);
-    EXPECT_EQ(inbound.message_body[0], "one");
-    ASSERT_EQ(inbound.disconnected.size(), 1u);
-    EXPECT_EQ(inbound.disconnected[0].first, id);
+    ASSERT_EQ(observer.message_type.size(), 1u);
+    EXPECT_EQ(observer.message_body[0], "one");
+    ASSERT_EQ(observer.disconnected.size(), 1u);
+    EXPECT_EQ(observer.disconnected[0].first, id);
 }

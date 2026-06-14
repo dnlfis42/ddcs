@@ -36,7 +36,7 @@ std::string scrape_metrics(Controller& controller, std::uint16_t port) {
         if (n > 0) {
             resp.append(buf, static_cast<std::size_t>(n));
         }
-        if (resp.find("ddcs_sessions") != std::string::npos) {
+        if (resp.find("ddcs_connections") != std::string::npos) {
             break;
         }
     }
@@ -83,8 +83,8 @@ TEST(ControllerTest, ServesMetricsWhenEnabled) {
 
     auto const resp = scrape_metrics(controller, controller.metrics_port());
     EXPECT_NE(resp.find("200 OK"), std::string::npos);
-    EXPECT_NE(resp.find("# TYPE ddcs_sessions gauge"), std::string::npos);
-    EXPECT_NE(resp.find("ddcs_sessions 0"), std::string::npos); // agent 없음
+    EXPECT_NE(resp.find("# TYPE ddcs_connections gauge"), std::string::npos);
+    EXPECT_NE(resp.find("ddcs_connections 0"), std::string::npos); // agent 없음
     controller.stop();
 }
 

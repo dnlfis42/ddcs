@@ -11,7 +11,7 @@
 namespace ddcs::ctrl::domain {
 
 // Device 트윈의 영속 저장소(uuid = DeviceId 키). 동일 uuid 재등록 시 동일 Device.
-// 현재 connection과의 binding은 app::session이 별도로 관리한다.
+// connection과의 binding은 app::agent::AgentRegistry가 별도로 관리한다.
 class DeviceRegistry {
 public:
     DeviceRegistry() = default;

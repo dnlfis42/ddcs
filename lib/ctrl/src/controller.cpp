@@ -1,37 +1,39 @@
 #include "ddcs/ctrl/controller.hpp"
 
 #include "ddcs/common/clock.hpp"
-#include "ddcs/ctrl/app/agent/command_service.hpp"
-#include "ddcs/ctrl/app/agent/register_service.hpp"
-#include "ddcs/ctrl/app/agent/status_service.hpp"
+#include "ddcs/ctrl/app/agent/agent_registry.hpp"
+#include "ddcs/ctrl/app/agent/agent_service.hpp"
+#include "ddcs/ctrl/app/agent/command_sender.hpp"
+#include "ddcs/ctrl/app/agent/device_roster.hpp"
+#include "ddcs/ctrl/app/agent/handshake_monitor.hpp"
+#include "ddcs/ctrl/app/agent/liveness_monitor.hpp"
+#include "ddcs/ctrl/app/device/command_service.hpp"
+#include "ddcs/ctrl/app/device/policy_service.hpp"
+#include "ddcs/ctrl/app/device/register_service.hpp"
+#include "ddcs/ctrl/app/device/status_service.hpp"
 #include "ddcs/ctrl/app/metrics/metrics_service.hpp"
-#include "ddcs/ctrl/app/ops/operator_service.hpp"
-#include "ddcs/ctrl/app/policy/policy_service.hpp"
-#include "ddcs/ctrl/app/session/liveness_monitor.hpp"
-#include "ddcs/ctrl/app/session/session_manager.hpp"
-#include "ddcs/ctrl/app/session/session_registry.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
-#include "ddcs/ctrl/infra/metrics/server.hpp"
-#include "ddcs/ctrl/infra/transport/connection_acceptor.hpp"
-#include "ddcs/ctrl/infra/transport/connection_manager.hpp"
+#include "ddcs/ctrl/infra/dacp/server.hpp"
+#include "ddcs/ctrl/infra/prometheus/server.hpp"
+#include "ddcs/io/reactor.hpp"
+#include "ddcs/io/signal_source.hpp"
+#include "ddcs/io/timer_handler.hpp"
+#include "ddcs/io/timer_id.hpp"
+#include "ddcs/io/timer_scheduler.hpp"
 #include "ddcs/json/value.hpp"
-#include "ddcs/runtime/reactor.hpp"
-#include "ddcs/runtime/signal_fd.hpp"
-#include "ddcs/runtime/timer_handler.hpp"
-#include "ddcs/runtime/timer_id.hpp"
-#include "ddcs/runtime/timer_scheduler.hpp"
 
 #include <csignal>
 #include <fstream>
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
 namespace ddcs::ctrl {
 
-class Controller::Impl final : public runtime::TimerHandler {
+class Controller::Impl final : public io::TimerHandler {
 public:
     explicit Impl(Config cfg);
     ~Impl() override;
@@ -46,14 +48,11 @@ public:
     void run_once(std::chrono::milliseconds timeout);
     void stop();
 
-    std::uint16_t port() const { return connection_acceptor_.port(); }
-    std::uint16_t metrics_port() const { return metrics_server_ ? metrics_server_->port() : 0; }
-    std::uint64_t set_mode(common::Uuid const& agent_uuid, device::Mode mode) {
-        return operator_service_.set_mode(agent_uuid, mode);
-    }
+    std::uint16_t port() const { return dacp_server_.port(); }
+    std::uint16_t metrics_port() const { return prometheus_server_ ? prometheus_server_->port() : 0; }
 
 private:
-    void on_timer_event(runtime::TimerId id) override;
+    void on_expired(io::TimerId id) override;
     void schedule_sweep();
     void load_policy(); // policy.json load-once (start에서). 파일/파싱 실패는 WARN 후 빈 정책.
 
@@ -61,60 +60,68 @@ private:
     common::SteadyClock clock_;
     Config cfg_;
 
-    runtime::Reactor reactor_;
-    runtime::SignalFd signal_fd_;
-    runtime::TimerScheduler timer_scheduler_;
-    infra::transport::ConnectionManager connection_manager_;
-    infra::transport::ConnectionAcceptor connection_acceptor_;
+    io::Reactor reactor_;
+    io::SignalSource signal_source_;
+    io::TimerScheduler timer_scheduler_;
+    infra::dacp::Server dacp_server_; // sender()/disconnector() 제공 -> 의존자보다 먼저 선언
 
-    app::session::SessionRegistry sessions_;
-    domain::DeviceRegistry registry_;
-    app::agent::RegisterService registrar_;
-    app::agent::StatusService status_;
-    app::agent::CommandService commands_;
-    app::session::SessionManager session_manager_;
-    app::ops::OperatorService operator_service_;
-    app::policy::PolicyService policy_;
-    app::session::LivenessMonitor liveness_;
+    app::agent::AgentRegistry agents_;
+    domain::DeviceRegistry devices_;
+    app::agent::CommandSender command_sender_;
+    app::device::CommandService commands_;
+    app::device::RegisterService registrar_;
+    app::device::StatusService status_;
+    app::agent::DeviceRoster roster_;
+    app::device::PolicyService policy_;
+    app::agent::HandshakeMonitor handshake_monitor_;
+    app::agent::LivenessMonitor liveness_monitor_;
+    app::agent::AgentService agent_service_; // dacp_server_의 ConnectionObserver
     app::metrics::MetricsService metrics_service_;
     // reactor의 2nd guest. Config.metrics_port 있을 때만 start()에서 emplace.
-    // metrics_service_ 뒤에 선언 -> 먼저 소멸(Inbound& 참조가 dangling 되지 않도록).
-    std::optional<infra::metrics::Server> metrics_server_;
+    // metrics_service_ 뒤에 선언 -> 먼저 소멸(MetricsSource& 참조가 dangling 되지 않도록).
+    std::optional<infra::prometheus::Server> prometheus_server_;
 
-    runtime::TimerId sweep_timer_{};
+    io::TimerId sweep_timer_{};
 };
 
 Controller::Impl::Impl(Config cfg)
-    : cfg_{cfg}, signal_fd_{reactor_, {SIGINT, SIGTERM}, [this] { stop(); }}, timer_scheduler_{reactor_},
-      connection_manager_{reactor_, timer_scheduler_},
-      connection_acceptor_{reactor_, connection_manager_, cfg.listen_port, cfg.accept_backlog},
-      registrar_{registry_, connection_manager_}, status_{sessions_, registry_},
-      commands_{sessions_,           connection_manager_,      clock_,
-                cfg.command_timeout, cfg.command_max_attempts, cfg.command_backoff_base},
-      session_manager_{sessions_, registrar_, status_, commands_, connection_manager_, clock_},
-      operator_service_{registry_, commands_}, policy_{sessions_, registry_, operator_service_},
-      liveness_{sessions_, connection_manager_, clock_, cfg.liveness_timeout},
-      metrics_service_{sessions_, registry_, commands_, session_manager_, liveness_} {
+    : cfg_{std::move(cfg)}, signal_source_{reactor_, {SIGINT, SIGTERM}, [this](int) { stop(); }},
+      timer_scheduler_{reactor_}, dacp_server_{reactor_, cfg_.listen_port, cfg_.accept_backlog},
+      command_sender_{agents_, dacp_server_.sender()},
+      commands_{command_sender_, cfg_.command_timeout, cfg_.command_max_attempts, cfg_.command_backoff_base},
+      registrar_{devices_}, status_{devices_}, roster_{agents_}, policy_{roster_, devices_, commands_},
+      handshake_monitor_{agents_, dacp_server_.disconnector(), cfg_.handshake_timeout},
+      liveness_monitor_{agents_, dacp_server_.disconnector(), cfg_.liveness_timeout},
+      agent_service_{agents_,  dacp_server_.sender(), dacp_server_.disconnector(), clock_, registrar_, status_,
+                     commands_},
+      metrics_service_{agents_, devices_, commands_, liveness_monitor_, handshake_monitor_} {
     auto& lg = logger::Logger::instance();
-    lg.set_level(cfg.log_level);
-    lg.set_sink(cfg.log_sink != nullptr ? *cfg.log_sink : default_sink_);
-
-    connection_manager_.init(session_manager_); // inbound 포트 주입
+    lg.set_level(cfg_.log_level);
+    lg.set_sink(cfg_.log_sink != nullptr ? *cfg_.log_sink : default_sink_);
 }
 
 Controller::Impl::~Impl() {
     stop();
-    // 멤버 dtor 역순: session_manager_ -> ... -> connection_manager_ -> timer_scheduler_ -> signal_fd_ -> reactor_.
+    // dacp Server dtor가 on_disconnected를 notify하므로, AgentService(observer)가 살아있는 지금 명시적으로 닫는다.
+    // CAUTION: 멤버 소멸은 역순 - dacp_server_가 agent_service_보다 늦게 소멸한다(생성 의존 때문에 선언 순서 고정).
+    dacp_server_.close();
 }
 
 void Controller::Impl::start() {
-    signal_fd_.start();
+    signal_source_.start();
     timer_scheduler_.start();
-    connection_acceptor_.start();
+    if (!dacp_server_.init(agent_service_)) {
+        throw std::runtime_error{"dacp server init failed"};
+    }
+    if (!dacp_server_.start()) {
+        throw std::runtime_error{"dacp server start failed"};
+    }
     if (cfg_.metrics_port) {
-        constexpr int metrics_backlog{16}; // 스크레이프는 저빈도 - 작은 backlog 로 충분
-        metrics_server_.emplace(reactor_, metrics_service_, *cfg_.metrics_port, metrics_backlog);
-        metrics_server_->start();
+        constexpr int metrics_backlog{16}; // 스크레이프는 저빈도 - 작은 backlog로 충분
+        prometheus_server_.emplace(reactor_, metrics_service_, *cfg_.metrics_port, metrics_backlog);
+        if (!prometheus_server_->init() || !prometheus_server_->start()) {
+            throw std::runtime_error{"prometheus server start failed"};
+        }
     }
     load_policy();
     schedule_sweep();
@@ -126,19 +133,21 @@ void Controller::Impl::run_once(std::chrono::milliseconds timeout) { reactor_.ru
 
 void Controller::Impl::stop() {
     timer_scheduler_.stop();
-    signal_fd_.stop();
+    signal_source_.stop();
     reactor_.stop();
 }
 
-void Controller::Impl::on_timer_event(runtime::TimerId /*id*/) {
-    // 이 핸들러로 오는 타이머는 주기 sweep 뿐이다.
-    commands_.sweep();
-    liveness_.sweep();  // active 세션 침묵 -> evict(close)
-    policy_.evaluate(); // 그룹 load 집계 -> 임계 전환 시 SetMode 발신
-    schedule_sweep();   // 주기 재무장
+void Controller::Impl::on_expired(io::TimerId /*id*/) {
+    // 이 핸들러로 오는 타이머는 주기 sweep 뿐이다. 한 tick의 now를 모든 호출에 공유한다.
+    auto const now = clock_.now();
+    commands_.sweep(now);
+    handshake_monitor_.sweep(now); // 등록 미완 시한 초과 -> disconnect
+    liveness_monitor_.sweep(now);  // active 침묵 -> evict(close)
+    policy_.evaluate(now);         // 그룹 load 집계 -> 임계 전환 시 SetMode 발신
+    schedule_sweep();              // 주기 재무장
 }
 
-void Controller::Impl::schedule_sweep() { sweep_timer_ = timer_scheduler_.schedule(cfg_.sweep_interval, this); }
+void Controller::Impl::schedule_sweep() { sweep_timer_ = timer_scheduler_.schedule(cfg_.sweep_interval, *this); }
 
 void Controller::Impl::load_policy() {
     if (!cfg_.policy_path) {
@@ -156,7 +165,7 @@ void Controller::Impl::load_policy() {
         LOG_WARN("policy.load.parse_fail", logger::kv("path", path.string()));
         return;
     }
-    auto policy = app::policy::parse_policy(*json);
+    auto policy = app::device::parse_policy(*json);
     if (!policy) {
         LOG_WARN("policy.load.invalid", logger::kv("path", path.string()));
         return;
@@ -180,9 +189,5 @@ void Controller::stop() { impl_->stop(); }
 std::uint16_t Controller::port() const { return impl_->port(); }
 
 std::uint16_t Controller::metrics_port() const { return impl_->metrics_port(); }
-
-std::uint64_t Controller::set_mode(common::Uuid const& agent_uuid, device::Mode mode) {
-    return impl_->set_mode(agent_uuid, mode);
-}
 
 } // namespace ddcs::ctrl

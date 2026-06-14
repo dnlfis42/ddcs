@@ -1,6 +1,5 @@
 # 하위 라이브러리
 add_subdirectory(domain)
-add_subdirectory(port)
 add_subdirectory(app)
 add_subdirectory(infra)
 
@@ -22,7 +21,7 @@ target_link_libraries(
         ddcs::ctrl::app
         ddcs::ctrl::domain
         ddcs::ctrl::infra
-        ddcs::runtime
+        ddcs::io
         ddcs::json
     PUBLIC ddcs::common ddcs::device ddcs::logger
 )

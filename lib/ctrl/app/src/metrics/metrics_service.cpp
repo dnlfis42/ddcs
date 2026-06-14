@@ -30,21 +30,21 @@ void append_metric(std::string& out, char const* name, char const* help, char co
 std::string MetricsService::scrape() {
     std::string out;
     // gauge - 현재값.
-    append_metric(out, "ddcs_sessions", "Current transport sessions (all phases).", "gauge", sessions_.size());
-    append_metric(out, "ddcs_agents_registered", "Persistently known agents (by uuid).", "gauge", registry_.size());
+    append_metric(out, "ddcs_connections", "Current agent connections (all phases).", "gauge", agents_.size());
+    append_metric(out, "ddcs_devices_known", "Persistently known devices (by uuid).", "gauge", devices_.size());
     append_metric(
         out, "ddcs_commands_pending", "In-flight commands awaiting outcome.", "gauge", commands_.pending_count()
     );
-    // counter - 누적. 실패율 = timed_out/dispatched, 평균 RTT = rtt_ms_sum/completed.
+    // counter - 누적. 실패율 = gave_up/dispatched, 평균 RTT = rtt_ms_sum/completed.
     append_metric(
         out, "ddcs_commands_dispatched_total", "Commands sent to agents.", "counter", commands_.dispatched_total()
     );
     append_metric(
-        out, "ddcs_commands_completed_total", "Commands that received an outcome.", "counter",
+        out, "ddcs_commands_completed_total", "Commands that received a success outcome.", "counter",
         commands_.completed_total()
     );
     append_metric(
-        out, "ddcs_commands_timed_out_total", "Commands dropped after no outcome (timeout).", "counter",
+        out, "ddcs_commands_timed_out_total", "Command attempts dropped after no outcome (timeout).", "counter",
         commands_.timed_out_total()
     );
     append_metric(
@@ -52,8 +52,15 @@ std::string MetricsService::scrape() {
         commands_.rtt_ms_sum()
     );
     append_metric(
-        out, "ddcs_commands_retried_total", "Command re-dispatches after timeout/NACK.", "counter",
-        commands_.retried_total()
+        out, "ddcs_commands_retried_total", "Command re-sends after timeout/NACK.", "counter", commands_.retried_total()
+    );
+    append_metric(
+        out, "ddcs_commands_superseded_total", "Commands replaced by a newer intent (same device and type).", "counter",
+        commands_.superseded_total()
+    );
+    append_metric(
+        out, "ddcs_commands_stale_total", "Late responses to closed/superseded commands (ignored).", "counter",
+        commands_.stale_total()
     );
     // 알람 counter - 명령 최종 실패 + agent 건강(operator 가 rate 로 알람).
     append_metric(
@@ -65,8 +72,8 @@ std::string MetricsService::scrape() {
         liveness_.evicted_total()
     );
     append_metric(
-        out, "ddcs_agents_kicked_total", "Old connections kicked by same-uuid re-register (reconnect churn).",
-        "counter", session_manager_.kicked_total()
+        out, "ddcs_handshake_expired_total", "Connections dropped for not completing registration in time.", "counter",
+        handshake_.expired_total()
     );
     return out;
 }

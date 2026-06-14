@@ -4,130 +4,173 @@
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
 #include "ddcs/common/uuid.hpp"
-#include "ddcs/ctrl/app/agent/command_service.hpp"
-#include "ddcs/ctrl/app/agent/register_service.hpp"
-#include "ddcs/ctrl/app/agent/status_service.hpp"
-#include "ddcs/ctrl/app/session/liveness_monitor.hpp"
-#include "ddcs/ctrl/app/session/session_manager.hpp"
-#include "ddcs/ctrl/app/session/session_registry.hpp"
+#include "ddcs/ctrl/app/agent/agent.hpp"
+#include "ddcs/ctrl/app/agent/agent_registry.hpp"
+#include "ddcs/ctrl/app/agent/handshake_monitor.hpp"
+#include "ddcs/ctrl/app/agent/liveness_monitor.hpp"
+#include "ddcs/ctrl/app/agent/port/connection_id.hpp"
+#include "ddcs/ctrl/app/agent/port/disconnector.hpp"
+#include "ddcs/ctrl/app/device/command_service.hpp"
+#include "ddcs/ctrl/app/device/port/command_buffer.hpp"
+#include "ddcs/ctrl/app/device/port/command_id.hpp"
+#include "ddcs/ctrl/app/device/port/command_sender.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
-#include "ddcs/ctrl/port/transport/connection_id.hpp"
-#include "ddcs/ctrl/port/transport/outbound.hpp"
-#include "ddcs/proto/msg/message.hpp"
-
-#include <gtest/gtest.h>
 
 #include <array>
 #include <chrono>
-#include <string>
-
 #include <cstddef>
 #include <cstdint>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+
+#include <gtest/gtest.h>
 
 namespace {
 
 using ddcs::common::LinearBuffer;
 using ddcs::common::ManualClock;
-using ddcs::common::PoolHandle;
+using ddcs::common::ObjectPool;
 using ddcs::common::Uuid;
-using ddcs::ctrl::app::agent::CommandService;
-using ddcs::ctrl::app::agent::RegisterService;
-using ddcs::ctrl::app::agent::StatusService;
+using ddcs::ctrl::app::agent::AgentRegistry;
+using ddcs::ctrl::app::agent::HandshakeMonitor;
+using ddcs::ctrl::app::agent::LivenessMonitor;
+using ddcs::ctrl::app::agent::port::ConnectionId;
+using ddcs::ctrl::app::agent::port::Disconnector;
+using ddcs::ctrl::app::device::CommandService;
+using ddcs::ctrl::app::device::port::CommandBuffer;
+using ddcs::ctrl::app::device::port::CommandId;
+using ddcs::ctrl::app::device::port::CommandSender;
 using ddcs::ctrl::app::metrics::MetricsService;
-using ddcs::ctrl::app::session::LivenessMonitor;
-using ddcs::ctrl::app::session::SessionManager;
-using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::domain::DeviceRegistry;
-using ddcs::ctrl::port::transport::ConnectionId;
-using ddcs::ctrl::port::transport::Outbound;
-namespace msg = ddcs::proto::msg;
-
-class MockOutbound : public Outbound {
-public:
-    ddcs::common::ObjectPool<LinearBuffer> pool{ddcs::common::make_pool<LinearBuffer>(0, 8, std::size_t{256})};
-    PoolHandle<LinearBuffer> send_buffer() override { return pool.acquire(); }
-    void send(ConnectionId, std::uint8_t, PoolHandle<LinearBuffer>) override {}
-    void drop(ConnectionId) override {}
-};
+using namespace std::chrono_literals;
 
 Uuid make_uuid(std::uint8_t seed) {
     std::array<std::byte, 16> b{};
-    for (auto& x : b) {
-        x = std::byte{seed};
-    }
+    b[0] = std::byte{seed};
     return Uuid{b};
 }
 
-PoolHandle<LinearBuffer> make_outcome_body(std::uint64_t command_id) {
-    static auto pool = ddcs::common::make_pool<LinearBuffer>(0, 8, std::size_t{64});
-    auto buf = pool.acquire();
-    msg::CommandOutcome const out{.command_id = command_id, .result = msg::CommandResult::success, .reason = {}};
-    EXPECT_TRUE(msg::encode(out, *buf));
-    return buf;
+std::span<std::byte const> as_bytes(std::string_view s) {
+    return {reinterpret_cast<std::byte const*>(s.data()), s.size()};
 }
 
 bool contains(std::string const& s, char const* sub) { return s.find(sub) != std::string::npos; }
 
+class FakeCommandSender final : public CommandSender {
+public:
+    bool accept = true;
+    CommandBuffer make_command_buffer() override { return pool_.acquire(); }
+    bool try_send(ddcs::ctrl::domain::DeviceId, CommandId, std::uint8_t, CommandBuffer) override { return accept; }
+
+private:
+    ObjectPool<LinearBuffer> pool_{ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{64})};
+};
+
+// infra처럼 disconnect가 동기로 registry erase까지 끝내는 대역.
+class FakeDisconnector final : public Disconnector {
+public:
+    explicit FakeDisconnector(AgentRegistry& agents) noexcept : agents_{agents} {}
+    void disconnect(ConnectionId id) override { agents_.erase(id); }
+
+private:
+    AgentRegistry& agents_;
+};
+
 struct Fixture {
-    SessionRegistry sessions;
-    DeviceRegistry registry;
-    MockOutbound outbound;
     ManualClock clock;
-    CommandService commands{sessions, outbound, clock, std::chrono::seconds{5}};
-    RegisterService registrar{registry, outbound};
-    StatusService status{sessions, registry};
-    SessionManager mgr{sessions, registrar, status, commands, outbound, clock};
-    LivenessMonitor liveness{sessions, outbound, clock, std::chrono::seconds{3}};
-    MetricsService metrics{sessions, registry, commands, mgr, liveness};
+    AgentRegistry agents;
+    DeviceRegistry devices;
+    FakeCommandSender sender;
+    FakeDisconnector disconnector{agents};
+    CommandService commands{sender, 5s, 1, 500ms};
+    HandshakeMonitor handshake{agents, disconnector, 3s};
+    LivenessMonitor liveness{agents, disconnector, 3s};
+    MetricsService metrics{agents, devices, commands, liveness, handshake};
+
+    ddcs::ctrl::domain::DeviceId activate(std::uint64_t conn, std::uint8_t seed) {
+        ConnectionId const id{conn};
+        EXPECT_TRUE(agents.add(id, clock.now()));
+        EXPECT_TRUE(agents.bind(id, make_uuid(seed), clock.now()));
+        EXPECT_TRUE(agents.find(id)->confirm(clock.now()));
+        return make_uuid(seed);
+    }
+
+    CommandId send(ddcs::ctrl::domain::DeviceId device) {
+        auto buf = commands.make_command_buffer();
+        EXPECT_TRUE(buf->write(as_bytes("p")));
+        return commands.dispatch(device, 0x01, std::move(buf), clock.now());
+    }
 };
 
 } // namespace
 
-TEST(MetricsServiceTest, ScrapeReportsGaugesAndAlarmCounters) {
+TEST(MetricsServiceTest, ScrapeReportsGauges) {
     Fixture f;
-    f.sessions.open(ConnectionId{1});
-    f.sessions.open(ConnectionId{2});
-    f.registry.find_or_create(make_uuid(1));
+    EXPECT_TRUE(f.agents.add(ConnectionId{1}, f.clock.now())); // handshaking도 connection으로 집계
+    EXPECT_TRUE(f.agents.add(ConnectionId{2}, f.clock.now()));
+    f.devices.find_or_create(make_uuid(1));
 
     auto const text = f.metrics.scrape();
-    EXPECT_TRUE(contains(text, "# TYPE ddcs_sessions gauge"));
-    EXPECT_TRUE(contains(text, "ddcs_sessions 2"));
-    EXPECT_TRUE(contains(text, "ddcs_agents_registered 1"));
+
+    EXPECT_TRUE(contains(text, "# TYPE ddcs_connections gauge"));
+    EXPECT_TRUE(contains(text, "ddcs_connections 2"));
+    EXPECT_TRUE(contains(text, "ddcs_devices_known 1"));
     EXPECT_TRUE(contains(text, "ddcs_commands_pending 0"));
-    // 알람 counter 노출(미발생 -> 0).
-    EXPECT_TRUE(contains(text, "# TYPE ddcs_agents_evicted_total counter"));
-    EXPECT_TRUE(contains(text, "ddcs_agents_evicted_total 0"));
-    EXPECT_TRUE(contains(text, "ddcs_agents_kicked_total 0"));
-    EXPECT_TRUE(contains(text, "ddcs_commands_retried_total 0"));
-    EXPECT_TRUE(contains(text, "ddcs_commands_gave_up_total 0"));
 }
 
 TEST(MetricsServiceTest, ScrapeReportsCommandCounters) {
     Fixture f;
-    auto const id = f.registry.find_or_create(make_uuid(1)).id;
-    f.sessions.open(ConnectionId{1});
-    f.sessions.bind(ConnectionId{1}, id, {});
+    auto const device = f.activate(1, 0xAA);
 
-    auto const cmd = f.commands.dispatch(id, 0x01, "p");
-    f.clock.advance(std::chrono::milliseconds{100});
-    f.commands.handle_outcome(ConnectionId{1}, make_outcome_body(cmd));
+    auto const id = f.send(device);
+    f.clock.advance(100ms);
+    f.commands.settle(device, id, true, "", f.clock.now());
 
     auto const text = f.metrics.scrape();
+
     EXPECT_TRUE(contains(text, "# TYPE ddcs_commands_dispatched_total counter"));
     EXPECT_TRUE(contains(text, "ddcs_commands_dispatched_total 1"));
     EXPECT_TRUE(contains(text, "ddcs_commands_completed_total 1"));
     EXPECT_TRUE(contains(text, "ddcs_commands_timed_out_total 0"));
     EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_sum 100"));
+    EXPECT_TRUE(contains(text, "ddcs_commands_superseded_total 0"));
+    EXPECT_TRUE(contains(text, "ddcs_commands_stale_total 0"));
+}
+
+TEST(MetricsServiceTest, ScrapeReportsSupersedeAndStale) {
+    Fixture f;
+    auto const device = f.activate(1, 0xAA);
+
+    auto const first = f.send(device);
+    f.send(device);                                            // 같은 device+type -> supersede
+    f.commands.settle(device, first, true, "", f.clock.now()); // 대체된 id -> stale
+
+    auto const text = f.metrics.scrape();
+
+    EXPECT_TRUE(contains(text, "ddcs_commands_superseded_total 1"));
+    EXPECT_TRUE(contains(text, "ddcs_commands_stale_total 1"));
 }
 
 TEST(MetricsServiceTest, ScrapeReflectsEvictionAlarm) {
     Fixture f;
-    auto const id = f.registry.find_or_create(make_uuid(1)).id;
-    f.sessions.open(ConnectionId{1});
-    f.sessions.bind(ConnectionId{1}, id, f.clock.now()); // active, last_seen = now
-    f.clock.advance(std::chrono::seconds{4});            // > 3s 침묵
-    f.liveness.sweep();
+    f.activate(1, 0xAA);
+
+    f.clock.advance(4s); // > liveness 3s 침묵
+    f.liveness.sweep(f.clock.now());
 
     auto const text = f.metrics.scrape();
     EXPECT_TRUE(contains(text, "ddcs_agents_evicted_total 1"));
+}
+
+TEST(MetricsServiceTest, ScrapeReflectsHandshakeExpiry) {
+    Fixture f;
+    EXPECT_TRUE(f.agents.add(ConnectionId{1}, f.clock.now())); // handshaking, 등록 미완
+
+    f.clock.advance(4s); // > handshake 3s
+    f.handshake.sweep(f.clock.now());
+
+    auto const text = f.metrics.scrape();
+    EXPECT_TRUE(contains(text, "ddcs_handshake_expired_total 1"));
 }

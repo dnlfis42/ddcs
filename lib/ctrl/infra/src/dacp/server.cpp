@@ -2,9 +2,10 @@
 
 #include "ddcs/common/object_pool.hpp"
 #include "ddcs/ctrl/app/agent/port/connection_id.hpp"
+#include "ddcs/ctrl/app/agent/port/connection_observer.hpp"
 #include "ddcs/ctrl/app/agent/port/disconnect_reason.hpp"
-#include "ddcs/ctrl/app/agent/port/inbound.hpp"
-#include "ddcs/ctrl/app/agent/port/outbound.hpp"
+#include "ddcs/ctrl/app/agent/port/disconnector.hpp"
+#include "ddcs/ctrl/app/agent/port/message_sender.hpp"
 #include "ddcs/ctrl/infra/dacp/acceptor.hpp"
 #include "ddcs/ctrl/infra/dacp/connection.hpp"
 #include "ddcs/dacp/frame/frame.hpp"
@@ -36,7 +37,7 @@ static_assert(frame::header_size + frame::max_length <= Connection::rx_buffer_ca
 
 } // namespace
 
-struct Server::Impl final : public port::Outbound {
+struct Server::Impl final : public port::MessageSender, public port::Disconnector {
     enum class State {
         idle,
         ready,
@@ -53,7 +54,7 @@ struct Server::Impl final : public port::Outbound {
           connection_pool{common::make_object_pool<Connection>(0, connection_pool_chunk_size)},
           message_pool{common::make_object_pool<common::LinearBuffer>(0, message_pool_chunk_size, message_buffer_capacity)} {}
 
-    [[nodiscard]] bool init(port::Inbound& inbound_ref) noexcept {
+    [[nodiscard]] bool init(port::ConnectionObserver& observer_ref) noexcept {
         if (state != State::idle) {
             return false;
         }
@@ -61,7 +62,7 @@ struct Server::Impl final : public port::Outbound {
             return false;
         }
 
-        inbound = &inbound_ref;
+        observer = &observer_ref;
         state = State::ready;
         return true;
     }
@@ -99,7 +100,7 @@ struct Server::Impl final : public port::Outbound {
 
         stop();
         acceptor.close();
-        inbound = nullptr;
+        observer = nullptr;
         state = State::idle;
     }
 
@@ -178,7 +179,7 @@ struct Server::Impl final : public port::Outbound {
         drain_reap_queue();
     }
 
-private: // port::Outbound
+private: // port::MessageSender / port::Disconnector
     [[nodiscard]] port::MessageBuffer make_message_buffer() override {
         auto message = message_pool.acquire();
         bool const reserved = message->reserve_front(frame::header_size); // frame header 자리 미리 확보
@@ -391,13 +392,13 @@ public:
     }
 
     void notify_connected(port::ConnectionId id) noexcept {
-        if (inbound == nullptr) {
+        if (observer == nullptr) {
             return;
         }
         try {
-            inbound->on_connected(id);
+            observer->on_connected(id);
         } catch (...) {
-            LOG_ERROR("dacp.server.inbound_callback_failed", logger::kv("callback", "on_connected"));
+            LOG_ERROR("dacp.server.observer_callback_failed", logger::kv("callback", "on_connected"));
             if (Connection* conn = find_active(id)) {
                 begin_reap(*conn, port::DisconnectReason::local_drop);
             }
@@ -405,13 +406,13 @@ public:
     }
 
     void notify_message(port::ConnectionId id, std::uint8_t message_type, port::MessageBuffer body) noexcept {
-        if (inbound == nullptr) {
+        if (observer == nullptr) {
             return;
         }
         try {
-            inbound->on_message(id, message_type, std::move(body));
+            observer->on_message(id, message_type, std::move(body));
         } catch (...) {
-            LOG_ERROR("dacp.server.inbound_callback_failed", logger::kv("callback", "on_message"));
+            LOG_ERROR("dacp.server.observer_callback_failed", logger::kv("callback", "on_message"));
             if (Connection* conn = find_active(id)) {
                 begin_reap(*conn, port::DisconnectReason::local_drop);
             }
@@ -419,19 +420,19 @@ public:
     }
 
     void notify_disconnected(port::ConnectionId id, port::DisconnectReason reason) noexcept {
-        if (inbound == nullptr) {
+        if (observer == nullptr) {
             return;
         }
         try {
-            inbound->on_disconnected(id, reason);
+            observer->on_disconnected(id, reason);
         } catch (...) {
-            LOG_ERROR("dacp.server.inbound_callback_failed", logger::kv("callback", "on_disconnected"));
+            LOG_ERROR("dacp.server.observer_callback_failed", logger::kv("callback", "on_disconnected"));
         }
     }
 
     Server& owner;
     io::Reactor& reactor;
-    port::Inbound* inbound{nullptr};
+    port::ConnectionObserver* observer{nullptr};
     State state{State::idle};
 
     Acceptor acceptor;
@@ -454,7 +455,7 @@ std::uint16_t Server::port() const noexcept { return impl_->port(); }
 
 bool Server::active() const noexcept { return impl_->active(); }
 
-bool Server::init(port::Inbound& inbound) noexcept { return impl_->init(inbound); }
+bool Server::init(port::ConnectionObserver& observer) noexcept { return impl_->init(observer); }
 
 bool Server::start() { return impl_->start(); }
 
@@ -462,7 +463,9 @@ void Server::stop() noexcept { impl_->stop(); }
 
 void Server::close() noexcept { impl_->close(); }
 
-port::Outbound& Server::outbound() noexcept { return *impl_; }
+port::MessageSender& Server::sender() noexcept { return *impl_; }
+
+port::Disconnector& Server::disconnector() noexcept { return *impl_; }
 
 void Server::handle_accepted(common::Fd&& fd, PeerAddress peer) { impl_->handle_accepted(std::move(fd), peer); }
 
