@@ -48,22 +48,25 @@ Frame payload 위에서 동작하는 논리 단위. Frame header의 `type`이 me
 
 ### Type
 
-| type   | 이름               | 방향 | payload                                                       |
-| ------ | ------------------ | ---- | ------------------------------------------------------------- |
-| `0x01` | `RegisterRequest`  | A->C | `id` : uuid(16B), `group` : string                            |
-| `0x02` | `RegisterResponse` | C->A | `result` : enum(u8), `reason` : string                        |
-| `0x10` | `Heartbeat`        | A->C | empty                                                         |
-| `0x11` | `Status`           | A->C | `mode` : uint8, `load` : f64, `temp` : f64                    |
-| `0x20` | `Command`          | C->A | `command_id` : uint64, `type` : uint8, `payload` : raw bytes  |
-| `0x21` | `CommandAck`       | A->C | `command_id` : uint64                                         |
-| `0x22` | `CommandOutcome`   | A->C | `command_id` : uint64, `result` : enum(u8), `reason` : string |
+| type   | 이름              | 방향 | payload                                                       |
+| ------ | ----------------- | ---- | ------------------------------------------------------------- |
+| `0x01` | `RegisterRequest` | A->C | `id` : uuid(16B), `group` : string                            |
+| `0x02` | `RegisterOutcome` | C->A | `result` : enum(u8), `reason` : string                        |
+| `0x03` | `RegisterAck`     | A->C | empty                                                         |
+| `0x10` | `Heartbeat`       | A->C | empty                                                         |
+| `0x11` | `Status`          | A->C | `mode` : uint8, `load` : f64, `temp` : f64                    |
+| `0x20` | `Command`         | C->A | `command_id` : uint64, `type` : uint8, `payload` : raw bytes  |
+| `0x21` | `CommandAck`      | A->C | `command_id` : uint64                                         |
+| `0x22` | `CommandOutcome`  | A->C | `command_id` : uint64, `result` : enum(u8), `reason` : string |
+
+응답 message 이름은 두 어휘만 쓴다: **Ack**(수신 확인, 본문 최소) / **Outcome**(판정, `result` + `reason`).
 
 type은 고위 nibble로 그룹을 나눈다:
 
 - `0x0x` Register, `0x1x` Telemetry(Heartbeat/Status), `0x2x` Command.
 - 같은 그룹 내 확장은 저위 nibble 안에서 추가한다.
 
-`result` enum(u8) 값: `success = 0`, `failed = 1` (RegisterResponse / CommandOutcome 공용 의미)
+`result` enum(u8) 값: `success = 0`, `failed = 1` (RegisterOutcome / CommandOutcome 공용 의미)
 
 ### 인코딩 규칙
 
@@ -100,12 +103,21 @@ type은 고위 nibble로 그룹을 나눈다:
 
 ## 의미론
 
+- **등록은 3-way handshake다**: `RegisterRequest`(A->C) -> `RegisterOutcome`(C->A) -> `RegisterAck`(A->C).
+  controller는 `RegisterAck` 수신 시점부터 liveness를 측정한다. 등록 왕복(outcome 전달 + ack 회신) 지연이
+  liveness 시한을 잠식하지 않게 하기 위함이며, 등록 구간(요청 대기 / ack 대기)은 단계별로 별도 시한이 걸린다.
+- agent는 success `RegisterOutcome`을 받으면 즉시 `RegisterAck`을 보내고, 곧바로 첫 `Heartbeat`를 시작한다.
+- 등록 완료 전에 유효한 A->C message는 단계당 하나다: 등록 전엔 `RegisterRequest`, 판정 송신 후엔 `RegisterAck`.
+  그 외 message는 프로토콜 위반으로 connection을 종료한다.
 - **Liveness**는 active 세션에서 수신한 모든 정상 message로 갱신한다. `Heartbeat`는 payload 없는 keepalive다.
   controller는 liveness 타임아웃 시 연결을 강제 종료한다.
-- `RegisterResponse`는 *상대를 식별한 뒤*에만 송신한다. 식별 자체가 불가능하면(RegisterRequest decode 실패) 응답 없이 connection을 종료한다.
+- `RegisterOutcome`은 *상대를 식별한 뒤*에만 송신한다. 식별 자체가 불가능하면(RegisterRequest decode 실패) 응답 없이 connection을 종료한다.
+  `result = failed`면 판정 송신 후 connection을 종료한다(`RegisterAck`을 기대하지 않는다). 실패 사유 전달은 best-effort다(송신 직후 종료라 tx가 flush되지 않을 수 있다).
 - **kick-old(new-wins)**: 같은 `RegisterRequest.id`로 새 연결이 등록하면 controller가 옛 연결을 강제 종료하고 새 연결을 바인딩한다.
 - TCP 연결이 곧 transport 식별 단위다. controller 내부 식별자는 wire에 별도로 싣지 않으며, `RegisterRequest.id`가 재접속을 가로질러 등록 주체를 식별한다.
-- `Command`는 `command_id`로 상관(correlation)한다. controller는 미결 명령에 타임아웃을 두고, `CommandAck`/`CommandOutcome`이 같은 연결에서 오는지 검증한다.
+- **명령 상관은 `(device, command_id)`다** (연결 단위가 아님). controller는 미결 명령에 타임아웃을 두고, 응답(`CommandAck`/`CommandOutcome`)을 그 device의 현재 등록 연결에서 받아 상관한다. 재접속 후 새 연결로 온 늦은 `CommandOutcome`도 수용한다(같은 device면 유효, 중복 실행 방지에 유리).
+- **재전송은 동일 `command_id`로 한다.** 무응답(timeout) 또는 실패 `CommandOutcome` 시 controller가 지수 backoff 후 **같은 id**로 재전송하고, agent는 **중복 수신 시 멱등하게 재실행**한다. 현재 명령 어휘(`SetMode`)가 멱등 상태 선언이라 성립한다(비멱등 명령 type을 추가하려면 그 type은 수신측 dedup + outcome 재송신으로 격상해야 한다). 닫힌/대체된 `command_id`로 오는 늦은 응답은 무시한다.
+- **supersede(최신 의도 우선)**: 같은 device의 같은 명령 계열(`Command.type`)에 새 명령이 발급되면 controller는 옛 미결을 폐기하고 새 명령(새 `command_id`)으로 교체한다. TCP 순서 보장 덕에 agent는 항상 최신을 마지막으로 적용한다.
 
 ## Unknown / 비정상 type
 
