@@ -117,14 +117,14 @@ bool decode(std::span<std::byte const> in, RegisterRequest& out) {
     return in.empty();
 }
 
-// RegisterResponse: [result(u8)][reason: str]
-bool encode(RegisterResponse const& m, common::LinearBuffer& out) noexcept {
+// RegisterOutcome: [result(u8)][reason: str]
+bool encode(RegisterOutcome const& m, common::LinearBuffer& out) noexcept {
     if (!write_u8(out, static_cast<std::uint8_t>(m.result))) {
         return false;
     }
     return write_string(out, m.reason);
 }
-bool decode(std::span<std::byte const> in, RegisterResponse& out) {
+bool decode(std::span<std::byte const> in, RegisterOutcome& out) {
     std::uint8_t result{};
     if (!read_u8(in, result)) {
         return false;
@@ -135,6 +135,10 @@ bool decode(std::span<std::byte const> in, RegisterResponse& out) {
     }
     return in.empty();
 }
+
+// RegisterAck: empty
+bool encode(RegisterAck const&, common::LinearBuffer&) noexcept { return true; }
+bool decode(std::span<std::byte const> in, RegisterAck&) noexcept { return in.empty(); }
 
 // Heartbeat: empty
 bool encode(Heartbeat const&, common::LinearBuffer&) noexcept { return true; }
@@ -165,6 +169,14 @@ bool decode(std::span<std::byte const> in, Status& out) noexcept {
 
 // Command: [command_id(u64le)][type(u8)][payload(rest)]
 // payload는 구조체가 소유하지 않고 호출자에게 tail span으로 전달한다.
+bool encode_front(Command const& m, common::LinearBuffer& out) noexcept {
+    std::array<std::byte, command_header_size> header{};
+    std::uint64_t const id_le = common::to_le(m.command_id);
+    std::memcpy(header.data(), &id_le, sizeof(id_le));
+    header[sizeof(id_le)] = std::byte{m.type};
+    return out.write_front(header);
+}
+
 bool encode(Command const& m, std::span<std::byte const> payload, common::LinearBuffer& out) noexcept {
     if (!write_le<std::uint64_t>(out, m.command_id)) {
         return false;

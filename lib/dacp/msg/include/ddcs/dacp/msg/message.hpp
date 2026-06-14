@@ -28,11 +28,16 @@ struct RegisterRequest {
     bool operator==(RegisterRequest const&) const = default;
 };
 
-struct RegisterResponse {
+struct RegisterOutcome {
     RegisterResult result;
     std::string reason; // success면 비어 있음
 
-    bool operator==(RegisterResponse const&) const = default;
+    bool operator==(RegisterOutcome const&) const = default;
+};
+
+// RegisterOutcome 수신 확인. controller는 이 수신 시점부터 liveness를 측정한다.
+struct RegisterAck {
+    bool operator==(RegisterAck const&) const = default;
 };
 
 struct Heartbeat {
@@ -54,6 +59,9 @@ struct Command {
 
     bool operator==(Command const&) const = default;
 };
+
+// Command 헤더 wire 크기: command_id(u64le) + type(u8). encode_front의 headroom 요구량.
+inline constexpr std::size_t command_header_size = 9;
 
 struct CommandAck {
     std::uint64_t command_id;
@@ -77,7 +85,10 @@ template <>
 inline constexpr MessageType type_of<RegisterRequest> = MessageType::register_request;
 
 template <>
-inline constexpr MessageType type_of<RegisterResponse> = MessageType::register_response;
+inline constexpr MessageType type_of<RegisterOutcome> = MessageType::register_outcome;
+
+template <>
+inline constexpr MessageType type_of<RegisterAck> = MessageType::register_ack;
 
 template <>
 inline constexpr MessageType type_of<Heartbeat> = MessageType::heartbeat;
@@ -97,8 +108,11 @@ inline constexpr MessageType type_of<CommandOutcome> = MessageType::command_outc
 bool encode(RegisterRequest const&, common::LinearBuffer&) noexcept;
 bool decode(std::span<std::byte const>, RegisterRequest&);
 
-bool encode(RegisterResponse const&, common::LinearBuffer&) noexcept;
-bool decode(std::span<std::byte const>, RegisterResponse&);
+bool encode(RegisterOutcome const&, common::LinearBuffer&) noexcept;
+bool decode(std::span<std::byte const>, RegisterOutcome&);
+
+bool encode(RegisterAck const&, common::LinearBuffer&) noexcept;
+bool decode(std::span<std::byte const>, RegisterAck&) noexcept;
 
 bool encode(Heartbeat const&, common::LinearBuffer&) noexcept;
 bool decode(std::span<std::byte const>, Heartbeat&) noexcept;
@@ -108,6 +122,9 @@ bool decode(std::span<std::byte const>, Status&) noexcept;
 
 bool encode(Command const&, std::span<std::byte const> payload, common::LinearBuffer&) noexcept;
 bool decode(std::span<std::byte const>, Command&, std::span<std::byte const>& payload) noexcept;
+
+// payload가 이미 쓰인 buffer의 headroom에 Command 헤더를 제자리 prepend한다(복사 없는 조립 경로).
+bool encode_front(Command const&, common::LinearBuffer&) noexcept;
 
 bool encode(CommandAck const&, common::LinearBuffer&) noexcept;
 bool decode(std::span<std::byte const>, CommandAck&) noexcept;

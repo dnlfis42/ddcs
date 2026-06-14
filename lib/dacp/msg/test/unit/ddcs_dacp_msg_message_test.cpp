@@ -48,16 +48,23 @@ TEST(MessageCodecTest, RoundTripsRegisterRequestWithEmptyGroup) {
     EXPECT_EQ(in, out);
 }
 
-TEST(MessageCodecTest, RoundTripsRegisterResponseEmptyReason) {
-    RegisterResponse const in{.result = RegisterResult::success, .reason = ""};
-    RegisterResponse out{};
+TEST(MessageCodecTest, RoundTripsRegisterOutcomeEmptyReason) {
+    RegisterOutcome const in{.result = RegisterResult::success, .reason = ""};
+    RegisterOutcome out{};
     ASSERT_TRUE(roundtrip(in, out));
     EXPECT_EQ(in, out);
 }
 
-TEST(MessageCodecTest, RoundTripsRegisterResponseWithReason) {
-    RegisterResponse const in{.result = RegisterResult::failed, .reason = "kicked by new agent"};
-    RegisterResponse out{};
+TEST(MessageCodecTest, RoundTripsRegisterOutcomeWithReason) {
+    RegisterOutcome const in{.result = RegisterResult::failed, .reason = "kicked by new agent"};
+    RegisterOutcome out{};
+    ASSERT_TRUE(roundtrip(in, out));
+    EXPECT_EQ(in, out);
+}
+
+TEST(MessageCodecTest, RoundTripsRegisterAck) {
+    RegisterAck const in{};
+    RegisterAck out{};
     ASSERT_TRUE(roundtrip(in, out));
     EXPECT_EQ(in, out);
 }
@@ -111,6 +118,31 @@ TEST(MessageCodecTest, RoundTripsCommandEmptyPayload) {
     EXPECT_TRUE(decoded_payload.empty());
 }
 
+TEST(MessageCodecTest, EncodeFrontPrependsCommandHeaderInPlace) {
+    LinearBuffer buf{buf_capacity};
+    ASSERT_TRUE(buf.reserve_front(command_header_size));
+    std::array<std::byte, 2> const payload{std::byte{0xaa}, std::byte{0xbb}};
+    ASSERT_TRUE(buf.write(payload));
+
+    Command const in{.command_id = 77, .type = 0x01};
+    ASSERT_TRUE(encode_front(in, buf));
+
+    Command out{};
+    std::span<std::byte const> decoded_payload{};
+    ASSERT_TRUE(decode(buf.readable(), out, decoded_payload)); // encode와 동일 wire 형식
+    EXPECT_EQ(out, in);
+    ASSERT_EQ(decoded_payload.size(), payload.size());
+    EXPECT_EQ(decoded_payload[0], payload[0]);
+    EXPECT_EQ(decoded_payload[1], payload[1]);
+}
+
+TEST(MessageCodecTest, EncodeFrontRejectsWithoutHeadroom) {
+    LinearBuffer buf{buf_capacity}; // 예약 없음
+    std::array<std::byte, 1> const payload{std::byte{0xaa}};
+    ASSERT_TRUE(buf.write(payload));
+    EXPECT_FALSE(encode_front(Command{.command_id = 1, .type = 0x01}, buf));
+}
+
 TEST(MessageCodecTest, RoundTripsCommandAck) {
     CommandAck const in{.command_id = 7};
     CommandAck out{};
@@ -145,7 +177,8 @@ TEST(MessageCodecTest, RejectsInsufficientBytes) {
 
 TEST(MessageCodecTest, MapsTypeOfForEachMessage) {
     EXPECT_EQ(type_of<RegisterRequest>, MessageType::register_request);
-    EXPECT_EQ(type_of<RegisterResponse>, MessageType::register_response);
+    EXPECT_EQ(type_of<RegisterOutcome>, MessageType::register_outcome);
+    EXPECT_EQ(type_of<RegisterAck>, MessageType::register_ack);
     EXPECT_EQ(type_of<Heartbeat>, MessageType::heartbeat);
     EXPECT_EQ(type_of<Status>, MessageType::status);
     EXPECT_EQ(type_of<Command>, MessageType::command);
