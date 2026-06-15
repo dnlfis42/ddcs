@@ -1,7 +1,7 @@
 #include "ddcs/agent/domain/simulated_device.hpp"
 
+#include "ddcs/device/command.hpp"
 #include "ddcs/device/mode.hpp"
-#include "ddcs/proto/cmd/command.hpp"
 
 #include <gtest/gtest.h>
 
@@ -9,7 +9,7 @@ namespace {
 
 using ddcs::agent::domain::SimulatedDevice;
 using ddcs::device::Mode;
-using ddcs::proto::cmd::SetMode;
+using ddcs::device::SetMode;
 
 TEST(SimulatedDeviceTest, DefaultsToNormalMode) {
     SimulatedDevice dev{};

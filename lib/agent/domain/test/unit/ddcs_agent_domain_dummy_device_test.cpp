@@ -1,7 +1,7 @@
 #include "ddcs/agent/domain/dummy_device.hpp"
 
+#include "ddcs/device/command.hpp"
 #include "ddcs/device/mode.hpp"
-#include "ddcs/proto/cmd/command.hpp"
 
 #include <gtest/gtest.h>
 
@@ -9,7 +9,7 @@ namespace {
 
 using ddcs::agent::domain::DummyDevice;
 using ddcs::device::Mode;
-using ddcs::proto::cmd::SetMode;
+using ddcs::device::SetMode;
 
 TEST(DummyDeviceTest, QueryReflectsInitialMode) {
     DummyDevice dev{Mode::safe};

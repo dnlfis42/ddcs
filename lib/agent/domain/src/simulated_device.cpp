@@ -14,7 +14,7 @@ DeviceState SimulatedDevice::query() {
     return DeviceState{.mode = mode_, .load = load, .temp = cfg_.temp};
 }
 
-bool SimulatedDevice::apply(proto::cmd::SetMode const& cmd) {
+bool SimulatedDevice::apply(device::SetMode const& cmd) {
     mode_ = cmd.mode;
     return true;
 }

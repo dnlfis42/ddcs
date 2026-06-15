@@ -7,7 +7,7 @@ target_link_libraries(
     PRIVATE
         compile_option
         ddcs::agent::domain
-        ddcs::proto::cmd
+        ddcs::device
         GTest::gtest_main
 )
 add_test(
@@ -24,7 +24,7 @@ target_link_libraries(
     PRIVATE
         compile_option
         ddcs::agent::domain
-        ddcs::proto::cmd
+        ddcs::device
         GTest::gtest_main
 )
 add_test(
