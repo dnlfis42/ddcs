@@ -9,7 +9,7 @@
 namespace ddcs::wire::frame {
 
 inline constexpr std::uint16_t magic_value{0xDDC5};
-inline constexpr std::size_t encoded_header_size{4};
+inline constexpr std::size_t header_size{4};
 inline constexpr std::size_t max_encodable_payload_size{std::numeric_limits<std::uint16_t>::max()};
 
 struct Header {
@@ -19,7 +19,7 @@ struct Header {
     bool operator==(Header const&) const = default;
 };
 
-using HeaderBytes = std::array<std::byte, encoded_header_size>;
+using HeaderBytes = std::array<std::byte, header_size>;
 
 // NOTE: decode는 byte layout만 풀고, parse는 protocol magic까지 검증한다.
 [[nodiscard]] HeaderBytes encode(std::uint16_t payload_length) noexcept;

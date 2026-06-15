@@ -88,7 +88,7 @@ template <std::unsigned_integral T>
 
 // string field wire 형식: [len(u16le)][UTF-8 bytes]
 [[nodiscard]] bool append_string(std::string_view value, std::span<std::byte>& out) noexcept {
-    if (value.size() > string_limit) {
+    if (value.size() > max_string_field_size) {
         return false;
     }
     if (!append_le(static_cast<std::uint16_t>(value.size()), out)) {
