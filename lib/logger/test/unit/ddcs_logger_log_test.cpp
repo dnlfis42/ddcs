@@ -29,7 +29,7 @@ protected:
     CaptureSink sink;
 };
 
-// 헤더에 ts/level/file/line/msg 가 포함되는지.
+// 헤더에 ts/level/file/line/msg가 포함되는지.
 TEST_F(LogTest, EmitsRequiredHeaderFields) {
     LOG_INFO("hello");
     ASSERT_EQ(sink.lines.size(), 1u);
@@ -115,7 +115,7 @@ TEST_F(LogTest, JsonEscapesLowControl) {
     EXPECT_NE(sink.lines.front().find("\"s\":\"\\u0001\""), std::string::npos);
 }
 
-// msg 도 escape.
+// msg도 escape.
 TEST_F(LogTest, MsgEscaped) {
     LOG_INFO("a\"b");
     ASSERT_EQ(sink.lines.size(), 1u);
@@ -150,7 +150,7 @@ TEST_F(LogTest, FileFieldIsBasename) {
     EXPECT_NE(l.find("\"file\":\"ddcs_logger_log_test.cpp\""), std::string::npos);
 }
 
-// enum kv: underlying integer 로 직렬화.
+// enum kv: underlying integer로 직렬화.
 TEST_F(LogTest, KvEnum) {
     using ddcs::logger::kv;
     enum class E : std::uint8_t { A = 0, B = 7 };
@@ -159,11 +159,11 @@ TEST_F(LogTest, KvEnum) {
     EXPECT_NE(sink.lines.front().find("\"e\":7"), std::string::npos);
 }
 
-// 로거 출력이 substring 이 아니라 *유효한 JSON* 인지 - ddcs::json 파서로 교차검증(escape 라운드트립).
+// 로거 출력이 substring이 아니라 *유효한 JSON* 인지. ddcs::json 파서로 교차검증(escape 라운드트립).
 TEST_F(LogTest, EmitsValidJsonParseableByJsonLib) {
     using ddcs::logger::kv;
     std::string tricky = "q\"b\\s\nt";
-    tricky.push_back(char{1}); // 제어문자 0x01 - escape 후 파싱이 원문 복원하는지
+    tricky.push_back(char{1}); // 제어문자 0x01. escape 후 파싱이 원문 복원하는지
 
     LOG_INFO("evt", kv("peer", "1.2.3.4:5"), kv("id", 42), kv("ok", true), kv("s", tricky));
 
@@ -176,7 +176,7 @@ TEST_F(LogTest, EmitsValidJsonParseableByJsonLib) {
     EXPECT_EQ(parsed->find("id")->as_int(), std::optional<std::int64_t>{42});
     EXPECT_EQ(parsed->find("ok")->as_bool(), std::optional<bool>{true});
     EXPECT_EQ(parsed->find("peer")->as_string(), std::optional<std::string_view>{"1.2.3.4:5"});
-    EXPECT_EQ(parsed->find("s")->as_string(), std::optional<std::string_view>{tricky}); // escape->parse 원문 복원
+    EXPECT_EQ(parsed->find("s")->as_string(), std::optional<std::string_view>{tricky}); // escape 후 parse로 원문 복원
 }
 
 // level_from_string: 대소문자 무시 매칭 + 미매칭 fallback.
@@ -198,10 +198,10 @@ TEST(LogLevelFromStringTest, FallsBackOnUnknown) {
     EXPECT_EQ(level_from_string("inf", Level::Error), Level::Error); // 부분일치 불가
 }
 
-// sink 없음 - crash 없이 무시.
+// sink 없음. crash 없이 무시.
 TEST(LogNoSinkTest, NoSinkIsSafe) {
     ddcs::logger::Logger::instance().set_level(ddcs::logger::Level::Debug);
-    // 명시적으로 sink 해제는 API 가 없으므로 다른 sink 로 갈음.
+    // 명시적으로 sink 해제는 API가 없으므로 다른 sink로 갈음.
     CaptureSink dummy;
     ddcs::logger::Logger::instance().set_sink(dummy);
     EXPECT_NO_THROW(LOG_INFO("ping"));

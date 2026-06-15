@@ -30,7 +30,7 @@ constexpr std::string_view level_name(Level lvl) noexcept {
     return "UNKNOWN";
 }
 
-// 파일 경로에서 basename(마지막 '/' 이후) 추출 - 컴파일타임 const char* 입력.
+// 파일 경로에서 basename(마지막 '/' 이후) 추출. 컴파일타임 const char* 입력.
 constexpr std::string_view basename_of(char const* path) noexcept {
     if (path == nullptr) {
         return {};
@@ -60,7 +60,7 @@ void append_iso8601(std::string& buf) {
     }
 }
 
-// JSON 문자열 escape 가 필요한 byte 인지.
+// JSON 문자열 escape가 필요한 byte 인지.
 constexpr bool needs_escape(unsigned char c) noexcept { return c == '"' || c == '\\' || c < 0x20; }
 
 void append_json_escaped(std::string& buf, std::string_view s) {
@@ -204,7 +204,7 @@ std::string& thread_buffer() noexcept {
 void StdoutSink::write(std::string_view line) noexcept {
     std::fwrite(line.data(), 1, line.size(), stdout);
     std::fputc('\n', stdout);
-    // 컨테이너 stdout 은 fully-buffered 라 명시 flush 필요. 가시성 우선.
+    // 컨테이너 stdout은 fully-buffered 라 명시 flush 필요. 가시성 우선.
     std::fflush(stdout);
 }
 

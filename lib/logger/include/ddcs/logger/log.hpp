@@ -16,26 +16,26 @@ enum class Level : std::uint8_t {
     Error = 3,
 };
 
-// 문자열 -> Level (대소문자 무시): "debug"/"info"/"warn"|"warning"/"error".
+// 문자열을 Level로 (대소문자 무시): "debug"/"info"/"warn"|"warning"/"error".
 // 미매칭이면 fallback. (env 기반 로그레벨 설정 등에 사용.)
 Level level_from_string(std::string_view name, Level fallback) noexcept;
 
 // 한 줄 출력 sink. 한 호출 = 한 로그 레코드 = 한 JSON 객체.
-// 줄바꿈은 호출자(Logger)가 line 안에 포함시키지 않음 - sink 가 책임.
+// 줄바꿈은 호출자(Logger)가 line 안에 포함시키지 않음. sink가 책임.
 class Sink {
 public:
     virtual ~Sink() = default;
     virtual void write(std::string_view line) noexcept = 0;
 };
 
-// stdout 으로 즉시 출력. Warn 이상만 flush.
+// stdout으로 즉시 출력. Warn 이상만 flush.
 class StdoutSink : public Sink {
 public:
     void write(std::string_view line) noexcept override;
     void flush() noexcept;
 };
 
-// 가변 kv 의 값 타입.
+// 가변 kv의 값 타입.
 template <typename T>
 struct Field {
     std::string_view key;
@@ -49,7 +49,7 @@ constexpr Field<std::decay_t<T>> kv(std::string_view k, T&& v) noexcept {
 
 namespace detail {
 
-// 각 value 타입을 JSON 으로 직렬화. buf 끝에 추기.
+// 각 value 타입을 JSON으로 직렬화. buf 끝에 추기.
 void append_value(std::string& buf, std::string_view v);
 void append_value(std::string& buf, bool v);
 void append_value(std::string& buf, std::nullptr_t);
@@ -126,7 +126,7 @@ private:
 
 } // namespace ddcs::logger
 
-// 매크로: level guard early exit - disabled 레벨에서 args 평가 안 함.
+// 매크로: level guard early exit로 disabled 레벨에서 args 평가 안 함.
 #define DDCS_LOG_IMPL(_lvl, _msg, ...)                                                                                 \
     do {                                                                                                               \
         auto& _ddcs_logger = ::ddcs::logger::Logger::instance();                                                       \
