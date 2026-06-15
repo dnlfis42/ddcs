@@ -1,6 +1,6 @@
-#include "ddcs/agent/port/inbound.hpp"
-#include "ddcs/agent/port/outbound.hpp"
-#include "ddcs/agent/port/timer_id.hpp"
+#include "ddcs/agent/app/port/inbound.hpp"
+#include "ddcs/agent/app/port/outbound.hpp"
+#include "ddcs/agent/app/port/timer_id.hpp"
 
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
@@ -13,9 +13,9 @@
 
 namespace {
 
-using ddcs::agent::port::Inbound;
-using ddcs::agent::port::Outbound;
-using ddcs::agent::port::TimerId;
+using ddcs::agent::app::port::Inbound;
+using ddcs::agent::app::port::Outbound;
+using ddcs::agent::app::port::TimerId;
 using ddcs::common::LinearBuffer;
 using ddcs::common::PoolHandle;
 
@@ -23,7 +23,7 @@ using ddcs::common::PoolHandle;
 class NoopInbound : public Inbound {
 public:
     void on_connected() override {}
-    void on_recv(std::uint8_t, PoolHandle<LinearBuffer>) override {}
+    void on_recv(PoolHandle<LinearBuffer>) override {}
     void on_disconnected() override {}
     void on_timer(TimerId) override {}
 };
@@ -31,7 +31,7 @@ public:
 class NoopOutbound : public Outbound {
 public:
     PoolHandle<LinearBuffer> payload_buffer() override { return {}; }
-    void send(std::uint8_t, PoolHandle<LinearBuffer>) override {}
+    void send(PoolHandle<LinearBuffer>) override {}
     void schedule_timer(TimerId, std::chrono::nanoseconds) override {}
     void cancel_timer(TimerId) override {}
     void close() override {}

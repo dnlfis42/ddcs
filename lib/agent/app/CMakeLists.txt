@@ -7,12 +7,16 @@ target_sources(
     PUBLIC
         FILE_SET HEADERS
             BASE_DIRS include
-            FILES include/ddcs/agent/app/session_service.hpp
+            FILES
+                include/ddcs/agent/app/port/inbound.hpp
+                include/ddcs/agent/app/port/outbound.hpp
+                include/ddcs/agent/app/port/timer_id.hpp
+                include/ddcs/agent/app/session_service.hpp
 )
 target_link_libraries(
     ddcs_agent_app
-    PRIVATE compile_option ddcs::logger ddcs::proto::cmd ddcs::json
-    PUBLIC ddcs::common ddcs::agent::domain ddcs::agent::port ddcs::proto::msg
+    PRIVATE compile_option ddcs::logger ddcs::json ddcs::wire::acmp ddcs::device
+    PUBLIC ddcs::common ddcs::agent::domain
 )
 
 add_subdirectory(test/unit)

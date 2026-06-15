@@ -1,9 +1,9 @@
 #include "ddcs/agent/infra/connector.hpp"
 
 #include "ddcs/logger/log.hpp"
-#include "ddcs/proto/frame/frame.hpp"
 #include "ddcs/runtime/reactor.hpp"
 #include "ddcs/runtime/timer_scheduler.hpp"
+#include "ddcs/wire/frame/frame.hpp"
 
 #include <cassert>
 #include <cerrno>
@@ -20,11 +20,15 @@
 
 namespace ddcs::agent::infra {
 
+namespace frame = ddcs::wire::frame;
+
 namespace {
 
 constexpr std::size_t pool_chunk{64};
-constexpr std::size_t payload_buf_capacity{proto::frame::header_size + proto::frame::length_limit};
-constexpr std::uint32_t connect_interest{EPOLLOUT | EPOLLET}; // 완료를 EPOLLOUT 으로 감지
+// frame이 실을 수 있는 payload 상한. 최대 frame이 rx ring에 통째로 들어가야 부분 frame 대기가 끝난다.
+constexpr std::size_t payload_capacity{inbound_buffer_capacity - frame::header_size};
+constexpr std::size_t payload_buf_capacity{frame::header_size + payload_capacity};
+constexpr std::uint32_t connect_interest{EPOLLOUT | EPOLLET}; // 완료를 EPOLLOUT으로 감지
 constexpr std::uint32_t read_interest{EPOLLIN | EPOLLET};
 
 } // namespace
@@ -37,7 +41,7 @@ Connector::~Connector() {
     if (connection_.in_epoll()) {
         reactor_.del(connection_.fd());
     }
-    // connection_ dtor 가 fd 를 닫고, 타이머는 TimerScheduler 와 함께 소멸.
+    // connection_ dtor가 fd를 닫고, 타이머는 TimerScheduler와 함께 소멸.
 }
 
 void Connector::start() { try_connect(); }
@@ -46,26 +50,25 @@ void Connector::start() { try_connect(); }
 
 common::PoolHandle<common::LinearBuffer> Connector::payload_buffer() {
     auto buf = payload_pool_.acquire();
-    buf->reserve_front(proto::frame::header_size); // frame header 자리 확보
+    buf->reserve_front(frame::header_size); // frame header 자리 확보
     return buf;
 }
 
-void Connector::send(std::uint8_t type, common::PoolHandle<common::LinearBuffer> body) {
+void Connector::send(common::PoolHandle<common::LinearBuffer> message) {
     if (connection_.state() != Connection::State::connected) {
-        return; // 미연결 -> 드롭
+        return; // 미연결이면 드롭
     }
-    if (body->size() > proto::frame::length_limit) {
-        assert(false && "payload length exceeds length_limit");
+    // message는 acmp 메시지 통째(`[type][body]`). frame은 length만 싣는다.
+    if (message->size() > payload_capacity) {
+        assert(false && "payload length exceeds payload_capacity");
         return;
     }
-    auto const hdr = proto::frame::encode(
-        {.magic = proto::frame::magic, .type = type, .length = static_cast<std::uint16_t>(body->size())}
-    );
-    if (!body->write_front({hdr.data(), hdr.size()})) {
+    auto const hdr = frame::encode(static_cast<std::uint16_t>(message->size()));
+    if (!message->write_front({hdr.data(), hdr.size()})) {
         assert(false && "payload_buffer() 로 받지 않은 버퍼 - headroom 없음");
         return;
     }
-    connection_.tx_enqueue(std::move(body));
+    connection_.tx_enqueue(std::move(message));
     update_interest(); // EPOLLOUT 무장
 }
 
@@ -97,12 +100,12 @@ void Connector::on_timer_event(runtime::TimerId id) {
     }
     for (std::size_t i = 0; i < timer_slot_count; ++i) {
         if (app_timer_.at(i) == id) {
-            app_timer_.at(i) = runtime::TimerId{}; // one-shot 소비 (app 이 on_timer 안에서 재예약 가능)
+            app_timer_.at(i) = runtime::TimerId{}; // one-shot 소비 (app이 on_timer 안에서 재예약 가능)
             handler_->on_timer(static_cast<TimerId>(i));
             return;
         }
     }
-    // 취소 후 잔여 등 - 무시
+    // 취소 후 잔여 등은 무시
 }
 
 // --- 연결 수명 ------------------------------------------------------------
@@ -190,7 +193,7 @@ void Connector::on_connecting(std::uint32_t events) {
     }
     connection_.set_io_interest(read_interest);
     LOG_INFO("agent_transport.connected", ddcs::logger::kv("host", host_), ddcs::logger::kv("port", port_));
-    handler_->on_connected(); // app -> register 시작 (send 가 EPOLLOUT 무장)
+    handler_->on_connected(); // app이 register 시작 (send가 EPOLLOUT 무장)
 }
 
 void Connector::on_connected_io(std::uint32_t events) {
@@ -203,13 +206,13 @@ void Connector::on_connected_io(std::uint32_t events) {
             auto const r = connection_.receive();
             framing();
             if (connection_.state() != Connection::State::connected) {
-                return; // framing 이 close->reconnect 유발
+                return; // framing이 연결 종료와 재연결을 유발
             }
             if (r == Connection::IoResult::would_block || r == Connection::IoResult::ok) {
                 break;
             }
             if (r == Connection::IoResult::full) {
-                continue; // framing 이 공간 확보 -> 더 읽기
+                continue; // framing이 공간 확보 후 더 읽기
             }
             disconnect_and_reconnect(); // peer_closed / error
             return;
@@ -227,38 +230,39 @@ void Connector::on_connected_io(std::uint32_t events) {
 // rx 버퍼에서 완성 프레임을 모두 추출해 위로 올린다.
 void Connector::framing() {
     for (;;) {
-        if (connection_.rx_size() < proto::frame::header_size) {
+        if (connection_.rx_size() < frame::header_size) {
             return;
         }
-        proto::frame::HeaderBytes hb{};
+        frame::HeaderBytes hb{};
         connection_.rx_peek({hb.data(), hb.size()});
-        auto const parsed_header = proto::frame::parse(hb);
+        auto const parsed_header = frame::parse(hb);
         if (!parsed_header) {
             LOG_WARN("agent_transport.bad_magic");
             disconnect_and_reconnect();
             return;
         }
         auto const header = *parsed_header;
-        std::size_t const total = proto::frame::header_size + header.length;
-        if (total > inbound_buffer_capacity) {
+        if (header.payload_length > payload_capacity) {
             LOG_WARN("agent_transport.frame_too_long");
             disconnect_and_reconnect();
             return;
         }
+        std::size_t const total = frame::header_size + header.payload_length;
         if (connection_.rx_size() < total) {
             return; // 부분 프레임
         }
 
-        connection_.rx_consume(proto::frame::header_size);
+        connection_.rx_consume(frame::header_size);
         auto payload = payload_pool_.acquire();
-        if (header.length > 0) {
+        if (header.payload_length > 0) {
             auto const w = payload->writable();
-            connection_.rx_read({w.data(), header.length});
-            payload->commit(header.length);
+            connection_.rx_read({w.data(), header.payload_length});
+            payload->commit(header.payload_length);
         }
-        handler_->on_recv(header.type, std::move(payload));
+        // payload = acmp `[type][body]` 통째. type 디스패치는 app(peek_type)이 한다.
+        handler_->on_recv(std::move(payload));
         if (connection_.state() != Connection::State::connected) {
-            return; // on_recv 중 app 이 close()
+            return; // on_recv 중 app이 close()
         }
     }
 }
@@ -284,10 +288,10 @@ void Connector::disconnect_and_reconnect() {
     if (connection_.in_epoll()) {
         reactor_.del(connection_.fd());
     }
-    connection_.reset(); // fd close(FIN) + 버퍼 비움 -> idle
+    connection_.reset(); // fd close(FIN) + 버퍼 비움으로 idle화
     cancel_app_timers();
     if (handler_ != nullptr) {
-        handler_->on_disconnected(); // app FSM -> idle (멱등)
+        handler_->on_disconnected(); // app FSM을 idle로 (멱등)
     }
     arm_reconnect();
     LOG_DEBUG("agent_transport.disconnected");

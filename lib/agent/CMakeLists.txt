@@ -1,6 +1,5 @@
 # 라이브러리 경로
 add_subdirectory(domain)
-add_subdirectory(port)
 add_subdirectory(app)
 add_subdirectory(infra)
 
