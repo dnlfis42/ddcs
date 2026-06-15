@@ -20,8 +20,8 @@ class Connector; // on_fd_event 위임 대상 (순환 의존 회피)
 inline constexpr std::size_t inbound_buffer_capacity{1 << 12};
 
 // 단일 클라이언트 연결. 순수 메커니즘: syscall + 버퍼 + IoResult 보고만 한다.
-// 상태 전이는 스스로 하지 않고 Connector 가 transition()/reset() 으로 구동한다.
-// runtime::FdHandler 로서 Reactor 의 readiness 통지를 정책 없이 Connector 로 위임한다.
+// 상태 전이는 스스로 하지 않고 Connector가 transition()/reset()으로 구동한다.
+// runtime::FdHandler 로서 Reactor의 readiness 통지를 정책 없이 Connector로 위임한다.
 class Connection : public runtime::FdHandler {
 public:
     enum class State : std::uint8_t {
@@ -39,14 +39,14 @@ public:
     };
 
     Connection() = default;
-    ~Connection() override = default; // Fd RAII 가 fd 를 닫는다
+    ~Connection() override = default; // Fd RAII가 fd를 닫는다
 
     Connection(Connection const&) = delete;
     Connection& operator=(Connection const&) = delete;
     Connection(Connection&&) noexcept = delete;
     Connection& operator=(Connection&&) noexcept = delete;
 
-public: // runtime::FdHandler - 정책 없음. 곧장 Connector 로 위임.
+public: // runtime::FdHandler. 정책 없음. 곧장 Connector로 위임.
     void on_fd_event(std::uint32_t events) override;
 
 public: // query
@@ -63,7 +63,7 @@ public: // mutation (Connector 전용)
     void enter_epoll() noexcept { in_epoll_ = true; }
     void leave_epoll() noexcept { in_epoll_ = false; }
     void set_io_interest(std::uint32_t io_interest) noexcept { io_interest_ = io_interest; }
-    void reset() noexcept; // idle 로. fd 닫고 버퍼 비움
+    void reset() noexcept; // idle로. fd 닫고 버퍼 비움
 
 public: // I/O
     IoResult receive();

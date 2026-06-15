@@ -8,7 +8,7 @@ namespace ddcs::agent::infra {
 
 // 재연결 backoff 정책: exponential growth + jitter, cap 적용.
 // 수열(jitter 무시): 1s, 2s, 4s, 8s, 16s, 30s, 30s, ...
-// 호출자는 next_delay() 로 timer 무장 -> 연결 성공 시 reset().
+// 호출자는 next_delay()로 timer 무장 후, 연결 성공 시 reset().
 class BackoffSchedule {
 public:
     BackoffSchedule() noexcept = default;
@@ -21,7 +21,7 @@ public:
     // 다음 backoff 지연. 호출마다 attempt++.
     std::chrono::nanoseconds next_delay() noexcept;
 
-    // 연결 성공 시 호출. attempt 카운터 0 으로.
+    // 연결 성공 시 호출. attempt 카운터 0으로.
     void reset() noexcept { attempt_ = 0; }
 
     std::uint32_t attempt() const noexcept { return attempt_; }
@@ -30,7 +30,7 @@ private:
     std::uint32_t next_rand() noexcept;
 
     std::uint32_t attempt_{0};
-    std::uint32_t rng_state_{0xdeadbeefu}; // 결정적 jitter(테스트 가능); 운영 시 ctor 로 시드 주입.
+    std::uint32_t rng_state_{0xdeadbeefu}; // 결정적 jitter(테스트 가능); 운영 시 ctor로 시드 주입.
 };
 
 } // namespace ddcs::agent::infra

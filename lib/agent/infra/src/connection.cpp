@@ -23,14 +23,14 @@ bool can_transition(Connection::State from, Connection::State to) noexcept {
     case S::connecting:
         return to == S::connected;
     case S::connected:
-        return false; // 끊김은 reset() 으로 직접 idle 화
+        return false; // 끊김은 reset()으로 직접 idle 화
     }
     return false;
 }
 
 } // namespace
 
-// 정책 없음: Reactor 가 알려온 readiness 를 Connector 로 곧장 위임.
+// 정책 없음: Reactor가 알려온 readiness를 Connector로 곧장 위임.
 void Connection::on_fd_event(std::uint32_t events) { connector_->on_connection_event(*this, events); }
 
 void Connection::assign(common::Fd fd, std::uint32_t io_interest) noexcept {
@@ -112,7 +112,7 @@ Connection::IoResult Connection::transmit() {
 
         int const err = errno;
         if (err == EAGAIN || err == EWOULDBLOCK) {
-            return IoResult::would_block; // 커널 버퍼 포화 -> EPOLLOUT 무장
+            return IoResult::would_block; // 커널 버퍼 포화 시 EPOLLOUT 무장
         }
         return IoResult::error;
     }

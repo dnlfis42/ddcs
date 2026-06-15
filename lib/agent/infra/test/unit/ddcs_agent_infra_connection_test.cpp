@@ -20,7 +20,7 @@ using ddcs::agent::infra::Connection;
 using ddcs::common::Fd;
 using ddcs::common::LinearBuffer;
 
-// socketpair 한쪽을 connected Connection 으로 만든다.
+// socketpair 한쪽을 connected Connection으로 만든다.
 void make_connected(Connection& conn, int fd) {
     conn.assign(Fd{fd}, 0);
     ASSERT_TRUE(conn.transition(Connection::State::connecting));
@@ -72,7 +72,7 @@ TEST(AgentConnectionTest, ReceiveReportsPeerClosed) {
     make_connected(conn, sv[0]);
     {
         Fd const peer{sv[1]};
-    } // 스코프 종료 -> close -> FIN
+    } // 스코프 종료 후 close되어 FIN
 
     EXPECT_EQ(conn.receive(), Connection::IoResult::peer_closed);
 }

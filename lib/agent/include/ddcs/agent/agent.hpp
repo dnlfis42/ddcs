@@ -25,15 +25,15 @@ public:
         std::string controller_host{"127.0.0.1"};
         std::uint16_t controller_port{8080};
         common::Uuid agent_uuid{}; // ctor 호출 전 채워서 줄 것
-        // uuid 가 부팅마다 새로 생성된 random 이면 true - controller 의 kick-old/identity persistence 가
-        // 의미를 잃으므로 ctor 가 LOG_WARN 으로 운영자에게 알린다.
+        // uuid가 부팅마다 새로 생성된 random이면 true이고, controller의 kick-old/identity persistence가
+        // 의미를 잃으므로 ctor가 LOG_WARN으로 운영자에게 알린다.
         bool agent_uuid_is_ephemeral{false};
         std::unique_ptr<domain::Device> device; // 필수
 
         app::SessionService::Config session{};
 
         logger::Level log_level{logger::Level::Info};
-        logger::Sink* log_sink{nullptr}; // nullptr -> 내부 StdoutSink
+        logger::Sink* log_sink{nullptr}; // nullptr이면 내부 StdoutSink
     };
 
     explicit Agent(Config cfg);

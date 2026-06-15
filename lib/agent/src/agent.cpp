@@ -21,7 +21,7 @@ Agent::Agent(Config cfg)
 
 Agent::~Agent() {
     stop();
-    // 멤버 dtor 역순: session_ -> connector_ -> timer_scheduler_ -> signal_fd_ -> reactor_ -> device_.
+    // 멤버 dtor 역순: session_, connector_, timer_scheduler_, signal_fd_, reactor_, device_ 순서로.
 }
 
 void Agent::start() {
