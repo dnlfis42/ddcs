@@ -23,11 +23,11 @@ TEST(JsonValueTest, ScalarTypePredicatesAndAccessors) {
 
     EXPECT_TRUE(Value{42}.is_number());
     EXPECT_EQ(Value{42}.as_int(), std::optional<std::int64_t>{42});
-    EXPECT_EQ(Value{42}.as_double(), std::optional<double>{42.0}); // 정수도 double 로
+    EXPECT_EQ(Value{42}.as_double(), std::optional<double>{42.0}); // 정수도 double로
 
     EXPECT_TRUE(Value{3.5}.is_number());
     EXPECT_EQ(Value{3.5}.as_double(), std::optional<double>{3.5});
-    EXPECT_EQ(Value{3.5}.as_int(), std::nullopt); // double -> as_int 는 strict
+    EXPECT_EQ(Value{3.5}.as_int(), std::nullopt); // double이면 as_int는 strict하게 거절
 
     EXPECT_TRUE(Value{"hi"}.is_string());
     EXPECT_EQ(Value{"hi"}.as_string(), std::optional<std::string_view>{"hi"});
@@ -53,13 +53,13 @@ TEST(JsonValueTest, ObjectSetFindContainsPreservesOrder) {
     EXPECT_FALSE(obj.contains("absent"));
     EXPECT_EQ(obj.find("absent"), nullptr);
 
-    // 삽입 순서 보존 확인(dump 로)
+    // 삽입 순서 보존 확인(dump로)
     EXPECT_EQ(obj.dump(), R"({"cpu":42.5,"mode":"perf","count":7})");
 }
 
 TEST(JsonValueTest, SetUpdatesInPlaceKeepingPosition) {
     Value obj = Value::object();
-    obj.set("a", 1).set("b", 2).set("a", 99); // a 갱신 - 위치 유지
+    obj.set("a", 1).set("b", 2).set("a", 99); // a 갱신, 위치 유지
     EXPECT_EQ(obj.size(), 2u);
     EXPECT_EQ(obj.find("a")->as_int(), std::optional<std::int64_t>{99});
     EXPECT_EQ(obj.dump(), R"({"a":99,"b":2})");
@@ -133,7 +133,7 @@ TEST(JsonValueTest, ParsesScalars) {
 TEST(JsonValueTest, ParseDistinguishesIntAndDouble) {
     EXPECT_TRUE(Value::parse("42")->as_int().has_value()); // 정수
     EXPECT_EQ(Value::parse("42")->as_double(), std::optional<double>{42.0});
-    EXPECT_FALSE(Value::parse("42.0")->as_int().has_value()); // '.' -> double
+    EXPECT_FALSE(Value::parse("42.0")->as_int().has_value()); // '.' 있으면 double
     EXPECT_EQ(Value::parse("42.0")->as_double(), std::optional<double>{42.0});
 }
 
@@ -156,7 +156,7 @@ TEST(JsonValueTest, ForEachMemberIteratesObjectInInsertionOrder) {
     EXPECT_EQ(keys[1], "b");
     EXPECT_EQ(keys[2], "c");
 
-    int n = 0; // non-object -> no-op
+    int n = 0; // non-object면 no-op
     Value{42}.for_each_member([&](std::string_view, Value const&) { ++n; });
     EXPECT_EQ(n, 0);
 }
@@ -184,7 +184,7 @@ TEST(JsonValueTest, RoundTripsThroughDumpAndParse) {
     EXPECT_EQ(reparsed->dump(), root.dump()); // 텍스트 동등
 }
 
-// --- parse 실패 -> nullopt ----------------------------------------------------
+// --- parse 실패 시 nullopt ----------------------------------------------------
 TEST(JsonValueTest, RejectsMalformedInput) {
     EXPECT_EQ(Value::parse(""), std::nullopt);            // 빈 입력
     EXPECT_EQ(Value::parse("  "), std::nullopt);          // 공백뿐
@@ -205,7 +205,7 @@ TEST(JsonValueTest, RejectsExcessiveNesting) {
     for (int i = 0; i < 200; ++i) {
         deep += '[';
     }
-    EXPECT_EQ(Value::parse(deep), std::nullopt); // max_depth 초과 -> nullopt(스택오버플로 방어)
+    EXPECT_EQ(Value::parse(deep), std::nullopt); // max_depth 초과 시 nullopt(스택오버플로 방어)
 }
 
 } // namespace

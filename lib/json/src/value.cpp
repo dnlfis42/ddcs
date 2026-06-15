@@ -62,7 +62,7 @@ std::optional<double> Value::as_double() const noexcept {
         return *p;
     }
     if (auto const* p = std::get_if<std::int64_t>(&data_)) {
-        return static_cast<double>(*p); // 정수도 double 로 허용
+        return static_cast<double>(*p); // 정수도 double로 허용
     }
     return std::nullopt;
 }
@@ -76,7 +76,7 @@ std::optional<std::string_view> Value::as_string() const noexcept {
 // --- object / array 연산 -----------------------------------------------------
 Value& Value::set(std::string key, Value v) {
     if (is_null()) {
-        data_ = Object{}; // null -> object 승격
+        data_ = Object{}; // null이면 object로 승격
     }
     auto& obj = std::get<Object>(data_);
     for (auto& [k, existing] : obj) {
@@ -106,7 +106,7 @@ bool Value::contains(std::string_view key) const noexcept { return find(key) != 
 
 Value& Value::push_back(Value v) {
     if (is_null()) {
-        data_ = Array{}; // null -> array 승격
+        data_ = Array{}; // null이면 array로 승격
     }
     std::get<Array>(data_).push_back(std::move(v));
     return *this;
@@ -169,7 +169,7 @@ void dump_string(std::string& out, std::string_view s) {
             break;
         default:
             if (static_cast<unsigned char>(c) < 0x20) {
-                append_hex4(out, static_cast<unsigned char>(c)); // 제어문자 -> \u00XX
+                append_hex4(out, static_cast<unsigned char>(c)); // 제어문자는 \u00XX로
             } else {
                 out += c; // UTF-8 바이트는 그대로 통과(유효 JSON)
             }
@@ -180,7 +180,7 @@ void dump_string(std::string& out, std::string_view s) {
 
 void dump_double(std::string& out, double d) {
     if (!std::isfinite(d)) {
-        out += "null"; // NaN/Inf 는 JSON 비표준 -> null 로 방어
+        out += "null"; // NaN/Inf는 JSON 비표준이라 null로 방어
         return;
     }
     std::array<char, 32> buf{};
@@ -244,7 +244,7 @@ std::string Value::dump() const {
 // --- parse (역직렬화) --------------------------------------------------------
 namespace {
 
-constexpr int max_depth{64}; // 재귀 깊이 상한 - 악의적/사고성 깊은 중첩 방어
+constexpr int max_depth{64}; // 재귀 깊이 상한. 악의적/사고성 깊은 중첩 방어
 
 struct Parser {
     std::string_view s;
@@ -265,7 +265,7 @@ struct Parser {
         }
     }
 
-    // 4 hex -> 코드포인트. 실패 시 nullopt.
+    // 4 hex를 코드포인트로. 실패 시 nullopt.
     std::optional<unsigned> parse_hex4() {
         if (s.size() - pos < 4) {
             return std::nullopt;
@@ -348,7 +348,7 @@ struct Parser {
                     if (!cp) {
                         return std::nullopt;
                     }
-                    if (*cp >= 0xD800 && *cp <= 0xDBFF) { // high surrogate -> low 필요
+                    if (*cp >= 0xD800 && *cp <= 0xDBFF) { // high surrogate면 low 필요
                         if (s.size() - pos < 2 || s[pos] != '\\' || s[pos + 1] != 'u') {
                             return std::nullopt;
                         }
@@ -370,7 +370,7 @@ struct Parser {
                     return std::nullopt; // 미지 escape
                 }
             } else if (static_cast<unsigned char>(c) < 0x20) {
-                return std::nullopt; // 비이스케이프 제어문자 -> strict reject
+                return std::nullopt; // 비이스케이프 제어문자는 strict reject
             } else {
                 out += c;
             }
