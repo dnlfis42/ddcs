@@ -137,8 +137,7 @@ using PoolHandle = typename ObjectPool<T>::Handle;
 template <typename T, typename... Args>
     requires std::constructible_from<T, std::decay_t<Args> const&...> &&
              (std::copy_constructible<std::decay_t<Args>> && ...)
-[[nodiscard]] ObjectPool<T>
-make_object_pool(std::size_t initial_capacity, std::size_t chunk_size, Args&&... args) {
+[[nodiscard]] ObjectPool<T> make_object_pool(std::size_t initial_capacity, std::size_t chunk_size, Args&&... args) {
     return ObjectPool<T>{
         [... args = std::forward<Args>(args)](void* p) { std::construct_at(static_cast<T*>(p), args...); },
         initial_capacity, chunk_size

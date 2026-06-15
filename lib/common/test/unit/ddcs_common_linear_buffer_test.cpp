@@ -2,7 +2,6 @@
 
 #include <array>
 #include <cstddef>
-#include <cstdint>
 #include <cstring>
 #include <span>
 
@@ -45,43 +44,6 @@ TEST(LinearBufferTest, ReportsStateAfterPartialWrite) {
     EXPECT_EQ(lb.size(), 3u);
     EXPECT_EQ(lb.available(), test_capacity - 3);
     EXPECT_EQ(lb.capacity(), test_capacity);
-}
-
-TEST(LinearBufferTest, ReportsClearStreamStateOnInit) {
-    LinearBuffer lb{test_capacity};
-    EXPECT_FALSE(lb.stream_failed());
-}
-
-TEST(LinearBufferTest, SetsStreamFailedAfterStreamOverflow) {
-    LinearBuffer lb{3};
-    int v{1};
-    lb << v;
-    EXPECT_TRUE(lb.stream_failed());
-}
-
-TEST(LinearBufferTest, SetsStreamFailedAfterStreamUnderflow) {
-    LinearBuffer lb{test_capacity};
-    int out{};
-    lb >> out;
-    EXPECT_TRUE(lb.stream_failed());
-}
-
-TEST(LinearBufferTest, MarksStreamAsFailedExplicitly) {
-    LinearBuffer lb{test_capacity};
-    lb.set_stream_failed();
-    EXPECT_TRUE(lb.stream_failed());
-}
-
-TEST(LinearBufferTest, LeavesStreamOpsNoOpAfterStreamFailure) {
-    LinearBuffer lb{test_capacity};
-    lb.set_stream_failed();
-    int v{42};
-    lb << v;
-    EXPECT_EQ(lb.size(), 0u);
-
-    int out{99};
-    lb >> out;
-    EXPECT_EQ(out, 99);
 }
 
 TEST(LinearBufferTest, ReturnsCurrentReadableData) {
@@ -181,19 +143,6 @@ TEST(LinearBufferTest, RejectsConsumeBeyondReadableData) {
     EXPECT_EQ(lb.size(), 2u);
 }
 
-TEST(LinearBufferTest, ResetsPositionsAndStreamFailureOnClear) {
-    LinearBuffer lb{test_capacity};
-    lb << 1 << 2 << 3;
-    lb.set_stream_failed();
-    ASSERT_TRUE(lb.stream_failed());
-
-    lb.clear();
-    EXPECT_TRUE(lb.empty());
-    EXPECT_EQ(lb.size(), 0u);
-    EXPECT_EQ(lb.available(), test_capacity);
-    EXPECT_FALSE(lb.stream_failed());
-}
-
 TEST(LinearBufferTest, RoundTripsWrittenBytes) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
@@ -270,41 +219,6 @@ TEST(LinearBufferTest, RejectsWriteFrontWithoutHeadroom) {
     std::array<std::byte, 2> header{};
     EXPECT_FALSE(lb.write_front(header));
     EXPECT_EQ(lb.size(), 3u);
-}
-
-TEST(LinearBufferTest, RoundTripsSingleIntThroughStreamOps) {
-    LinearBuffer lb{test_capacity};
-    lb << 42;
-    EXPECT_EQ(lb.size(), sizeof(int));
-
-    int out{};
-    lb >> out;
-    EXPECT_EQ(out, 42);
-    EXPECT_TRUE(lb.empty());
-    EXPECT_FALSE(lb.stream_failed());
-}
-
-TEST(LinearBufferTest, RoundTripsMixedArithmeticTypesThroughStreamOps) {
-    LinearBuffer lb{64};
-    bool b{true};
-    int i{-7};
-    std::uint64_t u{0xDEADBEEFCAFEBABEull};
-    double d{3.141592};
-    lb << b << i << u << d;
-    EXPECT_EQ(lb.size(), sizeof(b) + sizeof(i) + sizeof(u) + sizeof(d));
-
-    bool b_out{};
-    int i_out{};
-    std::uint64_t u_out{};
-    double d_out{};
-    lb >> b_out >> i_out >> u_out >> d_out;
-
-    EXPECT_EQ(b_out, true);
-    EXPECT_EQ(i_out, -7);
-    EXPECT_EQ(u_out, 0xDEADBEEFCAFEBABEull);
-    EXPECT_DOUBLE_EQ(d_out, 3.141592);
-    EXPECT_TRUE(lb.empty());
-    EXPECT_FALSE(lb.stream_failed());
 }
 
 } // namespace ddcs::common

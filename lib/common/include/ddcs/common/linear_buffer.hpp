@@ -4,7 +4,6 @@
 #include <cstring>
 #include <memory>
 #include <span>
-#include <type_traits>
 
 namespace ddcs::common {
 
@@ -22,26 +21,23 @@ public:
     std::size_t size() const noexcept { return write_pos_ - read_pos_; }
     std::size_t available() const noexcept { return capacity_ - write_pos_; }
     bool empty() const noexcept { return read_pos_ == write_pos_; }
-    [[nodiscard]] bool stream_failed() const noexcept { return stream_failed_; }
 
     std::span<std::byte const> readable() const noexcept { return {buffer_.get() + read_pos_, size()}; }
     std::span<std::byte> writable() noexcept { return {buffer_.get() + write_pos_, available()}; }
 
-    void set_stream_failed() noexcept { stream_failed_ = true; }
-
-    bool commit(std::size_t n) noexcept {
-        if (available() < n) {
+    bool peek(std::span<std::byte> dst) const noexcept {
+        if (size() < dst.size()) {
             return false;
         }
-        write_pos_ += n;
+        std::memcpy(dst.data(), buffer_.get() + read_pos_, dst.size());
         return true;
     }
 
-    bool consume(std::size_t n) noexcept {
-        if (size() < n) {
+    bool read(std::span<std::byte> dst) noexcept {
+        if (!peek(dst)) {
             return false;
         }
-        read_pos_ += n;
+        read_pos_ += dst.size();
         return true;
     }
 
@@ -73,56 +69,25 @@ public:
         return true;
     }
 
-    bool read(std::span<std::byte> dst) noexcept {
-        if (!peek(dst)) {
+    bool commit(std::size_t n) noexcept {
+        if (available() < n) {
             return false;
         }
-        read_pos_ += dst.size();
+        write_pos_ += n;
         return true;
     }
 
-    bool peek(std::span<std::byte> dst) const noexcept {
-        if (size() < dst.size()) {
+    bool consume(std::size_t n) noexcept {
+        if (size() < n) {
             return false;
         }
-        std::memcpy(dst.data(), buffer_.get() + read_pos_, dst.size());
+        read_pos_ += n;
         return true;
-    }
-
-    template <typename T>
-        requires std::is_arithmetic_v<T>
-    LinearBuffer& operator<<(T v) noexcept {
-        if (stream_failed_) {
-            return *this;
-        }
-        if (available() < sizeof(T)) {
-            stream_failed_ = true;
-            return *this;
-        }
-        std::memcpy(buffer_.get() + write_pos_, &v, sizeof(T));
-        write_pos_ += sizeof(T);
-        return *this;
-    }
-
-    template <typename T>
-        requires std::is_arithmetic_v<T>
-    LinearBuffer& operator>>(T& out) noexcept {
-        if (stream_failed_) {
-            return *this;
-        }
-        if (size() < sizeof(T)) {
-            stream_failed_ = true;
-            return *this;
-        }
-        std::memcpy(&out, buffer_.get() + read_pos_, sizeof(T));
-        read_pos_ += sizeof(T);
-        return *this;
     }
 
     void clear() noexcept {
         read_pos_ = 0;
         write_pos_ = 0;
-        stream_failed_ = false;
     }
 
     void reset() noexcept { clear(); }
@@ -132,7 +97,6 @@ private:
     std::size_t capacity_;
     std::size_t read_pos_{0};
     std::size_t write_pos_{0};
-    bool stream_failed_{false};
 };
 
 } // namespace ddcs::common
