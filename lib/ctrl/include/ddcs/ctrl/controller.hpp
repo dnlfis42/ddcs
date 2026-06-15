@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 
+#include <cstddef>
 #include <cstdint>
 
 namespace ddcs::ctrl {
@@ -17,6 +18,7 @@ public:
     struct Config {
         std::uint16_t listen_port{0}; // 0 = ephemeral
         int accept_backlog{128};
+        std::size_t max_payload_size{1024}; // frame당 acmp payload 상한(frame header 제외)
         // nullopt = metrics 엔드포인트 비활성. 값이 있으면 그 포트로 바인드(0 = ephemeral).
         std::optional<std::uint16_t> metrics_port{};
         std::chrono::nanoseconds handshake_timeout{std::chrono::seconds{3}}; // 등록 미완(handshaking/confirming) 시한
@@ -29,7 +31,7 @@ public:
         std::optional<std::filesystem::path> policy_path{};
 
         logger::Level log_level{logger::Level::Info};
-        // nullptr 이면 내부 기본 StdoutSink 설치. 직접 주입 시 그 sink 우선.
+        // nullptr이면 내부 기본 StdoutSink 설치. 직접 주입 시 그 sink 우선.
         logger::Sink* log_sink{nullptr};
     };
 

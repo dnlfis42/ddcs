@@ -11,8 +11,8 @@
 #include "ddcs/ctrl/app/device/port/command_buffer.hpp"
 #include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
-#include "ddcs/dacp/frame/frame.hpp"
-#include "ddcs/dacp/msg/message.hpp"
+#include "ddcs/wire/acmp/message.hpp"
+#include "ddcs/wire/frame/frame.hpp"
 
 #include <array>
 #include <cstddef>
@@ -27,7 +27,8 @@
 
 namespace {
 
-namespace msg = ddcs::dacp::msg;
+namespace acmp = ddcs::wire::acmp;
+namespace frame = ddcs::wire::frame;
 
 using ddcs::common::ManualClock;
 using ddcs::ctrl::app::agent::AgentRegistry;
@@ -48,7 +49,7 @@ std::span<std::byte const> as_bytes(std::string_view s) {
     return {reinterpret_cast<std::byte const*>(s.data()), s.size()};
 }
 
-// 송신된 Command를 decode해 기록하는 대역. frame 헤더 자리가 보존됐는지도 검사한다.
+// 송신된 command_request를 decode해 기록하는 대역. frame 헤더 자리가 보존됐는지도 검사한다.
 class FakeMessageSender final : public MessageSender {
 public:
     struct Sent {
@@ -63,23 +64,27 @@ public:
 
     MessageBuffer make_message_buffer() override {
         auto message = pool_.acquire();
-        EXPECT_TRUE(message->reserve_front(ddcs::dacp::frame::header_size)); // infra 계약 모사
+        EXPECT_TRUE(message->reserve_front(frame::header_size)); // infra 계약 모사
         return message;
     }
 
-    void send(ConnectionId conn, std::uint8_t, MessageBuffer message) override {
-        msg::Command cmd{};
-        std::span<std::byte const> payload{};
-        ASSERT_TRUE(msg::decode(message->readable(), cmd, payload));
-        std::string payload_copy{reinterpret_cast<char const*>(payload.data()), payload.size()};
-        std::array<std::byte, ddcs::dacp::frame::header_size> const frame_stub{}; // frame 헤더 자리 검증
-        sent.push_back(Sent{
-            .conn = conn,
-            .command_id = cmd.command_id,
-            .type = cmd.type,
-            .payload = std::move(payload_copy),
-            .frame_headroom_ok = message->write_front(frame_stub),
-        });
+    void send(ConnectionId conn, MessageBuffer message) override {
+        auto const bytes = message->readable(); // [type][command_id][command_type][payload]
+        ASSERT_FALSE(bytes.empty());
+        EXPECT_EQ(acmp::peek_type(bytes), acmp::MessageType::command_request);
+        auto const cmd = acmp::decode_command_request(bytes.subspan(1));
+        ASSERT_TRUE(cmd.has_value());
+        std::string payload_copy{reinterpret_cast<char const*>(cmd->payload.data()), cmd->payload.size()};
+        std::array<std::byte, frame::header_size> const frame_stub{}; // frame 헤더 자리 검증
+        sent.push_back(
+            Sent{
+                .conn = conn,
+                .command_id = cmd->command_id,
+                .type = cmd->command_type,
+                .payload = std::move(payload_copy),
+                .frame_headroom_ok = message->write_front(frame_stub),
+            }
+        );
     }
 
 private:
@@ -153,7 +158,7 @@ TEST(CommandSenderTest, ReturnsFalseWithoutHeaderHeadroom) {
     SenderFixture f;
     f.activate(1, 0xAA);
 
-    auto raw = f.outbox.make_message_buffer(); // make_command_buffer를 거치지 않은 buffer. headroom 없음
+    auto raw = f.outbox.make_message_buffer(); // make_command_buffer를 거치지 않은 buffer. command headroom 없음
     ASSERT_TRUE(raw->write(as_bytes("p")));
 
     EXPECT_FALSE(f.sender.try_send(make_device_id(0xAA), CommandId{42}, 0x01, std::move(raw)));

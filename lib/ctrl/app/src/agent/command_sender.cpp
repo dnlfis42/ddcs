@@ -1,23 +1,25 @@
 #include "ddcs/ctrl/app/agent/command_sender.hpp"
 
 #include "ddcs/ctrl/app/agent/agent.hpp"
-#include "ddcs/dacp/msg/message.hpp"
 #include "ddcs/logger/log.hpp"
+#include "ddcs/wire/acmp/message.hpp"
 
+#include <array>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <utility>
 
 namespace ddcs::ctrl::app::agent {
 
-namespace msg = ddcs::dacp::msg;
+namespace acmp = ddcs::wire::acmp;
 
 CommandSender::CommandSender(AgentRegistry& agents, port::MessageSender& sender) noexcept
     : agents_{agents}, sender_{sender} {}
 
 device::port::CommandBuffer CommandSender::make_command_buffer() {
-    auto buf = sender_.make_message_buffer();                           // frame 헤더 자리는 infra가 예약
-    bool const reserved = buf->reserve_front(msg::command_header_size); // command 헤더 자리 적층
+    auto buf = sender_.make_message_buffer();                                    // frame 헤더 자리는 infra가 예약
+    bool const reserved = buf->reserve_front(acmp::command_request_header_size); // command 헤더 자리 적층
     assert(reserved);
     (void)reserved;
     return buf;
@@ -37,13 +39,15 @@ bool CommandSender::try_send(
         return false;
     }
 
-    msg::Command const cmd{.command_id = command_id.value(), .type = command_type};
-    if (!msg::encode_front(cmd, *message)) {
+    // command 헤더(`[type][command_id][command_type]`)를 headroom에 제자리 prepend한다(복사 없는 조립 경로).
+    std::array<std::byte, acmp::command_request_header_size> header{};
+    auto const written = acmp::encode_command_request_header(command_id.value(), command_type, header);
+    if (!written || !message->write_front(header)) {
         // headroom 계약 위반. make_command_buffer를 거치지 않은 buffer가 들어온 버그 신호
         LOG_ERROR("command.send.encode_fail", logger::kv("command", command_id.value()));
         return false;
     }
-    sender_.send(target->conn(), static_cast<std::uint8_t>(msg::type_of<msg::Command>), std::move(message));
+    sender_.send(target->conn(), std::move(message));
     return true;
 }
 

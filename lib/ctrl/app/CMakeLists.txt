@@ -47,12 +47,12 @@ target_link_libraries(
     PRIVATE
         compile_option
         ddcs::logger
-        ddcs::dacp::msg
     PUBLIC
         ddcs::common
         ddcs::ctrl::domain
         ddcs::device
         ddcs::json
+        ddcs::wire::acmp
 )
 
 add_subdirectory(test/unit)

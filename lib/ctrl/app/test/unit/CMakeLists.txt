@@ -17,7 +17,7 @@ add_executable(
 )
 target_link_libraries(
     ddcs_ctrl_app_agent_agent_service_test
-    PRIVATE compile_option ddcs::ctrl::app ddcs::dacp::msg GTest::gtest_main
+    PRIVATE compile_option ddcs::ctrl::app ddcs::wire::acmp GTest::gtest_main
 )
 add_test(
     NAME ddcs_ctrl_app_agent_agent_service_test
@@ -30,7 +30,7 @@ add_executable(
 )
 target_link_libraries(
     ddcs_ctrl_app_agent_command_sender_test
-    PRIVATE compile_option ddcs::ctrl::app ddcs::dacp::frame ddcs::dacp::msg GTest::gtest_main
+    PRIVATE compile_option ddcs::ctrl::app ddcs::wire::frame ddcs::wire::acmp GTest::gtest_main
 )
 add_test(
     NAME ddcs_ctrl_app_agent_command_sender_test
