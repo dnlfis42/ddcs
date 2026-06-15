@@ -13,7 +13,7 @@ class RegisterService {
 public:
     explicit RegisterService(domain::DeviceRegistry& devices) noexcept : devices_{devices} {}
 
-    // uuid -> DeviceId 확정 (없으면 Device 생성) + group 갱신. nil uuid는 무효 DeviceId로 거부.
+    // uuid를 DeviceId로 확정 (없으면 Device 생성) + group 갱신. nil uuid는 무효 DeviceId로 거부.
     [[nodiscard]] domain::DeviceId enroll(common::Uuid const& id, std::string_view group);
 
 private:

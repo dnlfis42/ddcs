@@ -62,7 +62,7 @@ Uuid make_uuid(std::uint8_t seed) {
 }
 
 // 새 프로토콜로 프레임을 직접 빚는/푸는 raw 소켓 의사-agent.
-// (controller 는 단일 스레드라 run_once 펌프와 인터리브한다.)
+// (controller는 단일 스레드라 run_once 펌프와 인터리브한다.)
 class RawAgent {
 public:
     ~RawAgent() {
@@ -80,7 +80,7 @@ public:
         addr.sin_family = AF_INET;
         addr.sin_port = ::htons(port);
         addr.sin_addr.s_addr = ::htonl(INADDR_LOOPBACK);
-        // loopback 은 app 의 accept 이전에도 커널이 핸드셰이크를 완료 -> blocking connect 즉시 성공.
+        // loopback은 app의 accept 이전에도 커널이 핸드셰이크를 완료 -> blocking connect 즉시 성공.
         return ::connect(fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0;
     }
 
@@ -159,7 +159,7 @@ private:
     std::vector<std::byte> rx_;
 };
 
-// controller 를 펌프하며 의사-agent 의 응답 프레임을 기다린다.
+// controller를 펌프하며 의사-agent의 응답 프레임을 기다린다.
 std::optional<RawAgent::Frame> pump_for_frame(Controller& c, RawAgent& a, int max_iter = 200) {
     for (int i = 0; i < max_iter; ++i) {
         c.run_once(std::chrono::milliseconds{5});
@@ -203,7 +203,7 @@ TEST(ControllerE2eTest, RegisterRequestGetsSuccessResponse) {
     controller.stop();
 }
 
-// 같은 uuid 로 두 번째 연결이 등록하면 controller 가 옛 연결을 축출(kick-old, new-wins).
+// 같은 uuid로 두 번째 연결이 등록하면 controller가 옛 연결을 축출(kick-old, new-wins).
 TEST(ControllerE2eTest, ReRegisterSameUuidKicksOldConnection) {
     CaptureSink sink;
     Controller::Config cfg{};
@@ -226,7 +226,7 @@ TEST(ControllerE2eTest, ReRegisterSameUuidKicksOldConnection) {
     second.send_message(msg::MessageType::register_request, msg::RegisterRequest{.id = uuid});
     ASSERT_TRUE(pump_for_frame(controller, second).has_value()); // 새 등록 OK
 
-    // 옛 연결(first)은 RST/FIN 으로 닫혀야 한다.
+    // 옛 연결(first)은 RST/FIN으로 닫혀야 한다.
     bool first_closed = false;
     for (int i = 0; i < 200 && !first_closed; ++i) {
         controller.run_once(std::chrono::milliseconds{5});

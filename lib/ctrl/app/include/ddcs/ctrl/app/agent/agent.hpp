@@ -8,7 +8,7 @@
 
 namespace ddcs::ctrl::app::agent {
 
-// 한 연결과 device의 바인딩(ConnectionId <-> DeviceId). AgentRegistry가 conn으로 키잉해 소유한다.
+// 한 연결과 device의 바인딩(ConnectionId와 DeviceId). AgentRegistry가 conn으로 키잉해 소유한다.
 // 수명 = 연결의 수명: on_connected에서 생성되고 on_disconnected에서 파괴된다. 재접속은 새 Agent다.
 class Agent {
 public:
@@ -30,7 +30,7 @@ public:
     [[nodiscard]] common::Clock::time_point last_seen() const noexcept { return last_seen_; }
     [[nodiscard]] bool valid() const noexcept { return state_ != State::idle; }
 
-    // 등록 확정: handshaking -> confirming + device 점유. 요청 수신도 활동이므로 last_seen을 갱신한다.
+    // 등록 확정: handshaking에서 confirming으로 전이 + device 점유. 요청 수신도 활동이므로 last_seen을 갱신한다.
     //            RegisterAck 대기 구간이 자기 timeout budget을 새로 받는다.
     [[nodiscard]] bool bind(domain::DeviceId device, common::Clock::time_point now) noexcept {
         if (state_ != State::handshaking || !device.valid()) {
@@ -42,7 +42,7 @@ public:
         return true;
     }
 
-    // 등록 확인: confirming -> active. RegisterAck 수신 시점부터 liveness 측정이 시작된다.
+    // 등록 확인: confirming에서 active로 전이. RegisterAck 수신 시점부터 liveness 측정이 시작된다.
     [[nodiscard]] bool confirm(common::Clock::time_point now) noexcept {
         if (state_ != State::confirming) {
             return false;
@@ -52,7 +52,7 @@ public:
         return true;
     }
 
-    // 활동 관측 -> liveness 갱신. (AgentService가 정상 수신마다 호출)
+    // 활동 관측 시 liveness 갱신. (AgentService가 정상 수신마다 호출)
     void update_seen(common::Clock::time_point now) noexcept { last_seen_ = now; }
 
 private:

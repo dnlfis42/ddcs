@@ -12,7 +12,7 @@
 namespace ddcs::ctrl::infra::prometheus {
 
 namespace {
-constexpr std::size_t request_cap{8192}; // 요청 상한 - 넘으면 그만 읽고 응답(악성/과대 방어)
+constexpr std::size_t request_cap{8192}; // 요청 상한, 넘으면 그만 읽고 응답(악성/과대 방어)
 } // namespace
 
 bool Connection::assign(Server& server, common::Fd fd, io::ChannelEvents interests) noexcept {
@@ -92,7 +92,7 @@ Connection::IoResult Connection::transmit() {
         }
         int const err = errno;
         if (err == EAGAIN || err == EWOULDBLOCK) {
-            return IoResult::would_block; // 커널 송신 버퍼 포화 -> writable 대기
+            return IoResult::would_block; // 커널 송신 버퍼 포화 시 writable 대기
         }
         return IoResult::error;
     }

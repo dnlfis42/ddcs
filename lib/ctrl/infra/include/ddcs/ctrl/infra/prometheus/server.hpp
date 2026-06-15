@@ -27,8 +27,8 @@ namespace ddcs::ctrl::infra::prometheus {
 
 namespace port = ddcs::ctrl::app::metrics::port;
 
-// metrics 스크레이프 listen 엔드포인트 - reactor의 2nd guest.
-// HTTP read -> MetricsSource::scrape -> respond -> close. 스크레이프는 저빈도 best-effort.
+// metrics 스크레이프 listen 엔드포인트(reactor의 2nd guest).
+// HTTP read 후 MetricsSource::scrape, respond 후 close. 스크레이프는 저빈도 best-effort.
 class Server final : private io::ChannelHandler {
 public:
     Server(io::Reactor& reactor, port::MetricsSource& source, std::uint16_t listen_port, int backlog);
@@ -59,7 +59,7 @@ private:
 
     void drain_accepts();
     void dispatch(Connection& conn, io::ChannelEvents events);
-    void respond(Connection& conn); // source_.scrape() -> HTTP 응답
+    void respond(Connection& conn); // source_.scrape()로 HTTP 응답 빌드
     void schedule_close(Connection& conn);
     void reap();
     [[nodiscard]] Connection* find(int fd);

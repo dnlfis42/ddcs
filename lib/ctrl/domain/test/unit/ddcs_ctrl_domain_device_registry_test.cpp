@@ -36,7 +36,7 @@ TEST(DeviceRegistryTest, ReturnsSameIdForSameUuid) {
     DeviceRegistry reg;
     auto const u = make_uuid(2);
     DeviceId const id1 = reg.find_or_create(u).id;
-    DeviceId const id2 = reg.find_or_create(u).id; // 재등록 -> 동일 id (identity persistence)
+    DeviceId const id2 = reg.find_or_create(u).id; // 재등록 시 동일 id (identity persistence)
     EXPECT_EQ(id1, id2);
     EXPECT_EQ(reg.size(), 1u);
 }
@@ -83,7 +83,7 @@ TEST(DeviceRegistryTest, RefreshesGroupOnReRegister) {
     auto const u = make_uuid(9);
     DeviceId const id = reg.find_or_create(u).id;
     reg.set_group(id, "g1");
-    reg.set_group(id, "g2"); // 재등록 -> 갱신
+    reg.set_group(id, "g2"); // 재등록 시 갱신
     Device const* d = reg.find(u);
     ASSERT_NE(d, nullptr);
     EXPECT_EQ(d->group, "g2");
@@ -91,6 +91,6 @@ TEST(DeviceRegistryTest, RefreshesGroupOnReRegister) {
 
 TEST(DeviceRegistryTest, IgnoresUnknownIdWhenSettingGroup) {
     DeviceRegistry reg;
-    reg.set_group(make_uuid(200), "g"); // 미지 id -> no-op (크래시 없음)
+    reg.set_group(make_uuid(200), "g"); // 미지 id면 no-op (크래시 없음)
     EXPECT_EQ(reg.size(), 0u);
 }

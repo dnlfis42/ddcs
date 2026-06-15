@@ -59,7 +59,7 @@ std::optional<domain::GroupPolicy> parse_policy(json::Value const& root) {
 
 void PolicyService::set_policy(domain::GroupPolicy policy) {
     policy_ = std::move(policy);
-    regime_.clear(); // 새 정책 -> 재평가(이전 regime 무효)
+    regime_.clear(); // 새 정책이면 재평가(이전 regime 무효)
 }
 
 void PolicyService::evaluate(common::Clock::time_point now) {
@@ -81,11 +81,11 @@ void PolicyService::evaluate(common::Clock::time_point now) {
         a.sum += twin->status.load;
         ++a.count;
     });
-    // 2. 정책 그룹별 히스테리시스 평가 -> regime 전환 시에만 명령.
+    // 2. 정책 그룹별 히스테리시스 평가 후 regime 전환 시에만 명령.
     policy_.for_each([&](std::string const& group, domain::GroupRule const& rule) {
         auto const it = agg.find(group);
         if (it == agg.end() || it->second.count == 0) {
-            return; // active device 없는 그룹 -> skip
+            return; // active device 없는 그룹은 skip
         }
         double const avg = it->second.sum / static_cast<double>(it->second.count);
         Regime& regime = regime_[group];

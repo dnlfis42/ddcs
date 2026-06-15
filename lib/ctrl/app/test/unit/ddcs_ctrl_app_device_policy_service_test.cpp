@@ -245,7 +245,7 @@ TEST(PolicyServiceTest, ExcludesInactiveDevicesFromAggregationAndCommands) {
 
     f.policy.evaluate(f.clock.now());
 
-    ASSERT_EQ(f.sender.sent.size(), 1u); // 평균은 active만(10) -> idle 전환. 명령도 active에게만
+    ASSERT_EQ(f.sender.sent.size(), 1u); // 평균은 active만(10)이라 idle 전환. 명령도 active에게만
     EXPECT_EQ(f.sender.sent[0].device, make_device_id(0x01));
     EXPECT_EQ(f.sender.sent[0].mode, Mode::normal);
 }
@@ -293,7 +293,7 @@ TEST(PolicyServiceTest, ParsePolicyRejectsInvalidInput) {
                          R"({"groups":{"s":{"high_load":20,"low_load":80,"busy_mode":"safe","idle_mode":"normal"}}})"
                      ))
             .has_value()
-    ); // 임계 역전 -> 발진
+    ); // 임계 역전 시 발진
     EXPECT_FALSE(
         parse_policy(*json::Value::parse(
                          R"({"groups":{"s":{"high_load":50,"low_load":50,"busy_mode":"safe","idle_mode":"normal"}}})"
@@ -313,7 +313,7 @@ TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
 
     DeviceId const id1 = make_device_id(0x01);
     DeviceId const id2 = make_device_id(0x02);
-    for (DeviceId const id : {id1, id2}) { // sensors 그룹 active 2개, 평균 load > high -> busy 전환
+    for (DeviceId const id : {id1, id2}) { // sensors 그룹 active 2개, 평균 load > high라서 busy 전환
         devices.find_or_create(id);
         devices.set_group(id, "sensors");
         devices.update_status(id, ddcs::device::Status{.mode = Mode::normal, .load = 95.0, .temp = 40.0});

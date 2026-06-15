@@ -8,7 +8,7 @@
 
 namespace ddcs::ctrl::app::device::port {
 
-// c->a Command 송신 포트. device -> 현재 연결 해소와 헤더 기록은 구현 책임이다.
+// controller에서 agent로 가는 Command 송신 포트. device에서 현재 연결로 해소하는 일과 헤더 기록은 구현 책임이다.
 class CommandSender {
 public:
     virtual ~CommandSender() = default;

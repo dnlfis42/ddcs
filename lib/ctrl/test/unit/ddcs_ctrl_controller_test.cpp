@@ -16,7 +16,7 @@ namespace {
 
 using ddcs::ctrl::Controller;
 
-// 127.0.0.1:port 로 GET 후, controller 를 구동하며 전체 응답을 read.
+// 127.0.0.1:port로 GET 후, controller를 구동하며 전체 응답을 read.
 std::string scrape_metrics(Controller& controller, std::uint16_t port) {
     int const cfd = ::socket(AF_INET, SOCK_STREAM, 0);
     EXPECT_GE(cfd, 0);
@@ -44,8 +44,8 @@ std::string scrape_metrics(Controller& controller, std::uint16_t port) {
     return resp;
 }
 
-// 조립 루트 스모크: 구성->start->ephemeral 바인드->1회 디스패치->stop 이 무사한지.
-// (왕복 검증은 7b loopback e2e 에서.)
+// 조립 루트 스모크: 구성 후 start, ephemeral 바인드, 1회 디스패치, stop까지 무사한지.
+// (왕복 검증은 7b loopback e2e에서.)
 TEST(ControllerTest, StartsBindsEphemeralPortAndDispatchesOnce) {
     Controller::Config cfg{};
     cfg.listen_port = 0;
@@ -54,13 +54,13 @@ TEST(ControllerTest, StartsBindsEphemeralPortAndDispatchesOnce) {
 
     Controller controller{cfg};
     controller.start();
-    EXPECT_NE(controller.port(), 0); // 0 -> 실제 바인드 포트로 치환됨
+    EXPECT_NE(controller.port(), 0); // 0이 실제 바인드 포트로 치환됨
 
-    controller.run_once(std::chrono::milliseconds{10}); // 클라이언트 없음 - 루프 무사 통과
+    controller.run_once(std::chrono::milliseconds{10}); // 클라이언트 없음, 루프 무사 통과
     controller.stop();
 }
 
-// metrics_port nullopt(기본) -> 엔드포인트 비활성: 바인드 포트 0.
+// metrics_port nullopt(기본)면 엔드포인트 비활성: 바인드 포트 0.
 TEST(ControllerTest, DisablesMetricsByDefault) {
     Controller::Config cfg{};
     cfg.log_level = ddcs::logger::Level::Warn;
@@ -71,7 +71,7 @@ TEST(ControllerTest, DisablesMetricsByDefault) {
     controller.stop();
 }
 
-// metrics_port 지정 -> 엔드포인트 활성: GET /metrics 가 실제 레지스트리 gauge 를 노출.
+// metrics_port 지정 시 엔드포인트 활성: GET /metrics가 실제 레지스트리 gauge를 노출.
 TEST(ControllerTest, ServesMetricsWhenEnabled) {
     Controller::Config cfg{};
     cfg.metrics_port = 0; // ephemeral, 활성

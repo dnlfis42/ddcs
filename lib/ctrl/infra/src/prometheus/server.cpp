@@ -110,7 +110,7 @@ void Server::stop() noexcept {
             reactor_.remove(conn->channel());
         }
     }
-    connections_.clear(); // 핸들 drop -> reset -> fd close
+    connections_.clear(); // 핸들 drop 시 reset 후 fd close
     pending_close_.clear();
     state_ = State::ready;
 }
@@ -150,20 +150,20 @@ void Server::drain_accepts() {
             if (err == EINTR || err == ECONNABORTED) {
                 continue;
             }
-            return; // EMFILE 등 - 스크레이프는 best-effort (shed 안 함)
+            return; // EMFILE 등. 스크레이프는 best-effort (shed 안 함)
         }
         auto conn = pool_.acquire();
         int const cfd = fd.get();
         if (!conn->assign(*this, std::move(fd), read_interest)) {
-            continue; // 방어. 핸들 드롭 -> reset
+            continue; // 방어. 핸들 드롭 시 reset
         }
         auto const [it, inserted] = connections_.try_emplace(cfd, std::move(conn));
         if (!inserted) {
-            continue; // fd 중복(있을 수 없음) - 핸들 드롭
+            continue; // fd 중복(있을 수 없음). 핸들 드롭
         }
         Connection* const p = it->second.get();
         if (!reactor_.add(p->channel())) {
-            connections_.erase(cfd); // 등록 실패 -> 드롭(핸들 -> reset -> fd close)
+            connections_.erase(cfd); // 등록 실패 시 드롭(핸들 drop 시 reset 후 fd close)
         }
     }
 }
@@ -193,11 +193,11 @@ void Server::dispatch(Connection& conn, io::ChannelEvents events) {
         }
         if (!conn.request_complete()) {
             if (r == Connection::IoResult::peer_closed) {
-                schedule_close(conn); // 미완 요청에 FIN -> 포기
+                schedule_close(conn); // 미완 요청에 FIN 오면 포기
             }
             return; // would_block: 더 읽기
         }
-        respond(conn); // request 완료 -> 응답 빌드(state=writing)
+        respond(conn); // request 완료 시 응답 빌드(state=writing)
     }
 
     if (conn.state() == Connection::State::writing) {
@@ -207,10 +207,10 @@ void Server::dispatch(Connection& conn, io::ChannelEvents events) {
             return;
         }
         if (conn.state() == Connection::State::done) {
-            schedule_close(conn); // 응답 완송 -> close
+            schedule_close(conn); // 응답 완송 후 close
             return;
         }
-        (void)reactor_.modify(conn.channel(), write_interest); // would_block -> writable 대기
+        (void)reactor_.modify(conn.channel(), write_interest); // would_block 시 writable 대기
     }
 }
 
@@ -229,7 +229,7 @@ void Server::reap() {
         if (conn->channel().registered()) {
             reactor_.remove(conn->channel());
         }
-        connections_.erase(fd); // 핸들 drop -> reset() -> fd close
+        connections_.erase(fd); // 핸들 drop 시 reset() 후 fd close
     }
     pending_close_.clear();
 }

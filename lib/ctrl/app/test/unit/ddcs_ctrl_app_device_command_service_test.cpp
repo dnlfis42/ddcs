@@ -234,7 +234,7 @@ TEST(CommandServiceTest, RetryResendsSameIdWithRetainedPayload) {
     ASSERT_TRUE(id.valid());
 
     clock.advance(6s);
-    commands.sweep(clock.now()); // timeout -> backoff
+    commands.sweep(clock.now()); // timeout 후 backoff
     EXPECT_EQ(commands.timed_out_total(), 1u);
     EXPECT_EQ(commands.pending_count(), 1u);
 
@@ -262,11 +262,11 @@ TEST(CommandServiceTest, RetryGivesUpWhenSendRejected) {
     ASSERT_TRUE(commands.dispatch(make_device_id(0xAA), 0x01, std::move(buf), clock.now()).valid());
 
     clock.advance(6s);
-    commands.sweep(clock.now()); // timeout -> backoff
+    commands.sweep(clock.now()); // timeout 후 backoff
     sender.accept = false;       // 끊긴 뒤 재접속 없음 등가
 
     clock.advance(1s);
-    commands.sweep(clock.now()); // 재전송 시도 -> 거부 포기
+    commands.sweep(clock.now()); // 재전송 시도 시 거부되어 포기
 
     EXPECT_EQ(commands.gave_up_total(), 1u);
     EXPECT_EQ(commands.pending_count(), 0u);

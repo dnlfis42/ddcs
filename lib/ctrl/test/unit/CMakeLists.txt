@@ -5,8 +5,8 @@ target_link_libraries(
 )
 add_test(NAME ddcs_ctrl_controller_test COMMAND ddcs_ctrl_controller_test)
 
-# PARKED: controller가 신 dacp 3-way로 전환됨. 이 e2e는 구 proto wire를 직접 말하므로 통과 불가.
-# agent(client) dacp 이행 트랙 완료 후 신 프로토콜로 재작성한다.
+# PARKED: 이 e2e는 구 proto wire를 직접 말하므로 통과 불가.
+# controller/agent 모두 wire(acmp) 3-way로 이행됐으니 신 프로토콜로 재작성 후 활성화한다.
 # add_executable(ddcs_ctrl_controller_e2e_test ddcs_ctrl_controller_e2e_test.cpp)
 # target_link_libraries(
 #     ddcs_ctrl_controller_e2e_test

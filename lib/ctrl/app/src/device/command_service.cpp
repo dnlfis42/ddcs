@@ -92,7 +92,7 @@ void CommandService::acknowledge(domain::DeviceId device, port::CommandId comman
     }
     slot->acked = true;
     slot->phase = Phase::in_flight;
-    slot->next_at = after(now, command_timeout_); // 작동 확인 -> outcome까지 연장
+    slot->next_at = after(now, command_timeout_); // 작동 확인 후 outcome까지 연장
     LOG_INFO("command.ack", logger::kv("command", command_id.value()));
 }
 
@@ -108,18 +108,18 @@ void CommandService::settle(
     }
     if (!success) {
         LOG_WARN("command.nack", logger::kv("command", command_id.value()), logger::kv("reason", reason));
-        fail_attempt(device, command_id, now); // NACK -> 재시도 또는 포기
+        fail_attempt(device, command_id, now); // NACK 시 재시도 또는 포기
         return;
     }
     auto const rtt = now - slot->dispatched_at;
     rtt_ms_sum_ += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(rtt).count());
     ++completed_total_;
     LOG_INFO("command.outcome", logger::kv("command", command_id.value()));
-    close_slot(device, command_id); // 성공 확정 -> 미결 종료
+    close_slot(device, command_id); // 성공 확정 시 미결 종료
 }
 
 void CommandService::sweep(common::Clock::time_point now) {
-    std::vector<std::pair<domain::DeviceId, port::CommandId>> due; // 순회 중 변경 금지 -> 만기 슬롯 먼저 수집
+    std::vector<std::pair<domain::DeviceId, port::CommandId>> due; // 순회 중 변경 금지라 만기 슬롯 먼저 수집
     for (auto const& [device, commands] : pending_) {
         for (auto const& slot : commands.slots) {
             if (slot.next_at < now) {
@@ -139,7 +139,7 @@ void CommandService::sweep(common::Clock::time_point now) {
             );
             fail_attempt(device, command_id, now);
         } else {
-            resend(device, command_id, now); // backoff 경과 -> 동일 id 재전송
+            resend(device, command_id, now); // backoff 경과 시 동일 id 재전송
         }
     }
 }
@@ -167,7 +167,7 @@ void CommandService::resend(domain::DeviceId device, port::CommandId command_id,
     if (slot == nullptr) {
         return;
     }
-    assert(slot->retained);                    // backoff 진입은 max_attempts > 1에서만 -> 보관본 존재
+    assert(slot->retained);                    // backoff 진입은 max_attempts > 1에서만이라 보관본 존재
     auto copy = sender_.make_command_buffer(); // 보관본은 불변. 헤더는 사본이 받는다
     bool const copied = copy->write(slot->retained->readable());
     assert(copied);

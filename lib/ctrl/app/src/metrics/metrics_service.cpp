@@ -8,7 +8,7 @@ namespace ddcs::ctrl::app::metrics {
 
 namespace {
 
-// 단일 메트릭을 Prometheus text(HELP/TYPE/value)로 append. type 은 "gauge" 또는 "counter".
+// 단일 메트릭을 Prometheus text(HELP/TYPE/value)로 append. type은 "gauge" 또는 "counter".
 void append_metric(std::string& out, char const* name, char const* help, char const* type, std::uint64_t value) {
     out += "# HELP ";
     out += name;
@@ -29,13 +29,13 @@ void append_metric(std::string& out, char const* name, char const* help, char co
 
 std::string MetricsService::scrape() {
     std::string out;
-    // gauge - 현재값.
+    // gauge. 현재값.
     append_metric(out, "ddcs_connections", "Current agent connections (all phases).", "gauge", agents_.size());
     append_metric(out, "ddcs_devices_known", "Persistently known devices (by uuid).", "gauge", devices_.size());
     append_metric(
         out, "ddcs_commands_pending", "In-flight commands awaiting outcome.", "gauge", commands_.pending_count()
     );
-    // counter - 누적. 실패율 = gave_up/dispatched, 평균 RTT = rtt_ms_sum/completed.
+    // counter. 누적. 실패율 = gave_up/dispatched, 평균 RTT = rtt_ms_sum/completed.
     append_metric(
         out, "ddcs_commands_dispatched_total", "Commands sent to agents.", "counter", commands_.dispatched_total()
     );
@@ -62,7 +62,7 @@ std::string MetricsService::scrape() {
         out, "ddcs_commands_stale_total", "Late responses to closed/superseded commands (ignored).", "counter",
         commands_.stale_total()
     );
-    // 알람 counter - 명령 최종 실패 + agent 건강(operator 가 rate 로 알람).
+    // 알람 counter. 명령 최종 실패 + agent 건강(operator가 rate로 알람).
     append_metric(
         out, "ddcs_commands_gave_up_total", "Commands abandoned after exhausting retries.", "counter",
         commands_.gave_up_total()

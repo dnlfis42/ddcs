@@ -13,8 +13,8 @@ namespace ddcs::ctrl::app::agent {
 
 // Agent 집합의 단일 진실 + 집합 불변식의 봉인처
 // - conn 유일 (primary 키), device당 바인딩(confirming/active) 연결 최대 1 (역색인 키)
-// - 역색인 엔트리 <=> 그 device가 바인딩된 Agent (bind가 만들고 erase가 지운다)
-// CAUTION: outbound.disconnect는 동기로 on_disconnected -> erase를 되부른다.
+// - 역색인 엔트리는 곧 그 device가 바인딩된 Agent (bind가 만들고 erase가 지운다)
+// CAUTION: outbound.disconnect는 동기로 on_disconnected 후 erase를 되부른다.
 // CAUTION  순회 중 disconnect 금지(희생자 수집 후 순회 밖에서), erase 가능 경로 뒤에는 find 재조회
 class AgentRegistry {
 public:
@@ -45,7 +45,7 @@ public:
         return agents_.try_emplace(conn, conn, now).second;
     }
 
-    // 등록 확정: handshaking -> confirming + 역색인 등재. active 전이는 Agent::confirm(RegisterAck 수신)이 맡는다.
+    // 등록 확정: handshaking에서 confirming으로 전이 + 역색인 등재. active 전이는 Agent::confirm(RegisterAck 수신)이 맡는다.
     // 실패(상태 불변): conn 없음 / device 이미 점유 / 비handshaking / nil device.
     // NOTE: 점유 device는 호출자가 먼저 kick으로 비워야 한다(disconnect가 동기로 erase까지 끝낸다).
     [[nodiscard]] bool bind(port::ConnectionId conn, domain::DeviceId device, common::Clock::time_point now) {
@@ -71,7 +71,7 @@ public:
         if (it == agents_.end()) {
             return false;
         }
-        if (it->second.device().valid()) { // 바인딩됨 <=> device 보유
+        if (it->second.device().valid()) { // device 보유면 바인딩된 상태
             assert(device_index_.contains(it->second.device()));
             device_index_.erase(it->second.device());
         }

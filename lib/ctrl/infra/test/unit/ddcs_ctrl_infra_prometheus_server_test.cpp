@@ -26,7 +26,7 @@ public:
     std::string scrape() override { return "test_metric 42\n"; }
 };
 
-// 127.0.0.1:port로 connect -> request 전송 -> reactor 구동하며 전체 응답 read.
+// 127.0.0.1:port로 connect 후 request 전송, reactor 구동하며 전체 응답 read.
 std::string scrape_over_socket(std::uint16_t port, Reactor& reactor, std::string const& request) {
     int const cfd = ::socket(AF_INET, SOCK_STREAM, 0);
     EXPECT_GE(cfd, 0);
@@ -39,7 +39,7 @@ std::string scrape_over_socket(std::uint16_t port, Reactor& reactor, std::string
 
     std::string resp;
     for (int i = 0; i < 40; ++i) {
-        reactor.run_once(50ms); // 서버: accept -> read -> respond -> close
+        reactor.run_once(50ms); // 서버: accept 후 read, respond 후 close
         char buf[4096];
         ssize_t const n = ::recv(cfd, buf, sizeof(buf), MSG_DONTWAIT);
         if (n > 0) {

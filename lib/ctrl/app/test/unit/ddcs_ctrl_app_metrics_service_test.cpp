@@ -144,8 +144,8 @@ TEST(MetricsServiceTest, ScrapeReportsSupersedeAndStale) {
     auto const device = f.activate(1, 0xAA);
 
     auto const first = f.send(device);
-    f.send(device);                                            // 같은 device+type -> supersede
-    f.commands.settle(device, first, true, "", f.clock.now()); // 대체된 id -> stale
+    f.send(device);                                            // 같은 device+type이라 supersede
+    f.commands.settle(device, first, true, "", f.clock.now()); // 대체된 id라서 stale
 
     auto const text = f.metrics.scrape();
 

@@ -158,7 +158,7 @@ TEST(AgentRegistryTest, KickThenRebindFlow) {
 
     Agent* old_agent = registry.find(make_device_id(0xAA));
     ASSERT_NE(old_agent, nullptr);
-    EXPECT_TRUE(registry.erase(old_agent->conn())); // disconnect -> on_disconnected 경로의 등가물
+    EXPECT_TRUE(registry.erase(old_agent->conn())); // disconnect 후 on_disconnected 경로의 등가물
 
     ASSERT_TRUE(registry.bind(ConnectionId{2}, make_device_id(0xAA), clock.now()));
     EXPECT_EQ(registry.find(make_device_id(0xAA))->conn(), ConnectionId{2});
