@@ -1,5 +1,5 @@
-# PARKED: controller가 신 dacp 3-way(RegisterOutcome/RegisterAck)로 전환됨. agent(client)는 아직 구 proto라
-# 프로토콜이 맞지 않아 이 e2e는 통과 불가. agent dacp 이행 트랙 완료 후 신 프로토콜로 재작성한다.
+# PARKED: 이 e2e는 구 proto wire를 직접 말하므로 통과 불가.
+# controller/agent 모두 wire(acmp) 3-way(RegisterOutcome/RegisterAck)로 이행됐으니 신 프로토콜로 재작성 후 활성화한다.
 # add_executable(
 #     ddcs_agent_controller_e2e_test
 #     ddcs_agent_controller_e2e_test.cpp
