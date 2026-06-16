@@ -13,14 +13,15 @@ target_sources(
 )
 target_link_libraries(
     ddcs_agent
-    PRIVATE compile_option
+    PRIVATE
+        compile_option
+        ddcs::runtime
+        ddcs::agent::infra
     PUBLIC
         ddcs::common
         ddcs::logger
-        ddcs::runtime
         ddcs::agent::domain
         ddcs::agent::app
-        ddcs::agent::infra
 )
 
 add_subdirectory(test/unit)

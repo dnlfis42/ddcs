@@ -2,11 +2,7 @@
 
 #include "ddcs/agent/app/session_service.hpp"
 #include "ddcs/agent/domain/device.hpp"
-#include "ddcs/agent/infra/connector.hpp"
 #include "ddcs/common/uuid.hpp"
-#include "ddcs/runtime/reactor.hpp"
-#include "ddcs/runtime/signal_fd.hpp"
-#include "ddcs/runtime/timer_scheduler.hpp"
 #include "ddcs/logger/log.hpp"
 
 #include <chrono>
@@ -17,8 +13,7 @@
 
 namespace ddcs::agent {
 
-// Agent 조립 루트: runtime(Reactor/SignalFd/TimerScheduler) + infra(Connector) + app(SessionService) + domain(Device)를 묶는다.
-// 외부(main, 통합 테스트)는 이 클래스만 다룬다.
+// Agent 조립 루트 facade. 외부(main, 통합 테스트)는 이 클래스만 다룬다.
 class Agent {
 public:
     struct Config {
@@ -50,16 +45,11 @@ public:
     void stop();                                      // 멱등
 
     // 테스트/관측 노출
-    app::SessionService& session() noexcept { return session_; }
+    app::SessionService& session() noexcept;
 
 private:
-    logger::StdoutSink default_sink_;
-    std::unique_ptr<domain::Device> device_;
-    runtime::Reactor reactor_;
-    runtime::SignalFd signal_fd_;
-    runtime::TimerScheduler timer_scheduler_;
-    infra::Connector connector_;
-    app::SessionService session_;
+    class Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace ddcs::agent

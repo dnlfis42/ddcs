@@ -1,11 +1,44 @@
 #include "ddcs/agent/agent.hpp"
 
+#include "ddcs/agent/infra/connector.hpp"
+#include "ddcs/runtime/reactor.hpp"
+#include "ddcs/runtime/signal_fd.hpp"
+#include "ddcs/runtime/timer_scheduler.hpp"
+
 #include <csignal>
+#include <memory>
 #include <utility>
 
 namespace ddcs::agent {
 
-Agent::Agent(Config cfg)
+class Agent::Impl final {
+public:
+    explicit Impl(Config cfg);
+    ~Impl();
+
+    Impl(Impl const&) = delete;
+    Impl& operator=(Impl const&) = delete;
+    Impl(Impl&&) = delete;
+    Impl& operator=(Impl&&) = delete;
+
+    void start();
+    void run();
+    void run_once(std::chrono::milliseconds timeout);
+    void stop();
+
+    app::SessionService& session() noexcept { return session_; }
+
+private:
+    logger::StdoutSink default_sink_;
+    std::unique_ptr<domain::Device> device_;
+    runtime::Reactor reactor_;
+    runtime::SignalFd signal_fd_;
+    runtime::TimerScheduler timer_scheduler_;
+    infra::Connector connector_;
+    app::SessionService session_;
+};
+
+Agent::Impl::Impl(Config cfg)
     : device_{std::move(cfg.device)}, signal_fd_{reactor_, {SIGINT, SIGTERM}, [this] { stop(); }},
       timer_scheduler_{reactor_}, connector_{reactor_, timer_scheduler_, cfg.controller_host, cfg.controller_port},
       session_{cfg.agent_uuid, *device_, connector_, cfg.session} {
@@ -19,25 +52,39 @@ Agent::Agent(Config cfg)
     connector_.init(session_); // inbound 포트 주입
 }
 
-Agent::~Agent() {
+Agent::Impl::~Impl() {
     stop();
     // 멤버 dtor 역순: session_, connector_, timer_scheduler_, signal_fd_, reactor_, device_ 순서로.
 }
 
-void Agent::start() {
+void Agent::Impl::start() {
     signal_fd_.start();
     timer_scheduler_.start();
     connector_.start();
 }
 
-void Agent::run() { reactor_.run(); }
+void Agent::Impl::run() { reactor_.run(); }
 
-void Agent::run_once(std::chrono::milliseconds timeout) { reactor_.run_once(timeout); }
+void Agent::Impl::run_once(std::chrono::milliseconds timeout) { reactor_.run_once(timeout); }
 
-void Agent::stop() {
+void Agent::Impl::stop() {
     timer_scheduler_.stop();
     signal_fd_.stop();
     reactor_.stop();
 }
+
+Agent::Agent(Config cfg) : impl_{std::make_unique<Impl>(std::move(cfg))} {}
+
+Agent::~Agent() = default;
+
+void Agent::start() { impl_->start(); }
+
+void Agent::run() { impl_->run(); }
+
+void Agent::run_once(std::chrono::milliseconds timeout) { impl_->run_once(timeout); }
+
+void Agent::stop() { impl_->stop(); }
+
+app::SessionService& Agent::session() noexcept { return impl_->session(); }
 
 } // namespace ddcs::agent
