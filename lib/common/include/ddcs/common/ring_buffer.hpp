@@ -21,7 +21,9 @@ namespace detail {
 #endif
 
 DDCS_RINGBUF_NOINLINE_NOCLONE
-inline void copy_bytes(void* dst, void const* src, std::size_t n) noexcept { std::memcpy(dst, src, n); }
+inline void copy_bytes(void* dst, void const* src, std::size_t n) noexcept {
+    std::memcpy(dst, src, n);
+}
 
 #undef DDCS_RINGBUF_NOINLINE_NOCLONE
 
@@ -34,7 +36,8 @@ template <std::size_t N>
     requires valid_ring_buffer_capacity<N>
 class RingBuffer {
 public:
-    RingBuffer() : buffer_{new std::byte[N]} {}
+    RingBuffer()
+        : buffer_{new std::byte[N]} {}
     ~RingBuffer() = default;
 
     RingBuffer(RingBuffer const&) = delete;
@@ -42,11 +45,25 @@ public:
     RingBuffer(RingBuffer&&) noexcept = delete;
     RingBuffer& operator=(RingBuffer&&) noexcept = delete;
 
-    static constexpr std::size_t capacity() noexcept { return N; }
-    std::size_t size() const noexcept { return write_pos_ - read_pos_; }
-    std::size_t available() const noexcept { return N - size(); }
-    bool empty() const noexcept { return read_pos_ == write_pos_; }
-    bool full() const noexcept { return size() == N; }
+    static constexpr std::size_t capacity() noexcept {
+        return N;
+    }
+
+    std::size_t size() const noexcept {
+        return write_pos_ - read_pos_;
+    }
+
+    std::size_t available() const noexcept {
+        return N - size();
+    }
+
+    bool empty() const noexcept {
+        return read_pos_ == write_pos_;
+    }
+
+    bool full() const noexcept {
+        return size() == N;
+    }
 
     std::span<std::byte const> readable() const noexcept {
         std::size_t const idx = read_pos_ & (N - 1);
@@ -116,7 +133,9 @@ public:
         write_pos_ = 0;
     }
 
-    void reset() noexcept { clear(); }
+    void reset() noexcept {
+        clear();
+    }
 
 private:
     std::unique_ptr<std::byte[]> buffer_;

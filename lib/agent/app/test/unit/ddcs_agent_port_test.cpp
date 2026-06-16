@@ -19,7 +19,7 @@ using ddcs::agent::app::port::TimerId;
 using ddcs::common::LinearBuffer;
 using ddcs::common::PoolHandle;
 
-// 인터페이스가 구현 가능한지(순수가상 누락/시그니처 정합)를 컴파일로 검증.
+// 인터페이스가 구현 가능한지(순수가상 누락/시그니처 정합)를 컴파일로 검증
 class NoopInbound : public Inbound {
 public:
     void on_connected() override {}
@@ -30,7 +30,9 @@ public:
 
 class NoopOutbound : public Outbound {
 public:
-    PoolHandle<LinearBuffer> payload_buffer() override { return {}; }
+    PoolHandle<LinearBuffer> payload_buffer() override {
+        return {};
+    }
     void send(PoolHandle<LinearBuffer>) override {}
     void schedule_timer(TimerId, std::chrono::nanoseconds) override {}
     void cancel_timer(TimerId) override {}

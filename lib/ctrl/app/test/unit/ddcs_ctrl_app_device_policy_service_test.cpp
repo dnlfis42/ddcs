@@ -78,17 +78,30 @@ public:
 
     std::vector<Sent> sent;
 
-    CommandBuffer make_command_buffer() override { return pool_.acquire(); }
+    CommandBuffer make_command_buffer() override {
+        return pool_.acquire();
+    }
 
-    bool try_send(DeviceId device, CommandId command_id, std::uint8_t command_type, CommandBuffer message) override {
+    bool try_send(
+        DeviceId device, CommandId command_id, std::uint8_t command_type, CommandBuffer message
+    ) override {
         cmd::SetMode set_mode{};
         EXPECT_TRUE(cmd::decode(message->readable(), set_mode));
-        sent.push_back(Sent{.device = device, .command_id = command_id, .type = command_type, .mode = set_mode.mode});
+        sent.push_back(
+            Sent{
+                .device = device,
+                .command_id = command_id,
+                .type = command_type,
+                .mode = set_mode.mode
+            }
+        );
         return true;
     }
 
 private:
-    ObjectPool<LinearBuffer> pool_{ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{128})};
+    ObjectPool<LinearBuffer> pool_{
+        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{128})
+    };
 };
 
 // 재진입 회귀용 대역. for_each_active의 순회 창(iterating)을 노출한다.
@@ -108,15 +121,19 @@ public:
     }
 };
 
-// 송신 시점에 roster가 순회 중이었는지 기록하는 대역. dispatch가 순회 밖이면 iterating은 항상 false다.
+// 송신 시점에 roster가 순회 중이었는지 기록하는 대역
+// dispatch가 순회 밖이면 iterating은 항상 false다.
 class IterationProbeCommandSender final : public CommandSender {
 public:
-    explicit IterationProbeCommandSender(WindowedDeviceRoster& roster) noexcept : roster_{roster} {}
+    explicit IterationProbeCommandSender(WindowedDeviceRoster& roster) noexcept
+        : roster_{roster} {}
 
     int sent_count = 0;
     bool dispatched_during_iteration = false;
 
-    CommandBuffer make_command_buffer() override { return pool_.acquire(); }
+    CommandBuffer make_command_buffer() override {
+        return pool_.acquire();
+    }
 
     bool try_send(DeviceId, CommandId, std::uint8_t, CommandBuffer) override {
         if (roster_.iterating) {
@@ -128,7 +145,9 @@ public:
 
 private:
     WindowedDeviceRoster& roster_;
-    ObjectPool<LinearBuffer> pool_{ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{128})};
+    ObjectPool<LinearBuffer> pool_{
+        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{128})
+    };
 };
 
 struct PolicyFixture {
@@ -143,7 +162,9 @@ struct PolicyFixture {
         DeviceId const id = make_device_id(seed);
         devices.find_or_create(id);
         devices.set_group(id, std::move(group));
-        devices.update_status(id, ddcs::device::Status{.mode = Mode::normal, .load = load, .temp = 40.0});
+        devices.update_status(
+            id, ddcs::device::Status{.mode = Mode::normal, .load = load, .temp = 40.0}
+        );
         if (active) {
             roster.active.push_back(id);
         }
@@ -151,7 +172,9 @@ struct PolicyFixture {
     }
 
     void set_load(DeviceId id, double load) {
-        devices.update_status(id, ddcs::device::Status{.mode = Mode::normal, .load = load, .temp = 40.0});
+        devices.update_status(
+            id, ddcs::device::Status{.mode = Mode::normal, .load = load, .temp = 40.0}
+        );
     }
 
     static GroupPolicy sensors_policy() {
@@ -186,7 +209,7 @@ TEST(PolicyServiceTest, TransitionsToBusyAboveHighLoad) {
         EXPECT_EQ(s.type, static_cast<std::uint8_t>(cmd::CommandType::set_mode));
         EXPECT_EQ(s.mode, Mode::safe);
     }
-    EXPECT_EQ(f.commands.pending_count(), 2u); // 전달 추적은 CommandService로 넘어갔다
+    EXPECT_EQ(f.commands.pending_count(), 2u); // 전달 추적은 CommandService로 넘어갔다.
 }
 
 TEST(PolicyServiceTest, DoesNotRespamWhileRegimeUnchanged) {
@@ -262,7 +285,8 @@ TEST(PolicyServiceTest, SkipsGroupWithoutActiveDevices) {
 
 TEST(PolicyServiceTest, ParsePolicyBuildsGroupPolicy) {
     auto const j = json::Value::parse(
-        R"({"groups":{"sensors":{"high_load":80,"low_load":20,"busy_mode":"safe","idle_mode":"normal"}}})"
+        R"({"groups":{"sensors":{"high_load":80,"low_load":20,)"
+        R"("busy_mode":"safe","idle_mode":"normal"}}})"
     );
     ASSERT_TRUE(j.has_value());
 
@@ -281,29 +305,33 @@ TEST(PolicyServiceTest, ParsePolicyBuildsGroupPolicy) {
 
 TEST(PolicyServiceTest, ParsePolicyRejectsInvalidInput) {
     EXPECT_FALSE(parse_policy(*json::Value::parse(R"({"x":1})")).has_value()); // groups 없음
-    EXPECT_FALSE(parse_policy(*json::Value::parse(R"({"groups":{"s":{"high_load":80}}})")).has_value()); // 필드 누락
+    // 필드 누락
     EXPECT_FALSE(
-        parse_policy(*json::Value::parse(
-                         R"({"groups":{"s":{"high_load":80,"low_load":20,"busy_mode":"warp","idle_mode":"normal"}}})"
-                     ))
-            .has_value()
-    ); // 미지 mode
-    EXPECT_FALSE(
-        parse_policy(*json::Value::parse(
-                         R"({"groups":{"s":{"high_load":20,"low_load":80,"busy_mode":"safe","idle_mode":"normal"}}})"
-                     ))
-            .has_value()
-    ); // 임계 역전 시 발진
-    EXPECT_FALSE(
-        parse_policy(*json::Value::parse(
-                         R"({"groups":{"s":{"high_load":50,"low_load":50,"busy_mode":"safe","idle_mode":"normal"}}})"
-                     ))
-            .has_value()
-    ); // 밴드 없음
+        parse_policy(*json::Value::parse(R"({"groups":{"s":{"high_load":80}}})")).has_value()
+    );
+
+    // 미지 mode
+    EXPECT_FALSE(parse_policy(*json::Value::parse(
+                                  R"({"groups":{"s":{"high_load":80,"low_load":20,)"
+                                  R"("busy_mode":"warp","idle_mode":"normal"}}})"
+                              ))
+                     .has_value());
+    // 임계 역전 시 발진
+    EXPECT_FALSE(parse_policy(*json::Value::parse(
+                                  R"({"groups":{"s":{"high_load":20,"low_load":80,)"
+                                  R"("busy_mode":"safe","idle_mode":"normal"}}})"
+                              ))
+                     .has_value());
+    // 밴드 없음
+    EXPECT_FALSE(parse_policy(*json::Value::parse(
+                                  R"({"groups":{"s":{"high_load":50,"low_load":50,)"
+                                  R"("busy_mode":"safe","idle_mode":"normal"}}})"
+                              ))
+                     .has_value());
 }
 
-// 회귀: dispatch는 송신 실패 시 동기 disconnect로 roster를 순회 중 변형할 수 있으므로
-// (DeviceRoster 포트 CAUTION), command_group은 대상을 모은 뒤 순회 밖에서 발송해야 한다.
+// 회귀: dispatch는 송신 실패 시 동기 disconnect로 roster를 순회 중 변형할 수 있다.
+//       command_group은 대상을 모은 뒤 순회 밖에서 발송해야 한다.
 TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
     WindowedDeviceRoster roster;
     DeviceRegistry devices;
@@ -313,10 +341,13 @@ TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
 
     DeviceId const id1 = make_device_id(0x01);
     DeviceId const id2 = make_device_id(0x02);
-    for (DeviceId const id : {id1, id2}) { // sensors 그룹 active 2개, 평균 load > high라서 busy 전환
+    for (DeviceId const id :
+         {id1, id2}) { // sensors 그룹 active 2개, 평균 load > high라서 busy 전환
         devices.find_or_create(id);
         devices.set_group(id, "sensors");
-        devices.update_status(id, ddcs::device::Status{.mode = Mode::normal, .load = 95.0, .temp = 40.0});
+        devices.update_status(
+            id, ddcs::device::Status{.mode = Mode::normal, .load = 95.0, .temp = 40.0}
+        );
         roster.active.push_back(id);
     }
     policy.set_policy(PolicyFixture::sensors_policy());
@@ -324,6 +355,6 @@ TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
     ManualClock clock;
     policy.evaluate(clock.now());
 
-    ASSERT_EQ(sender.sent_count, 2); // busy 전환에서 그룹 전원에 발신됐다(경로가 실제로 탔다)
+    ASSERT_EQ(sender.sent_count, 2); // busy 전환에서 그룹 전원에 발신됐다(경로가 실제로 탔다).
     EXPECT_FALSE(sender.dispatched_during_iteration); // 발송은 순회 밖에서만
 }

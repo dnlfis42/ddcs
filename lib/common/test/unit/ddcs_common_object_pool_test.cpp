@@ -21,11 +21,14 @@ struct Item {
 };
 
 struct ConstructedItem {
-    explicit ConstructedItem(int value_in) noexcept : value{value_in} {}
+    explicit ConstructedItem(int value_in) noexcept
+        : value{value_in} {}
 
     int value;
 
-    void reset() noexcept { value = 0; }
+    void reset() noexcept {
+        value = 0;
+    }
 };
 
 } // namespace

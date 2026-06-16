@@ -127,7 +127,8 @@ TEST(RingBufferTest, ReturnsContiguousReadableDataAfterWrap) {
     ASSERT_TRUE(rb.read(drained));
 
     std::array<std::byte, 6> payload{
-        std::byte{0xa1}, std::byte{0xa2}, std::byte{0xa3}, std::byte{0xa4}, std::byte{0xa5}, std::byte{0xa6},
+        std::byte{0xa1}, std::byte{0xa2}, std::byte{0xa3},
+        std::byte{0xa4}, std::byte{0xa5}, std::byte{0xa6},
     };
     ASSERT_TRUE(rb.write(payload));
 
@@ -260,7 +261,8 @@ TEST(RingBufferTest, RoundTripsBytesAcrossWrapBoundary) {
     ASSERT_TRUE(rb.read(drained));
 
     std::array<std::byte, 6> payload{
-        std::byte{0xa1}, std::byte{0xa2}, std::byte{0xa3}, std::byte{0xa4}, std::byte{0xa5}, std::byte{0xa6},
+        std::byte{0xa1}, std::byte{0xa2}, std::byte{0xa3},
+        std::byte{0xa4}, std::byte{0xa5}, std::byte{0xa6},
     };
     ASSERT_TRUE(rb.write(payload));
     EXPECT_EQ(rb.size(), 6u);

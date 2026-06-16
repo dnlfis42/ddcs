@@ -65,7 +65,9 @@ TEST(ReactorTest, DispatchesReadableChannel) {
     PipeFds fds = make_pipe();
     FlagHandler handler;
     Channel channel;
-    ASSERT_TRUE(channel.init(std::move(fds.read), ChannelEvents::readable | ChannelEvents::edge_triggered, handler));
+    ASSERT_TRUE(channel.init(
+        std::move(fds.read), ChannelEvents::readable | ChannelEvents::edge_triggered, handler
+    ));
     ASSERT_TRUE(reactor.add(channel));
 
     write_byte(fds.write);
@@ -82,7 +84,9 @@ TEST(ReactorTest, UpdatesInterestsWhenModified) {
     PipeFds fds = make_pipe();
     FlagHandler handler;
     Channel channel;
-    ASSERT_TRUE(channel.init(std::move(fds.read), ChannelEvents::readable | ChannelEvents::edge_triggered, handler));
+    ASSERT_TRUE(channel.init(
+        std::move(fds.read), ChannelEvents::readable | ChannelEvents::edge_triggered, handler
+    ));
     ASSERT_TRUE(reactor.add(channel));
 
     ASSERT_TRUE(reactor.modify(channel, ChannelEvents::writable | ChannelEvents::edge_triggered));
@@ -101,7 +105,9 @@ TEST(ReactorTest, StopsDispatchingAfterRemove) {
     PipeFds fds = make_pipe();
     FlagHandler handler;
     Channel channel;
-    ASSERT_TRUE(channel.init(std::move(fds.read), ChannelEvents::readable | ChannelEvents::edge_triggered, handler));
+    ASSERT_TRUE(channel.init(
+        std::move(fds.read), ChannelEvents::readable | ChannelEvents::edge_triggered, handler
+    ));
     ASSERT_TRUE(reactor.add(channel));
 
     reactor.remove(channel);

@@ -44,7 +44,8 @@ std::optional<domain::GroupPolicy> parse_policy(json::Value const& root) {
             ok = false;
             return;
         }
-        auto rule = domain::GroupRule::try_make(*hv, *lv, *bm, *im); // 밴드 불변식은 도메인이 강제한다
+        auto rule =
+            domain::GroupRule::try_make(*hv, *lv, *bm, *im); // 밴드 불변식은 도메인이 강제한다
         if (!rule) {
             ok = false;
             return;
@@ -66,7 +67,7 @@ void PolicyService::evaluate(common::Clock::time_point now) {
     if (policy_.empty()) {
         return;
     }
-    // 1. active device의 group별 load 집계 (끊긴 device의 stale 트윈 제외).
+    // 1. active device의 group별 load 집계 (끊긴 device의 stale 트윈 제외)
     struct Agg {
         double sum{};
         int count{};
@@ -81,7 +82,7 @@ void PolicyService::evaluate(common::Clock::time_point now) {
         a.sum += twin->status.load;
         ++a.count;
     });
-    // 2. 정책 그룹별 히스테리시스 평가 후 regime 전환 시에만 명령.
+    // 2. 정책 그룹별 히스테리시스 평가 후 regime 전환 시에만 명령
     policy_.for_each([&](std::string const& group, domain::GroupRule const& rule) {
         auto const it = agg.find(group);
         if (it == agg.end() || it->second.count == 0) {
@@ -101,7 +102,9 @@ void PolicyService::evaluate(common::Clock::time_point now) {
     });
 }
 
-void PolicyService::command_group(std::string const& group, ddcs::device::Mode mode, common::Clock::time_point now) {
+void PolicyService::command_group(
+    std::string const& group, ddcs::device::Mode mode, common::Clock::time_point now
+) {
     // CAUTION: dispatch는 송신 실패 시 동기 disconnect로 roster를 순회 중 변형할 수 있다.
     // CAUTION  그래서 대상을 먼저 모으고 for_each_active 밖에서 발송한다(DeviceRoster 포트 계약).
     targets_.clear();
@@ -118,7 +121,9 @@ void PolicyService::command_group(std::string const& group, ddcs::device::Mode m
             continue;
         }
         // 미연결 등 송신 실패는 dispatch가 invalid 반환 + WARN. 다음 전환/재평가가 자연 보상.
-        commands_.dispatch(id, static_cast<std::uint8_t>(cmd::type_of<cmd::SetMode>), std::move(buf), now);
+        commands_.dispatch(
+            id, static_cast<std::uint8_t>(cmd::type_of<cmd::SetMode>), std::move(buf), now
+        );
     }
 }
 

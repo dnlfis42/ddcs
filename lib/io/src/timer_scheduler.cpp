@@ -35,7 +35,8 @@ itimerspec make_timerfd_spec(std::chrono::nanoseconds delay) noexcept {
         delay = 1ns;
     }
 
-    auto const max_seconds = static_cast<std::chrono::seconds::rep>(std::numeric_limits<time_t>::max());
+    auto const max_seconds =
+        static_cast<std::chrono::seconds::rep>(std::numeric_limits<time_t>::max());
     auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(delay);
     if (seconds.count() >= max_seconds) {
         itimerspec spec{};
@@ -59,11 +60,17 @@ struct TimerScheduler::Impl final : ChannelHandler {
         active,
     };
 
-    explicit Impl(Reactor& reactor_ref) : reactor{reactor_ref}, clock{default_clock} {}
+    explicit Impl(Reactor& reactor_ref)
+        : reactor{reactor_ref},
+          clock{default_clock} {}
 
-    Impl(Reactor& reactor_ref, common::Clock& injected_clock) : reactor{reactor_ref}, clock{injected_clock} {}
+    Impl(Reactor& reactor_ref, common::Clock& injected_clock)
+        : reactor{reactor_ref},
+          clock{injected_clock} {}
 
-    [[nodiscard]] bool active() const noexcept { return state == State::active; }
+    [[nodiscard]] bool active() const noexcept {
+        return state == State::active;
+    }
 
     [[nodiscard]] TimerId schedule(std::chrono::nanoseconds delay, TimerHandler& handler) {
         auto const deadline = clock.now() + delay;
@@ -103,7 +110,9 @@ struct TimerScheduler::Impl final : ChannelHandler {
             common::throw_errno(errno, "timerfd_create");
         }
 
-        if (!channel.init(std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this)) {
+        if (!channel.init(
+                std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this
+            )) {
             common::throw_errno(EINVAL, "timer channel init");
         }
 
@@ -213,8 +222,10 @@ struct TimerScheduler::Impl final : ChannelHandler {
 
         itimerspec spec{};
         if (auto const deadline = next_deadline()) {
-            auto const remaining = std::max(*deadline - clock.now(), common::Clock::duration::zero());
-            spec = make_timerfd_spec(std::chrono::duration_cast<std::chrono::nanoseconds>(remaining));
+            auto const remaining =
+                std::max(*deadline - clock.now(), common::Clock::duration::zero());
+            spec =
+                make_timerfd_spec(std::chrono::duration_cast<std::chrono::nanoseconds>(remaining));
         }
 
         if (::timerfd_settime(channel.fd(), 0, &spec, nullptr) < 0) {
@@ -240,25 +251,38 @@ struct TimerScheduler::Impl final : ChannelHandler {
     detail::TimerRegistrationTable timer_registrations;
 };
 
-TimerScheduler::TimerScheduler(Reactor& reactor) : impl_{std::make_unique<Impl>(reactor)} {}
+TimerScheduler::TimerScheduler(Reactor& reactor)
+    : impl_{std::make_unique<Impl>(reactor)} {}
 
 TimerScheduler::TimerScheduler(Reactor& reactor, common::Clock& clock)
     : impl_{std::make_unique<Impl>(reactor, clock)} {}
 
-TimerScheduler::~TimerScheduler() { stop(); }
+TimerScheduler::~TimerScheduler() {
+    stop();
+}
 
-bool TimerScheduler::active() const noexcept { return impl_->active(); }
+bool TimerScheduler::active() const noexcept {
+    return impl_->active();
+}
 
 TimerId TimerScheduler::schedule(std::chrono::nanoseconds delay, TimerHandler& handler) {
     return impl_->schedule(delay, handler);
 }
 
-void TimerScheduler::cancel(TimerId id) { impl_->cancel(id); }
+void TimerScheduler::cancel(TimerId id) {
+    impl_->cancel(id);
+}
 
-void TimerScheduler::start() { impl_->start(); }
+void TimerScheduler::start() {
+    impl_->start();
+}
 
-void TimerScheduler::stop() noexcept { impl_->stop(); }
+void TimerScheduler::stop() noexcept {
+    impl_->stop();
+}
 
-void TimerScheduler::dispatch_expired() { impl_->dispatch_expired(); }
+void TimerScheduler::dispatch_expired() {
+    impl_->dispatch_expired();
+}
 
 } // namespace ddcs::io

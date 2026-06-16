@@ -42,7 +42,7 @@ std::span<std::byte const> as_bytes(std::string_view s) {
     return {reinterpret_cast<std::byte const*>(s.data()), s.size()};
 }
 
-// 송신 의뢰를 기록하는 대역. accept = false면 송신 거부(미연결 등가).
+// 송신 의뢰를 기록하는 대역. accept = false면 송신 거부 (미연결 등가)
 class FakeCommandSender final : public CommandSender {
 public:
     struct Sent {
@@ -55,24 +55,33 @@ public:
     std::vector<Sent> sent;
     bool accept = true;
 
-    CommandBuffer make_command_buffer() override { return pool_.acquire(); }
+    CommandBuffer make_command_buffer() override {
+        return pool_.acquire();
+    }
 
-    bool try_send(DeviceId device, CommandId command_id, std::uint8_t command_type, CommandBuffer message) override {
+    bool try_send(
+        DeviceId device, CommandId command_id, std::uint8_t command_type, CommandBuffer message
+    ) override {
         if (!accept) {
             return false;
         }
         auto const readable = message->readable();
-        sent.push_back(Sent{
-            .device = device,
-            .command_id = command_id,
-            .type = command_type,
-            .payload = std::string{reinterpret_cast<char const*>(readable.data()), readable.size()},
-        });
+        sent.push_back(
+            Sent{
+                .device = device,
+                .command_id = command_id,
+                .type = command_type,
+                .payload =
+                    std::string{reinterpret_cast<char const*>(readable.data()), readable.size()},
+            }
+        );
         return true;
     }
 
 private:
-    ObjectPool<LinearBuffer> pool_{ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{128})};
+    ObjectPool<LinearBuffer> pool_{
+        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{128})
+    };
 };
 
 struct CommandFixture {
@@ -125,7 +134,8 @@ TEST(CommandServiceTest, SupersedeReplacesSameTypeCommand) {
     EXPECT_EQ(f.commands.pending_count(), 1u); // 슬롯은 교체, 누적 아님
     EXPECT_NE(new_id, old_id);
 
-    f.commands.settle(make_device_id(0xAA), old_id, true, "", f.clock.now()); // 대체된 명령의 늦은 응답
+    // 대체된 명령의 늦은 응답
+    f.commands.settle(make_device_id(0xAA), old_id, true, "", f.clock.now());
     EXPECT_EQ(f.commands.completed_total(), 0u);
     EXPECT_EQ(f.commands.stale_total(), 1u);
 

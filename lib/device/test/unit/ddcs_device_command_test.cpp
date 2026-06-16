@@ -43,4 +43,6 @@ TEST(CommandCodecTest, RejectsOversizedPayload) {
     EXPECT_FALSE(decode({two.data(), two.size()}, out));
 }
 
-TEST(CommandCodecTest, MapsSetModeToCommandType) { EXPECT_EQ(type_of<SetMode>, CommandType::set_mode); }
+TEST(CommandCodecTest, MapsSetModeToCommandType) {
+    EXPECT_EQ(type_of<SetMode>, CommandType::set_mode);
+}

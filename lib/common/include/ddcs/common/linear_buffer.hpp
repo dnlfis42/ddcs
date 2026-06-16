@@ -9,7 +9,9 @@ namespace ddcs::common {
 
 class LinearBuffer {
 public:
-    explicit LinearBuffer(std::size_t capacity) : buffer_{new std::byte[capacity]}, capacity_{capacity} {}
+    explicit LinearBuffer(std::size_t capacity)
+        : buffer_{new std::byte[capacity]},
+          capacity_{capacity} {}
     ~LinearBuffer() = default;
 
     LinearBuffer(LinearBuffer const&) = delete;
@@ -17,18 +19,35 @@ public:
     LinearBuffer(LinearBuffer&&) noexcept = delete;
     LinearBuffer& operator=(LinearBuffer&&) noexcept = delete;
 
-    std::size_t capacity() const noexcept { return capacity_; }
-    std::size_t size() const noexcept { return write_pos_ - read_pos_; }
-    std::size_t available() const noexcept { return capacity_ - write_pos_; }
-    bool empty() const noexcept { return read_pos_ == write_pos_; }
+    std::size_t capacity() const noexcept {
+        return capacity_;
+    }
 
-    std::span<std::byte const> readable() const noexcept { return {buffer_.get() + read_pos_, size()}; }
-    std::span<std::byte> writable() noexcept { return {buffer_.get() + write_pos_, available()}; }
+    std::size_t size() const noexcept {
+        return write_pos_ - read_pos_;
+    }
+
+    std::size_t available() const noexcept {
+        return capacity_ - write_pos_;
+    }
+
+    bool empty() const noexcept {
+        return read_pos_ == write_pos_;
+    }
+
+    std::span<std::byte const> readable() const noexcept {
+        return {buffer_.get() + read_pos_, size()};
+    }
+
+    std::span<std::byte> writable() noexcept {
+        return {buffer_.get() + write_pos_, available()};
+    }
 
     bool peek(std::span<std::byte> dst) const noexcept {
         if (size() < dst.size()) {
             return false;
         }
+
         std::memcpy(dst.data(), buffer_.get() + read_pos_, dst.size());
         return true;
     }
@@ -37,6 +56,7 @@ public:
         if (!peek(dst)) {
             return false;
         }
+
         read_pos_ += dst.size();
         return true;
     }
@@ -46,6 +66,7 @@ public:
         if (!empty() || read_pos_ + n > capacity_) {
             return false;
         }
+
         read_pos_ += n;
         write_pos_ = read_pos_;
         return true;
@@ -55,6 +76,7 @@ public:
         if (read_pos_ < src.size()) {
             return false;
         }
+
         read_pos_ -= src.size();
         std::memcpy(buffer_.get() + read_pos_, src.data(), src.size());
         return true;
@@ -64,6 +86,7 @@ public:
         if (available() < src.size()) {
             return false;
         }
+
         std::memcpy(buffer_.get() + write_pos_, src.data(), src.size());
         write_pos_ += src.size();
         return true;
@@ -73,6 +96,7 @@ public:
         if (available() < n) {
             return false;
         }
+
         write_pos_ += n;
         return true;
     }
@@ -81,6 +105,7 @@ public:
         if (size() < n) {
             return false;
         }
+
         read_pos_ += n;
         return true;
     }
@@ -90,7 +115,9 @@ public:
         write_pos_ = 0;
     }
 
-    void reset() noexcept { clear(); }
+    void reset() noexcept {
+        clear();
+    }
 
 private:
     std::unique_ptr<std::byte[]> buffer_;

@@ -19,8 +19,12 @@ namespace ddcs::ctrl::infra::prometheus {
 namespace {
 
 constexpr std::size_t pool_chunk{8};
-constexpr io::ChannelEvents read_interest{io::ChannelEvents::readable | io::ChannelEvents::edge_triggered};
-constexpr io::ChannelEvents write_interest{io::ChannelEvents::writable | io::ChannelEvents::edge_triggered};
+constexpr io::ChannelEvents read_interest{
+    io::ChannelEvents::readable | io::ChannelEvents::edge_triggered
+};
+constexpr io::ChannelEvents write_interest{
+    io::ChannelEvents::writable | io::ChannelEvents::edge_triggered
+};
 
 // Prometheus exposition(text/plain) 본문을 HTTP 응답으로 감싼다(Connection: close).
 std::string http_ok(std::string const& body) {
@@ -45,42 +49,57 @@ std::string http_ok(std::string const& body) {
 
 } // namespace
 
-Server::Server(io::Reactor& reactor, port::MetricsSource& source, std::uint16_t listen_port, int backlog)
-    : reactor_{reactor}, source_{source}, listen_port_{listen_port}, backlog_{backlog},
+Server::Server(
+    io::Reactor& reactor, port::MetricsSource& source, std::uint16_t listen_port, int backlog
+)
+    : reactor_{reactor},
+      source_{source},
+      listen_port_{listen_port},
+      backlog_{backlog},
       pool_{common::make_object_pool<Connection>(0, pool_chunk)} {}
 
-Server::~Server() { close(); }
+Server::~Server() {
+    close();
+}
 
 bool Server::init() noexcept {
     if (state_ != State::idle) {
         return false;
     }
+
     common::Fd fd{::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)};
     if (!fd.valid()) {
         LOG_WARN("prometheus.socket_fail", logger::kv("errno", errno));
         return false;
     }
+
     int const yes{1};
     if (::setsockopt(fd.get(), SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0) {
         LOG_WARN("prometheus.setsockopt_fail", logger::kv("errno", errno));
         return false;
     }
+
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(listen_port_);
     if (::bind(fd.get(), reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        LOG_WARN("prometheus.bind_fail", logger::kv("port", listen_port_), logger::kv("errno", errno));
+        LOG_WARN(
+            "prometheus.bind_fail", logger::kv("port", listen_port_), logger::kv("errno", errno)
+        );
         return false;
     }
+
     if (::listen(fd.get(), backlog_) < 0) {
         LOG_WARN("prometheus.listen_fail", logger::kv("errno", errno));
         return false;
     }
+
     bound_port_ = query_bound_port(fd.get());
     if (!listen_channel_.init(std::move(fd), read_interest, *this)) {
         return false;
     }
+
     state_ = State::ready;
     return true;
 }
@@ -95,6 +114,7 @@ bool Server::start() {
     if (!reactor_.add(listen_channel_)) {
         return false;
     }
+
     state_ = State::active;
     LOG_INFO("prometheus.server.start", logger::kv("port", bound_port_));
     return true;
@@ -104,6 +124,7 @@ void Server::stop() noexcept {
     if (state_ != State::active) {
         return;
     }
+
     reactor_.remove(listen_channel_);
     for (auto& [fd, conn] : connections_) {
         if (conn->channel().registered()) {
@@ -119,6 +140,7 @@ void Server::close() noexcept {
     if (state_ == State::idle) {
         return;
     }
+
     stop();
     listen_channel_.reset();
     bound_port_ = 0;
@@ -129,10 +151,14 @@ void Server::on_ready(io::Channel& channel, io::ChannelEvents events) {
     if (&channel != &listen_channel_) {
         return;
     }
+
     if (contains(events, io::ChannelEvents::error) || contains(events, io::ChannelEvents::hangup)) {
-        LOG_ERROR("prometheus.listener_error", logger::kv("events", static_cast<std::uint32_t>(events)));
+        LOG_ERROR(
+            "prometheus.listener_error", logger::kv("events", static_cast<std::uint32_t>(events))
+        );
         return;
     }
+
     if (contains(events, io::ChannelEvents::readable)) {
         drain_accepts();
     }
@@ -141,7 +167,9 @@ void Server::on_ready(io::Channel& channel, io::ChannelEvents events) {
 
 void Server::drain_accepts() {
     for (;;) {
-        common::Fd fd{::accept4(listen_channel_.fd(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC)};
+        common::Fd fd{
+            ::accept4(listen_channel_.fd(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC)
+        };
         if (!fd.valid()) {
             int const err = errno;
             if (err == EAGAIN || err == EWOULDBLOCK) {
@@ -152,15 +180,18 @@ void Server::drain_accepts() {
             }
             return; // EMFILE 등. 스크레이프는 best-effort (shed 안 함)
         }
+
         auto conn = pool_.acquire();
         int const cfd = fd.get();
         if (!conn->assign(*this, std::move(fd), read_interest)) {
             continue; // 방어. 핸들 드롭 시 reset
         }
+
         auto const [it, inserted] = connections_.try_emplace(cfd, std::move(conn));
         if (!inserted) {
             continue; // fd 중복(있을 수 없음). 핸들 드롭
         }
+
         Connection* const p = it->second.get();
         if (!reactor_.add(p->channel())) {
             connections_.erase(cfd); // 등록 실패 시 드롭(핸들 drop 시 reset 후 fd close)
@@ -177,6 +208,7 @@ void Server::dispatch(Connection& conn, io::ChannelEvents events) {
     if (conn.state() == Connection::State::done) {
         return; // 이미 reap 예약
     }
+
     if (contains(events, io::ChannelEvents::error) || contains(events, io::ChannelEvents::hangup)) {
         schedule_close(conn);
         return;
@@ -214,9 +246,13 @@ void Server::dispatch(Connection& conn, io::ChannelEvents events) {
     }
 }
 
-void Server::respond(Connection& conn) { conn.begin_response(http_ok(source_.scrape())); }
+void Server::respond(Connection& conn) {
+    conn.begin_response(http_ok(source_.scrape()));
+}
 
-void Server::schedule_close(Connection& conn) { pending_close_.push_back(conn.fd()); }
+void Server::schedule_close(Connection& conn) {
+    pending_close_.push_back(conn.fd());
+}
 
 void Server::reap() {
     // 인덱스 순회: 재진입 push 안전(반복자 무효화 없음).
@@ -226,6 +262,7 @@ void Server::reap() {
         if (conn == nullptr) {
             continue;
         }
+
         if (conn->channel().registered()) {
             reactor_.remove(conn->channel());
         }

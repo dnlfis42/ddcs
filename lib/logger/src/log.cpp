@@ -30,7 +30,7 @@ constexpr std::string_view level_name(Level lvl) noexcept {
     return "UNKNOWN";
 }
 
-// 파일 경로에서 basename(마지막 '/' 이후) 추출. 컴파일타임 const char* 입력.
+// 파일 경로에서 basename(마지막 '/' 이후) 추출. 컴파일타임 const char* 입력
 constexpr std::string_view basename_of(char const* path) noexcept {
     if (path == nullptr) {
         return {};
@@ -44,7 +44,9 @@ constexpr std::string_view basename_of(char const* path) noexcept {
 void append_iso8601(std::string& buf) {
     auto const now = std::chrono::system_clock::now();
     auto const sec = std::chrono::time_point_cast<std::chrono::seconds>(now);
-    auto const ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
+    auto const ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() %
+        1000;
     auto const t = std::chrono::system_clock::to_time_t(sec);
 
     std::tm tm{};
@@ -52,26 +54,31 @@ void append_iso8601(std::string& buf) {
 
     std::array<char, 32> tmp{};
     int const n = std::snprintf(
-        tmp.data(), tmp.size(), "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-        tm.tm_hour, tm.tm_min, tm.tm_sec, static_cast<int>(ms)
+        tmp.data(), tmp.size(), "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", tm.tm_year + 1900,
+        tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, static_cast<int>(ms)
     );
     if (n > 0) {
         buf.append(tmp.data(), static_cast<std::size_t>(n));
     }
 }
 
-// JSON 문자열 escape가 필요한 byte 인지.
-constexpr bool needs_escape(unsigned char c) noexcept { return c == '"' || c == '\\' || c < 0x20; }
+// JSON 문자열 escape가 필요한 byte 인지
+constexpr bool needs_escape(unsigned char c) noexcept {
+    return c == '"' || c == '\\' || c < 0x20;
+}
 
 void append_json_escaped(std::string& buf, std::string_view s) {
-    // fast path: escape 대상 없으면 한 번에 memcpy.
-    auto const first =
-        std::find_if(s.begin(), s.end(), [](char c) { return needs_escape(static_cast<unsigned char>(c)); });
+    // fast path: escape 대상 없으면 한 번에 memcpy
+    auto const first = std::find_if(s.begin(), s.end(), [](char c) {
+        return needs_escape(static_cast<unsigned char>(c));
+    });
+
     if (first == s.end()) {
         buf.append(s.data(), s.size());
         return;
     }
-    // 일치 전까지는 통째로 복사.
+
+    // 일치 전까지는 통째로 복사
     buf.append(s.data(), static_cast<std::size_t>(first - s.begin()));
     for (auto it = first; it != s.end(); ++it) {
         unsigned char const c = static_cast<unsigned char>(*it);
@@ -100,7 +107,8 @@ void append_json_escaped(std::string& buf, std::string_view s) {
         default:
             if (c < 0x20) {
                 std::array<char, 8> tmp{};
-                int const n = std::snprintf(tmp.data(), tmp.size(), "\\u%04x", static_cast<unsigned>(c));
+                int const n =
+                    std::snprintf(tmp.data(), tmp.size(), "\\u%04x", static_cast<unsigned>(c));
                 if (n > 0) {
                     buf.append(tmp.data(), static_cast<std::size_t>(n));
                 }
@@ -128,13 +136,16 @@ Level level_from_string(std::string_view name, Level fallback) noexcept {
         if (a.size() != lower.size()) {
             return false;
         }
+
         for (std::size_t i = 0; i < a.size(); ++i) {
-            if (std::tolower(static_cast<unsigned char>(a[i])) != static_cast<unsigned char>(lower[i])) {
+            if (std::tolower(static_cast<unsigned char>(a[i])) !=
+                static_cast<unsigned char>(lower[i])) {
                 return false;
             }
         }
         return true;
     };
+
     if (ieq(name, "debug")) {
         return Level::Debug;
     }
@@ -158,9 +169,13 @@ void append_value(std::string& buf, std::string_view v) {
     buf.push_back('"');
 }
 
-void append_value(std::string& buf, bool v) { buf.append(v ? "true" : "false"); }
+void append_value(std::string& buf, bool v) {
+    buf.append(v ? "true" : "false");
+}
 
-void append_value(std::string& buf, std::nullptr_t) { buf.append("null", 4); }
+void append_value(std::string& buf, std::nullptr_t) {
+    buf.append("null", 4);
+}
 
 void append_value(std::string& buf, double v) {
     std::array<char, 32> tmp{};
@@ -168,14 +183,21 @@ void append_value(std::string& buf, double v) {
     if (r.ec == std::errc{}) {
         buf.append(tmp.data(), static_cast<std::size_t>(r.ptr - tmp.data()));
     } else {
-        buf.append("null", 4); // NaN/Inf 등은 JSON 표준에 없으므로 null.
+        buf.append("null", 4); // NaN/Inf 등은 JSON 표준에 없으므로 null
     }
 }
 
-void append_value(std::string& buf, std::int64_t v) { append_int(buf, v); }
-void append_value(std::string& buf, std::uint64_t v) { append_int(buf, v); }
+void append_value(std::string& buf, std::int64_t v) {
+    append_int(buf, v);
+}
 
-void build_header(std::string& buf, Level lvl, std::source_location const& loc, std::string_view msg) {
+void append_value(std::string& buf, std::uint64_t v) {
+    append_int(buf, v);
+}
+
+void build_header(
+    std::string& buf, Level lvl, std::source_location const& loc, std::string_view msg
+) {
     buf.append("{\"ts\":\"", 7);
     append_iso8601(buf);
     buf.append("\",\"level\":\"", 11);
@@ -189,7 +211,9 @@ void build_header(std::string& buf, Level lvl, std::source_location const& loc, 
     buf.push_back('"');
 }
 
-void finish_line(std::string& buf) { buf.push_back('}'); }
+void finish_line(std::string& buf) {
+    buf.push_back('}');
+}
 
 std::string& thread_buffer() noexcept {
     thread_local std::string buf;
@@ -204,11 +228,13 @@ std::string& thread_buffer() noexcept {
 void StdoutSink::write(std::string_view line) noexcept {
     std::fwrite(line.data(), 1, line.size(), stdout);
     std::fputc('\n', stdout);
-    // 컨테이너 stdout은 fully-buffered 라 명시 flush 필요. 가시성 우선.
+    // 컨테이너 stdout은 fully-buffered 라 명시 flush 필요. 가시성 우선
     std::fflush(stdout);
 }
 
-void StdoutSink::flush() noexcept { std::fflush(stdout); }
+void StdoutSink::flush() noexcept {
+    std::fflush(stdout);
+}
 
 Logger& Logger::instance() noexcept {
     static Logger inst;

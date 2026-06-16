@@ -22,7 +22,9 @@ using ddcs::io::TimerScheduler;
 class RecordingTimer : public TimerHandler {
 public:
     std::vector<TimerId> fired;
-    void on_expired(TimerId id) override { fired.push_back(id); }
+    void on_expired(TimerId id) override {
+        fired.push_back(id);
+    }
 };
 
 } // namespace
@@ -98,7 +100,8 @@ TEST(TimerSchedulerTest, StopsSafelyFromCallback) {
 
     class StopTimer : public TimerHandler {
     public:
-        explicit StopTimer(TimerScheduler& scheduler_ref) : scheduler{scheduler_ref} {}
+        explicit StopTimer(TimerScheduler& scheduler_ref)
+            : scheduler{scheduler_ref} {}
 
         int count{0};
         TimerScheduler& scheduler;

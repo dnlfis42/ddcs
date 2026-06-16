@@ -15,10 +15,16 @@ public:
 
 public:
     constexpr Uuid() noexcept = default;
-    constexpr explicit Uuid(std::array<std::byte, 16> const& bytes) noexcept : bytes_{bytes} {}
+    constexpr explicit Uuid(std::array<std::byte, 16> const& bytes) noexcept
+        : bytes_{bytes} {}
 
-    std::array<std::byte, 16> const& bytes() const noexcept { return bytes_; }
-    constexpr bool valid() const noexcept { return bytes_ != invalid; }
+    std::array<std::byte, 16> const& bytes() const noexcept {
+        return bytes_;
+    }
+
+    constexpr bool valid() const noexcept {
+        return bytes_ != invalid;
+    }
 
     constexpr bool operator==(Uuid const&) const noexcept = default;
     constexpr auto operator<=>(Uuid const&) const noexcept = default;
@@ -38,7 +44,9 @@ public:
         return out;
     }
 
-    constexpr void clear() noexcept { bytes_ = invalid; }
+    constexpr void clear() noexcept {
+        bytes_ = invalid;
+    }
 
 private:
     std::array<std::byte, 16> bytes_{};

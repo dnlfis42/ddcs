@@ -18,10 +18,12 @@ public:
         AgentRegistry& registry, port::Disconnector& disconnector, std::chrono::nanoseconds timeout
     ) noexcept;
 
-    [[nodiscard]] std::uint64_t evicted_total() const noexcept { return evicted_total_; } // 침묵 evict 누적(알람)
+    [[nodiscard]] std::uint64_t evicted_total() const noexcept {
+        return evicted_total_;
+    } // 침묵 evict 누적(알람)
 
     // now - last_seen > timeout인 active 연결을 끊는다.
-    // CAUTION: disconnect는 동기로 on_disconnected 후 erase를 되부른다. 수집과 처형을 분리할 것.
+    // CAUTION: disconnect는 동기로 on_disconnected 후 erase를 되부른다. 수집과 처형을 분리할 것
     void sweep(common::Clock::time_point now);
 
 private:

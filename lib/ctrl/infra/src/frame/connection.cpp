@@ -13,7 +13,8 @@
 namespace ddcs::ctrl::infra::frame {
 
 bool Connection::init(
-    Server& server, port::ConnectionId id, PeerAddress peer, common::Fd&& fd, io::ChannelEvents interests
+    Server& server, port::ConnectionId id, PeerAddress peer, common::Fd&& fd,
+    io::ChannelEvents interests
 ) noexcept {
     if (state_ != State::idle) {
         return false;

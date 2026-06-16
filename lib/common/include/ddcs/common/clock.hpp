@@ -23,17 +23,27 @@ public:
 
 class SteadyClock final : public Clock {
 public:
-    time_point now() const noexcept override { return std::chrono::steady_clock::now(); }
+    time_point now() const noexcept override {
+        return std::chrono::steady_clock::now();
+    }
 };
 
 class ManualClock final : public Clock {
 public:
-    explicit ManualClock(time_point t = time_point{}) noexcept : now_{t} {}
+    explicit ManualClock(time_point t = time_point{}) noexcept
+        : now_{t} {}
 
-    time_point now() const noexcept override { return now_; }
+    time_point now() const noexcept override {
+        return now_;
+    }
 
-    void set(time_point t) noexcept { now_ = t; }
-    void advance(duration d) noexcept { now_ += d; }
+    void set(time_point t) noexcept {
+        now_ = t;
+    }
+
+    void advance(duration d) noexcept {
+        now_ += d;
+    }
 
 private:
     time_point now_;

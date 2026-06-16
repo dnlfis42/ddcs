@@ -22,8 +22,9 @@ TEST(UuidTest, ReportsDefaultUuidAsNil) {
 
 TEST(UuidTest, FormatsBytesAsCanonicalString) {
     std::array<std::byte, 16> const bytes{
-        std::byte{0x55}, std::byte{0x0e}, std::byte{0x84}, std::byte{0x00}, std::byte{0xe2}, std::byte{0x9b},
-        std::byte{0x41}, std::byte{0xd4}, std::byte{0xa7}, std::byte{0x16}, std::byte{0x44}, std::byte{0x66},
+        std::byte{0x55}, std::byte{0x0e}, std::byte{0x84}, std::byte{0x00},
+        std::byte{0xe2}, std::byte{0x9b}, std::byte{0x41}, std::byte{0xd4},
+        std::byte{0xa7}, std::byte{0x16}, std::byte{0x44}, std::byte{0x66},
         std::byte{0x55}, std::byte{0x44}, std::byte{0x00}, std::byte{0x00},
     };
     Uuid const u{bytes};

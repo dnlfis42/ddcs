@@ -12,7 +12,9 @@ using ddcs::io::TimerId;
 using ddcs::io::detail::TimerQueue;
 using time_point = TimerQueue::time_point;
 
-time_point base() { return time_point{} + 1000s; }
+time_point base() {
+    return time_point{} + 1000s;
+}
 
 } // namespace
 

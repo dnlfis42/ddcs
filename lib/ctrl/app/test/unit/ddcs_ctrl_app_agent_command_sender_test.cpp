@@ -69,12 +69,15 @@ public:
     }
 
     void send(ConnectionId conn, MessageBuffer message) override {
-        auto const bytes = message->readable(); // [type][command_id][command_type][payload]
+        //  // [type][command_id][command_type][payload]
+        auto const bytes = message->readable();
         ASSERT_FALSE(bytes.empty());
         EXPECT_EQ(acmp::peek_type(bytes), acmp::MessageType::command_request);
         auto const cmd = acmp::decode_command_request(bytes.subspan(1));
         ASSERT_TRUE(cmd.has_value());
-        std::string payload_copy{reinterpret_cast<char const*>(cmd->payload.data()), cmd->payload.size()};
+        std::string payload_copy{
+            reinterpret_cast<char const*>(cmd->payload.data()), cmd->payload.size()
+        };
         std::array<std::byte, frame::header_size> const frame_stub{}; // frame 헤더 자리 검증
         sent.push_back(
             Sent{
@@ -148,7 +151,8 @@ TEST(CommandSenderTest, ReturnsFalseWhenDeviceNotActive) {
 TEST(CommandSenderTest, ReturnsFalseWhenDeviceConfirming) {
     SenderFixture f;
     ASSERT_TRUE(f.agents.add(ConnectionId{1}, f.clock.now()));
-    ASSERT_TRUE(f.agents.bind(ConnectionId{1}, make_device_id(0xAA), f.clock.now())); // RegisterAck 전
+    // RegisterAck 전
+    ASSERT_TRUE(f.agents.bind(ConnectionId{1}, make_device_id(0xAA), f.clock.now()));
 
     EXPECT_FALSE(f.sender.try_send(make_device_id(0xAA), CommandId{42}, 0x01, f.payload("p")));
     EXPECT_TRUE(f.outbox.sent.empty()); // 등록 미확인 연결에는 명령 금지
@@ -158,7 +162,8 @@ TEST(CommandSenderTest, ReturnsFalseWithoutHeaderHeadroom) {
     SenderFixture f;
     f.activate(1, 0xAA);
 
-    auto raw = f.outbox.make_message_buffer(); // make_command_buffer를 거치지 않은 buffer. command headroom 없음
+    // make_command_buffer를 거치지 않은 buffer. command headroom 없음
+    auto raw = f.outbox.make_message_buffer();
     ASSERT_TRUE(raw->write(as_bytes("p")));
 
     EXPECT_FALSE(f.sender.try_send(make_device_id(0xAA), CommandId{42}, 0x01, std::move(raw)));

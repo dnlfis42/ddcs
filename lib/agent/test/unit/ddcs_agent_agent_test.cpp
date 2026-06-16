@@ -11,7 +11,7 @@
 
 namespace {
 
-// 조립 루트 스모크: 구성, start, run_once, stop 순서가 무사한지.
+// 조립 루트 스모크: 구성, start, run_once, stop 순서가 무사한지
 TEST(AgentTest, AssemblesStartsAndDispatchesWithoutController) {
     ddcs::agent::Agent::Config cfg{};
     cfg.controller_host = "127.0.0.1";
@@ -24,7 +24,7 @@ TEST(AgentTest, AssemblesStartsAndDispatchesWithoutController) {
     agent.run_once(std::chrono::milliseconds{10});
     agent.run_once(std::chrono::milliseconds{10});
 
-    // 컨트롤러 없으면 등록 못 함. idle 유지(크래시 없이).
+    // 컨트롤러 없으면 등록 못 함. idle 유지 (크래시 없이)
     EXPECT_EQ(agent.session().state(), ddcs::agent::app::SessionService::State::idle);
     agent.stop();
 }

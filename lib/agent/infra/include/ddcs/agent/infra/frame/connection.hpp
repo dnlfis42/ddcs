@@ -41,40 +41,72 @@ public:
 
 public:
     Connection() = default;
-    ~Connection() override = default; // Channel/Fd RAII가 fd를 닫는다
+    ~Connection() override = default; // Channel/Fd RAII가 fd를 닫는다.
 
     Connection(Connection const&) = delete;
     Connection& operator=(Connection const&) = delete;
     Connection(Connection&&) noexcept = delete;
     Connection& operator=(Connection&&) noexcept = delete;
 
-    int fd() const noexcept { return channel_.fd(); }
-    io::Channel& channel() noexcept { return channel_; }
-    io::Channel const& channel() const noexcept { return channel_; }
-    io::ChannelEvents io_interest() const noexcept { return channel_.interests(); }
-    State state() const noexcept { return state_; }
-    bool registered() const noexcept { return channel_.registered(); }
+    int fd() const noexcept {
+        return channel_.fd();
+    }
 
-    void set_connector(Connector& connector) noexcept { connector_ = &connector; }
-    [[nodiscard]] bool assign(common::Fd fd, io::ChannelEvents io_interest) noexcept;
-    [[nodiscard]] bool transition(State to) noexcept;
+    io::Channel& channel() noexcept {
+        return channel_;
+    }
+
+    io::Channel const& channel() const noexcept {
+        return channel_;
+    }
+
+    io::ChannelEvents io_interest() const noexcept {
+        return channel_.interests();
+    }
+
+    State state() const noexcept {
+        return state_;
+    }
+
+    bool registered() const noexcept {
+        return channel_.registered();
+    }
+
+    void set_connector(Connector& connector) noexcept {
+        connector_ = &connector;
+    }
 
     IoResult receive();
     IoResult transmit();
 
-    std::size_t rx_size() const noexcept { return rx_buffer_.size(); }
-    bool rx_peek(std::span<std::byte> dst) const noexcept { return rx_buffer_.peek(dst); }
-    bool rx_read(std::span<std::byte> dst) noexcept { return rx_buffer_.read(dst); }
-    bool rx_consume(std::size_t n) noexcept { return rx_buffer_.consume(n); }
+    std::size_t rx_size() const noexcept {
+        return rx_buffer_.size();
+    }
+    bool rx_peek(std::span<std::byte> dst) const noexcept {
+        return rx_buffer_.peek(dst);
+    }
+    bool rx_read(std::span<std::byte> dst) noexcept {
+        return rx_buffer_.read(dst);
+    }
+    bool rx_consume(std::size_t n) noexcept {
+        return rx_buffer_.consume(n);
+    }
 
-    bool tx_empty() const noexcept { return tx_queue_.empty(); }
-    void tx_enqueue(common::PoolHandle<common::LinearBuffer>&& buffer) { tx_queue_.push(std::move(buffer)); }
+    bool tx_empty() const noexcept {
+        return tx_queue_.empty();
+    }
+    void tx_enqueue(common::PoolHandle<common::LinearBuffer>&& buffer) {
+        tx_queue_.push(std::move(buffer));
+    }
 
+    [[nodiscard]] bool assign(common::Fd fd, io::ChannelEvents io_interest) noexcept;
+    [[nodiscard]] bool transition(State to) noexcept;
     void reset() noexcept; // idle로. fd 닫고 버퍼 비움
 
 private:
     void on_ready(io::Channel& channel, io::ChannelEvents events) override;
 
+private:
     Connector* connector_{nullptr};
     io::Channel channel_{};
     State state_{State::idle};

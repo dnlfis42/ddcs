@@ -18,7 +18,9 @@ namespace ddcs::ctrl::app::agent {
 // CAUTION  순회 중 disconnect 금지(희생자 수집 후 순회 밖에서), erase 가능 경로 뒤에는 find 재조회
 class AgentRegistry {
 public:
-    [[nodiscard]] std::size_t size() const noexcept { return agents_.size(); }
+    [[nodiscard]] std::size_t size() const noexcept {
+        return agents_.size();
+    }
 
     [[nodiscard]] Agent* find(port::ConnectionId conn) {
         auto it = agents_.find(conn);
@@ -40,15 +42,18 @@ public:
         }
     }
 
-    // on_connected: handshaking Agent 생성. conn 중복이면 false (infra가 유일성을 보장하므로 버그 신호)
+    // on_connected: handshaking Agent 생성. conn 중복이면 false (infra가 유일성을 보장하므로 버그
+    // 신호)
     [[nodiscard]] bool add(port::ConnectionId conn, common::Clock::time_point now) {
         return agents_.try_emplace(conn, conn, now).second;
     }
 
-    // 등록 확정: handshaking에서 confirming으로 전이 + 역색인 등재. active 전이는 Agent::confirm(RegisterAck 수신)이 맡는다.
-    // 실패(상태 불변): conn 없음 / device 이미 점유 / 비handshaking / nil device.
+    // 등록 확정시 handshaking에서 confirming으로 전이 + 역색인 등재
+    // active 전이는 Agent::confirm(RegisterAck 수신)이 맡는다.
+    // 실패(상태 불변): conn 없음 / device 이미 점유 /// 비handshaking / nil device
     // NOTE: 점유 device는 호출자가 먼저 kick으로 비워야 한다(disconnect가 동기로 erase까지 끝낸다).
-    [[nodiscard]] bool bind(port::ConnectionId conn, domain::DeviceId device, common::Clock::time_point now) {
+    [[nodiscard]] bool
+    bind(port::ConnectionId conn, domain::DeviceId device, common::Clock::time_point now) {
         auto it = agents_.find(conn);
         if (it == agents_.end()) {
             return false;

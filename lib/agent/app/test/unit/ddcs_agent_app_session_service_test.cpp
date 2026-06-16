@@ -38,24 +38,35 @@ using ddcs::device::Mode;
 constexpr std::uint8_t outcome_success{0};
 constexpr std::uint8_t outcome_failed{1};
 
-// 송신 기록 대역. payload(acmp `[type][body]`)를 통째로 보관한다(infra가 frame header를 덧씌우기 전 상태).
+// 송신 기록 대역.
+//  payload(acmp `[type][body]`)를 통째로 보관한다(infra가 frame header를 덧씌우기 전 상태).
 class MockOutbound : public Outbound {
 public:
-    ObjectPool<LinearBuffer> pool{ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{1024})};
+    ObjectPool<LinearBuffer> pool{
+        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{1024})
+    };
 
     std::vector<std::string> sends; // 각 원소가 acmp payload(`[type][body]`)
     std::vector<std::pair<TimerId, std::chrono::nanoseconds>> timers;
     std::vector<TimerId> cancels;
     int closes{0};
 
-    PoolHandle<LinearBuffer> payload_buffer() override { return pool.acquire(); }
+    PoolHandle<LinearBuffer> payload_buffer() override {
+        return pool.acquire();
+    }
     void send(PoolHandle<LinearBuffer> message) override {
         auto const r = message->readable();
         sends.emplace_back(reinterpret_cast<char const*>(r.data()), r.size());
     }
-    void schedule_timer(TimerId id, std::chrono::nanoseconds d) override { timers.emplace_back(id, d); }
-    void cancel_timer(TimerId id) override { cancels.push_back(id); }
-    void close() override { ++closes; }
+    void schedule_timer(TimerId id, std::chrono::nanoseconds d) override {
+        timers.emplace_back(id, d);
+    }
+    void cancel_timer(TimerId id) override {
+        cancels.push_back(id);
+    }
+    void close() override {
+        ++closes;
+    }
 };
 
 Uuid make_uuid(std::uint8_t seed) {
@@ -88,8 +99,9 @@ PoolHandle<LinearBuffer> payload_heartbeat() {
     }
     return buf;
 }
-// command_request: [type][command_id][command_type] 헤더 뒤에 device payload를 append.
-PoolHandle<LinearBuffer> payload_command(std::uint64_t id, std::uint8_t command_type, std::span<std::byte const> cmd) {
+// command_request: `[type][command_id][command_type]` 헤더 뒤에 device payload를 append
+PoolHandle<LinearBuffer>
+payload_command(std::uint64_t id, std::uint8_t command_type, std::span<std::byte const> cmd) {
     auto buf = build_pool().acquire();
     auto const w = acmp::encode_command_request_header(id, command_type, buf->writable());
     EXPECT_TRUE(w.has_value());
@@ -105,7 +117,9 @@ PoolHandle<LinearBuffer> setmode_command(std::uint64_t id, Mode mode) {
     static auto cmd_pool = ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{64});
     auto cmd_buf = cmd_pool.acquire();
     EXPECT_TRUE(ddcs::device::encode(ddcs::device::SetMode{.mode = mode}, *cmd_buf));
-    return payload_command(id, static_cast<std::uint8_t>(ddcs::device::CommandType::set_mode), cmd_buf->readable());
+    return payload_command(
+        id, static_cast<std::uint8_t>(ddcs::device::CommandType::set_mode), cmd_buf->readable()
+    );
 }
 
 acmp::MessageType sent_type(std::string const& s) {
@@ -341,7 +355,7 @@ TEST(AgentSessionServiceTest, DuplicateCommandResendsWithoutReapplying) {
     ASSERT_EQ(device.mode(), Mode::performance);
     out.sends.clear();
 
-    // 같은 command_id=1로 다른 mode면 dedup: 재적용 안 함(device 유지) + 응답만 재송신.
+    // 같은 command_id=1로 다른 mode면 dedup: 재적용 안 함(device 유지) + 응답만 재송신
     svc.on_recv(setmode_command(1, Mode::safe));
 
     EXPECT_EQ(device.mode(), Mode::performance); // 재적용 안 됨

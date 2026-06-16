@@ -27,11 +27,13 @@ namespace ddcs::ctrl::infra::prometheus {
 
 namespace port = ddcs::ctrl::app::metrics::port;
 
-// metrics 스크레이프 listen 엔드포인트(reactor의 2nd guest).
-// HTTP read 후 MetricsSource::scrape, respond 후 close. 스크레이프는 저빈도 best-effort.
+// metrics 스크레이프 listen 엔드포인트 (reactor의 2nd guest)
+// HTTP read 후 MetricsSource::scrape, respond 후 close. 스크레이프는 저빈도 best-effort
 class Server final : private io::ChannelHandler {
 public:
-    Server(io::Reactor& reactor, port::MetricsSource& source, std::uint16_t listen_port, int backlog);
+    Server(
+        io::Reactor& reactor, port::MetricsSource& source, std::uint16_t listen_port, int backlog
+    );
     ~Server() override;
 
     Server(Server const&) = delete;
@@ -44,9 +46,15 @@ public:
     void stop() noexcept;               // reactor에서 제거 + 연결 전부 정리
     void close() noexcept;
 
-    [[nodiscard]] std::uint16_t port() const noexcept { return bound_port_; } // 실제 바인드 포트(ephemeral 확인용)
-    [[nodiscard]] bool active() const noexcept { return state_ == State::active; }
-    [[nodiscard]] std::size_t connection_count() const noexcept { return connections_.size(); }
+    [[nodiscard]] std::uint16_t port() const noexcept {
+        return bound_port_;
+    } // 실제 바인드 포트(ephemeral 확인용)
+    [[nodiscard]] bool active() const noexcept {
+        return state_ == State::active;
+    }
+    [[nodiscard]] std::size_t connection_count() const noexcept {
+        return connections_.size();
+    }
 
 public: // Connection 콜백
     void handle_connection_ready(Connection& conn, io::ChannelEvents events);

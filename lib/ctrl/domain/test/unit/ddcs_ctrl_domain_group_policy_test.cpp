@@ -45,7 +45,8 @@ TEST(GroupPolicyTest, AppendsRulesPreservingInsertionOrder) {
 TEST(GroupPolicyTest, SetUpdatesExistingGroupInPlace) {
     GroupPolicy p;
     p.set("a", GroupRule::try_make(80.0, 20.0, Mode::safe, Mode::normal).value());
-    p.set("a", GroupRule::try_make(70.0, 10.0, Mode::performance, Mode::safe).value()); // 같은 그룹 갱신
+    // 같은 그룹 갱신
+    p.set("a", GroupRule::try_make(70.0, 10.0, Mode::performance, Mode::safe).value());
 
     ASSERT_EQ(p.size(), 1u); // append 아님
     p.for_each([](std::string const& group, GroupRule const& rule) {

@@ -6,7 +6,7 @@
 
 namespace ddcs::agent::infra {
 
-// xorshift32. 작은 결정적 RNG. 운영 시 ctor로 시드 주입(부팅 시 한 번).
+// xorshift32. 작은 결정적 RNG. 운영 시 ctor로 시드 주입 (부팅 시 한 번)
 std::uint32_t BackoffSchedule::next_rand() noexcept {
     std::uint32_t x = rng_state_;
     x ^= x << 13;

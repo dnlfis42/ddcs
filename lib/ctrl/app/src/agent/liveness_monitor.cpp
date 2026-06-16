@@ -8,7 +8,9 @@ namespace ddcs::ctrl::app::agent {
 LivenessMonitor::LivenessMonitor(
     AgentRegistry& registry, port::Disconnector& disconnector, std::chrono::nanoseconds timeout
 ) noexcept
-    : registry_{registry}, disconnector_{disconnector}, timeout_{timeout} {}
+    : registry_{registry},
+      disconnector_{disconnector},
+      timeout_{timeout} {}
 
 void LivenessMonitor::sweep(common::Clock::time_point now) {
     stale_.clear();

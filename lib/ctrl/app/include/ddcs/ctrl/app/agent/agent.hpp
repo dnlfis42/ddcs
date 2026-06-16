@@ -22,15 +22,33 @@ public:
 public:
     Agent() = default;
     Agent(port::ConnectionId conn, common::Clock::time_point now) noexcept
-        : conn_{conn}, state_{State::handshaking}, last_seen_{now} {}
+        : conn_{conn},
+          state_{State::handshaking},
+          last_seen_{now} {}
 
-    [[nodiscard]] port::ConnectionId conn() const noexcept { return conn_; }
-    [[nodiscard]] domain::DeviceId device() const noexcept { return device_; } // confirming/active에서 유효
-    [[nodiscard]] State state() const noexcept { return state_; }
-    [[nodiscard]] common::Clock::time_point last_seen() const noexcept { return last_seen_; }
-    [[nodiscard]] bool valid() const noexcept { return state_ != State::idle; }
+    [[nodiscard]] port::ConnectionId conn() const noexcept {
+        return conn_;
+    }
 
-    // 등록 확정: handshaking에서 confirming으로 전이 + device 점유. 요청 수신도 활동이므로 last_seen을 갱신한다.
+    // confirming/active에서 유효
+    [[nodiscard]] domain::DeviceId device() const noexcept {
+        return device_;
+    }
+
+    [[nodiscard]] State state() const noexcept {
+        return state_;
+    }
+
+    [[nodiscard]] common::Clock::time_point last_seen() const noexcept {
+        return last_seen_;
+    }
+
+    [[nodiscard]] bool valid() const noexcept {
+        return state_ != State::idle;
+    }
+
+    // 등록 확정: handshaking에서 confirming으로 전이 + device 점유
+    //            요청 수신도 활동이므로 last_seen을 갱신한다.
     //            RegisterAck 대기 구간이 자기 timeout budget을 새로 받는다.
     [[nodiscard]] bool bind(domain::DeviceId device, common::Clock::time_point now) noexcept {
         if (state_ != State::handshaking || !device.valid()) {
@@ -52,15 +70,19 @@ public:
         return true;
     }
 
-    // 활동 관측 시 liveness 갱신. (AgentService가 정상 수신마다 호출)
-    void update_seen(common::Clock::time_point now) noexcept { last_seen_ = now; }
+    // 활동 관측 시 liveness 갱신 (AgentService가 정상 수신마다 호출)
+    void update_seen(common::Clock::time_point now) noexcept {
+        last_seen_ = now;
+    }
 
 private:
     port::ConnectionId conn_{};
     domain::DeviceId device_{};
     State state_{State::idle};
-    // NOTE: active 전에는 update_seen이 없다. last_seen은 단계 전이(생성/bind/confirm)에서만 갱신되며
-    // NOTE  HandshakeMonitor가 단계별 deadline 기준으로 쓴다. 임의 메시지로는 연장되지 않는다.
+    // NOTE: active 전에는 update_seen이 없다.
+    // NOTE  last_seen은 단계 전이(생성/bind/confirm)에서만 갱신되며
+    // NOTE  HandshakeMonitor가 단계별 deadline 기준으로 쓴다.
+    // NOTE  임의 메시지로는 연장되지 않는다.
     common::Clock::time_point last_seen_{};
 };
 

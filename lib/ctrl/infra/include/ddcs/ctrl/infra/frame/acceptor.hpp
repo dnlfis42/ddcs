@@ -20,10 +20,21 @@ public:
     Acceptor(Acceptor&&) noexcept = delete;
     Acceptor& operator=(Acceptor&&) noexcept = delete;
 
-    [[nodiscard]] std::uint16_t port() const noexcept { return bound_port_; }
-    [[nodiscard]] io::Channel& channel() noexcept { return channel_; }
-    [[nodiscard]] io::Channel const& channel() const noexcept { return channel_; }
-    [[nodiscard]] bool valid() const noexcept { return channel_.valid(); }
+    [[nodiscard]] std::uint16_t port() const noexcept {
+        return bound_port_;
+    }
+
+    [[nodiscard]] io::Channel& channel() noexcept {
+        return channel_;
+    }
+
+    [[nodiscard]] io::Channel const& channel() const noexcept {
+        return channel_;
+    }
+
+    [[nodiscard]] bool valid() const noexcept {
+        return channel_.valid();
+    }
 
     [[nodiscard]] bool init() noexcept;
     void close() noexcept;

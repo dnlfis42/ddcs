@@ -29,7 +29,9 @@ bool is_closed(int fd) noexcept {
     return ::fcntl(fd, F_GETFD) == -1 && errno == EBADF;
 }
 
-void close_raw(int fd) noexcept { (void)::close(fd); }
+void close_raw(int fd) noexcept {
+    (void)::close(fd);
+}
 
 } // namespace
 

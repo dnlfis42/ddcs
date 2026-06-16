@@ -27,7 +27,9 @@ struct PeerAddress {
         addr = {};
     }
 
-    void reset() noexcept { clear(); }
+    void reset() noexcept {
+        clear();
+    }
 };
 
 } // namespace ddcs::ctrl::infra::frame

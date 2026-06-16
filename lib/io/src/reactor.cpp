@@ -83,7 +83,8 @@ struct Reactor::Impl {
     detail::ChannelRegistry channel_registry;
 };
 
-Reactor::Reactor() : impl_{std::make_unique<Impl>()} {
+Reactor::Reactor()
+    : impl_{std::make_unique<Impl>()} {
     int const fd = ::epoll_create1(EPOLL_CLOEXEC);
     if (fd < 0) {
         int const err = errno;
@@ -96,7 +97,9 @@ Reactor::Reactor() : impl_{std::make_unique<Impl>()} {
 
 Reactor::~Reactor() = default;
 
-bool Reactor::running() const noexcept { return impl_->state == Impl::State::running; }
+bool Reactor::running() const noexcept {
+    return impl_->state == Impl::State::running;
+}
 
 bool Reactor::add(Channel& channel) {
     if (channel.registered()) {
@@ -160,8 +163,10 @@ void Reactor::run_once(std::chrono::milliseconds timeout) {
 
     std::array<epoll_event, max_epoll_events> events{};
 
-    int const n =
-        ::epoll_wait(impl_->epoll_fd.get(), events.data(), static_cast<int>(events.size()), to_epoll_timeout(timeout));
+    int const n = ::epoll_wait(
+        impl_->epoll_fd.get(), events.data(), static_cast<int>(events.size()),
+        to_epoll_timeout(timeout)
+    );
     if (n < 0) {
         int const err = errno;
         if (err == EINTR) {

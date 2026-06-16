@@ -1,20 +1,19 @@
 BasedOnStyle: LLVM
+Standard: c++20
 
-# 들여쓰기
 IndentWidth: 4
 AccessModifierOffset: -4
 
-# 열 길이
-ColumnLimit: 120
+ColumnLimit: 100
+LineEnding: LF
+InsertNewlineAtEOF: true
 
-# 정렬
 AlignAfterOpenBracket: BlockIndent
+PackConstructorInitializers: Never
 
-# 포인터
-PointerAlignment: Left
-
-# 템플릿
+AllowShortFunctionsOnASingleLine: Empty
 AlwaysBreakTemplateDeclarations: true
 
-# 분기 명료화
 InsertBraces: true
+
+PointerAlignment: Left

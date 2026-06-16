@@ -15,13 +15,33 @@ class TimerQueue {
 public:
     using time_point = common::Clock::time_point;
 
-public:
     struct Entry {
         time_point deadline;
         TimerId id;
     };
 
+private:
+    struct Later {
+        bool operator()(Entry const& lhs, Entry const& rhs) const noexcept {
+            if (lhs.deadline != rhs.deadline) {
+                return lhs.deadline > rhs.deadline;
+            }
+            return lhs.id.value() > rhs.id.value();
+        }
+    };
+
 public:
+    [[nodiscard]] bool empty() const noexcept {
+        return heap_.empty();
+    }
+
+    [[nodiscard]] std::optional<Entry> top() const noexcept {
+        if (heap_.empty()) {
+            return std::nullopt;
+        }
+        return heap_.front();
+    }
+
     void push(time_point deadline, TimerId id) {
         assert(id.valid());
 
@@ -37,26 +57,9 @@ public:
         heap_.pop_back();
     }
 
-    [[nodiscard]] std::optional<Entry> top() const noexcept {
-        if (heap_.empty()) {
-            return std::nullopt;
-        }
-        return heap_.front();
+    void clear() noexcept {
+        heap_.clear();
     }
-
-    [[nodiscard]] bool empty() const noexcept { return heap_.empty(); }
-
-    void clear() noexcept { heap_.clear(); }
-
-private:
-    struct Later {
-        bool operator()(Entry const& lhs, Entry const& rhs) const noexcept {
-            if (lhs.deadline != rhs.deadline) {
-                return lhs.deadline > rhs.deadline;
-            }
-            return lhs.id.value() > rhs.id.value();
-        }
-    };
 
 private:
     std::vector<Entry> heap_;

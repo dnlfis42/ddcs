@@ -11,7 +11,7 @@
 
 namespace ddcs::ctrl::app::metrics {
 
-// 메트릭 use-case: 현재 상태를 Prometheus text로 노출. gauge(현재값) + counter(누적/알람)를 pull.
+// 메트릭 use-case: 현재 상태를 Prometheus text로 노출. gauge(현재값) + counter(누적/알람)를 pull
 class MetricsService final : public port::MetricsSource {
 public:
     MetricsService(
@@ -19,7 +19,11 @@ public:
         device::CommandService const& commands, agent::LivenessMonitor const& liveness,
         agent::HandshakeMonitor const& handshake
     ) noexcept
-        : agents_{agents}, devices_{devices}, commands_{commands}, liveness_{liveness}, handshake_{handshake} {}
+        : agents_{agents},
+          devices_{devices},
+          commands_{commands},
+          liveness_{liveness},
+          handshake_{handshake} {}
 
     std::string scrape() override;
 

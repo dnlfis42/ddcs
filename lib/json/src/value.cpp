@@ -12,16 +12,24 @@
 
 namespace ddcs::json {
 
-// --- ctor -------------------------------------------------------------------
-Value::Value() noexcept : data_{nullptr} {}
-Value::Value(std::nullptr_t) noexcept : data_{nullptr} {}
-Value::Value(bool b) noexcept : data_{b} {}
-Value::Value(int n) noexcept : data_{static_cast<std::int64_t>(n)} {}
-Value::Value(std::int64_t n) noexcept : data_{n} {}
-Value::Value(std::uint64_t n) noexcept : data_{static_cast<std::int64_t>(n)} {}
-Value::Value(double d) noexcept : data_{d} {}
-Value::Value(char const* s) : data_{std::string{s}} {}
-Value::Value(std::string s) : data_{std::move(s)} {}
+Value::Value() noexcept
+    : data_{nullptr} {}
+Value::Value(std::nullptr_t) noexcept
+    : data_{nullptr} {}
+Value::Value(bool b) noexcept
+    : data_{b} {}
+Value::Value(int n) noexcept
+    : data_{static_cast<std::int64_t>(n)} {}
+Value::Value(std::int64_t n) noexcept
+    : data_{n} {}
+Value::Value(std::uint64_t n) noexcept
+    : data_{static_cast<std::int64_t>(n)} {}
+Value::Value(double d) noexcept
+    : data_{d} {}
+Value::Value(char const* s)
+    : data_{std::string{s}} {}
+Value::Value(std::string s)
+    : data_{std::move(s)} {}
 
 Value Value::object() {
     Value v;
@@ -34,17 +42,25 @@ Value Value::array() {
     return v;
 }
 
-// --- 타입 질의 ---------------------------------------------------------------
-bool Value::is_null() const noexcept { return std::holds_alternative<std::nullptr_t>(data_); }
-bool Value::is_bool() const noexcept { return std::holds_alternative<bool>(data_); }
+bool Value::is_null() const noexcept {
+    return std::holds_alternative<std::nullptr_t>(data_);
+}
+bool Value::is_bool() const noexcept {
+    return std::holds_alternative<bool>(data_);
+}
 bool Value::is_number() const noexcept {
     return std::holds_alternative<std::int64_t>(data_) || std::holds_alternative<double>(data_);
 }
-bool Value::is_string() const noexcept { return std::holds_alternative<std::string>(data_); }
-bool Value::is_array() const noexcept { return std::holds_alternative<Array>(data_); }
-bool Value::is_object() const noexcept { return std::holds_alternative<Object>(data_); }
+bool Value::is_string() const noexcept {
+    return std::holds_alternative<std::string>(data_);
+}
+bool Value::is_array() const noexcept {
+    return std::holds_alternative<Array>(data_);
+}
+bool Value::is_object() const noexcept {
+    return std::holds_alternative<Object>(data_);
+}
 
-// --- 접근 --------------------------------------------------------------------
 std::optional<bool> Value::as_bool() const noexcept {
     if (auto const* p = std::get_if<bool>(&data_)) {
         return *p;
@@ -73,7 +89,6 @@ std::optional<std::string_view> Value::as_string() const noexcept {
     return std::nullopt;
 }
 
-// --- object / array 연산 -----------------------------------------------------
 Value& Value::set(std::string key, Value v) {
     if (is_null()) {
         data_ = Object{}; // null이면 object로 승격
@@ -102,7 +117,9 @@ Value const* Value::find(std::string_view key) const noexcept {
     return nullptr;
 }
 
-bool Value::contains(std::string_view key) const noexcept { return find(key) != nullptr; }
+bool Value::contains(std::string_view key) const noexcept {
+    return find(key) != nullptr;
+}
 
 Value& Value::push_back(Value v) {
     if (is_null()) {
@@ -130,7 +147,6 @@ Value const* Value::at(std::size_t i) const noexcept {
     return &(*a)[i];
 }
 
-// --- dump (직렬화) -----------------------------------------------------------
 namespace {
 
 void append_hex4(std::string& out, unsigned cp) {
@@ -241,7 +257,6 @@ std::string Value::dump() const {
     return out;
 }
 
-// --- parse (역직렬화) --------------------------------------------------------
 namespace {
 
 constexpr int max_depth{64}; // 재귀 깊이 상한. 악의적/사고성 깊은 중첩 방어
@@ -251,8 +266,13 @@ struct Parser {
     std::size_t pos{0};
     int depth{0};
 
-    bool eof() const noexcept { return pos >= s.size(); }
-    char cur() const noexcept { return s[pos]; }
+    bool eof() const noexcept {
+        return pos >= s.size();
+    }
+
+    char cur() const noexcept {
+        return s[pos];
+    }
 
     void skip_ws() noexcept {
         while (!eof()) {
@@ -265,7 +285,7 @@ struct Parser {
         }
     }
 
-    // 4 hex를 코드포인트로. 실패 시 nullopt.
+    // 4 hex를 코드포인트로. 실패 시 nullopt
     std::optional<unsigned> parse_hex4() {
         if (s.size() - pos < 4) {
             return std::nullopt;
@@ -357,7 +377,8 @@ struct Parser {
                         if (!lo || *lo < 0xDC00 || *lo > 0xDFFF) {
                             return std::nullopt;
                         }
-                        unsigned const combined = 0x10000u + ((*cp - 0xD800u) << 10) + (*lo - 0xDC00u);
+                        unsigned const combined =
+                            0x10000u + ((*cp - 0xD800u) << 10) + (*lo - 0xDC00u);
                         encode_utf8(out, combined);
                     } else if (*cp >= 0xDC00 && *cp <= 0xDFFF) {
                         return std::nullopt; // 외톨이 low surrogate
@@ -383,11 +404,12 @@ struct Parser {
         char const* const first = s.data() + pos;
         char const* const last = s.data() + s.size();
 
-        // 정수 우선 시도. 뒤에 '.', 'e', 'E' 가 붙으면 실수로 재해석.
+        // 정수 우선 시도. 뒤에 '.', 'e', 'E' 가 붙으면 실수로 재해석
         std::int64_t ival{};
         auto const ir = std::from_chars(first, last, ival);
         if (ir.ec == std::errc{} && ir.ptr != first) {
-            bool const is_float = ir.ptr != last && (*ir.ptr == '.' || *ir.ptr == 'e' || *ir.ptr == 'E');
+            bool const is_float =
+                ir.ptr != last && (*ir.ptr == '.' || *ir.ptr == 'e' || *ir.ptr == 'E');
             if (!is_float) {
                 pos = begin + static_cast<std::size_t>(ir.ptr - first);
                 return Value{ival};

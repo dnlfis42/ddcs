@@ -53,7 +53,7 @@ using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::domain::DeviceRegistry;
 using namespace std::chrono_literals;
 
-// RegisterOutcome code 약속: 0 = success, 그 외 = failed (AgentService와 동일).
+// RegisterOutcome code 약속: 0 = success, 그 외 = failed (AgentService와 동일)
 constexpr std::uint8_t outcome_success{0};
 constexpr std::uint8_t outcome_failed{1};
 
@@ -67,7 +67,9 @@ std::span<std::byte const> as_bytes(std::string_view s) {
     return {reinterpret_cast<std::byte const*>(s.data()), s.size()};
 }
 
-std::uint8_t type_byte(acmp::MessageType type) { return static_cast<std::uint8_t>(type); }
+std::uint8_t type_byte(acmp::MessageType type) {
+    return static_cast<std::uint8_t>(type);
+}
 
 // 송신 기록 대역. payload(acmp `[type][body]`)를 통째로 보관한다.
 class FakeMessageSender final : public MessageSender {
@@ -79,21 +81,27 @@ public:
 
     std::vector<Sent> sent;
 
-    MessageBuffer make_message_buffer() override { return pool_.acquire(); }
+    MessageBuffer make_message_buffer() override {
+        return pool_.acquire();
+    }
 
     void send(ConnectionId conn, MessageBuffer message) override {
         auto const readable = message->readable();
-        sent.push_back(Sent{
-            .conn = conn,
-            .payload = std::vector<std::byte>{readable.begin(), readable.end()},
-        });
+        sent.push_back(
+            Sent{
+                .conn = conn,
+                .payload = std::vector<std::byte>{readable.begin(), readable.end()},
+            }
+        );
     }
 
 private:
-    ObjectPool<LinearBuffer> pool_{ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{256})};
+    ObjectPool<LinearBuffer> pool_{
+        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{256})
+    };
 };
 
-// infra처럼 disconnect가 동기로 on_disconnected를 되부르는 대역.
+// infra처럼 disconnect가 동기로 on_disconnected를 되부르는 대역
 class FakeDisconnector final : public Disconnector {
 public:
     ConnectionObserver* observer = nullptr; // AgentService 생성 후 연결
@@ -118,12 +126,17 @@ struct ServiceFixture {
     ddcs::ctrl::app::device::StatusService status_service{devices};
     CommandSender command_sender{agents, outbox};
     ddcs::ctrl::app::device::CommandService commands{command_sender, 5s, 1, 500ms};
-    AgentService service{agents, outbox, disconnector, clock, register_service, status_service, commands};
-    ObjectPool<LinearBuffer> body_pool{ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{256})};
+    AgentService service{agents,           outbox,         disconnector, clock,
+                         register_service, status_service, commands};
+    ObjectPool<LinearBuffer> body_pool{
+        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{256})
+    };
 
-    ServiceFixture() { disconnector.observer = &service; }
+    ServiceFixture() {
+        disconnector.observer = &service;
+    }
 
-    // 타입별 acmp payload(`[type][body]`) 생성.
+    // 타입별 acmp payload(`[type][body]`) 생성
     MessageBuffer payload_register_request(Uuid const& id, std::string_view group) {
         auto buf = body_pool.acquire();
         auto const w = acmp::encode_register_request(id, group, buf->writable());
@@ -178,7 +191,7 @@ struct ServiceFixture {
         }
         return buf;
     }
-    // 임의 type + body로 조립(decode 실패/미지 type 경로 검증용).
+    // 임의 type + body로 조립 (decode 실패/미지 type 경로 검증용)
     MessageBuffer payload_raw(std::uint8_t type, std::string_view body) {
         auto buf = body_pool.acquire();
         std::array<std::byte, 1> const t{std::byte{type}};
@@ -189,7 +202,9 @@ struct ServiceFixture {
         return buf;
     }
 
-    void deliver(ConnectionId conn, MessageBuffer payload) { service.on_message(conn, std::move(payload)); }
+    void deliver(ConnectionId conn, MessageBuffer payload) {
+        service.on_message(conn, std::move(payload));
+    }
 
     // 정상 3-way 등록을 끝내고 active 상태로 만든다.
     DeviceId register_active(std::uint64_t conn, std::uint8_t seed) {

@@ -32,7 +32,9 @@ constexpr ChannelEvents& operator|=(ChannelEvents& lhs, ChannelEvents rhs) noexc
     return static_cast<ChannelEvents>(to_underlying(lhs) & to_underlying(rhs));
 }
 
-[[nodiscard]] constexpr bool any(ChannelEvents mask) noexcept { return mask != ChannelEvents::none; }
+[[nodiscard]] constexpr bool any(ChannelEvents mask) noexcept {
+    return mask != ChannelEvents::none;
+}
 
 [[nodiscard]] constexpr bool contains(ChannelEvents mask, ChannelEvents bits) noexcept {
     return (to_underlying(mask) & to_underlying(bits)) == to_underlying(bits);

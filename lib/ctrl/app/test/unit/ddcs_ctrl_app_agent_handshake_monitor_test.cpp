@@ -24,10 +24,11 @@ using ddcs::ctrl::app::agent::port::Disconnector;
 using ddcs::ctrl::domain::DeviceId;
 using namespace std::chrono_literals;
 
-// infra 계약처럼 disconnect가 동기로 erase까지 끝내는 대역.
+// infra 계약처럼 disconnect가 동기로 erase까지 끝내는 대역
 class FakeDisconnector final : public Disconnector {
 public:
-    explicit FakeDisconnector(AgentRegistry& registry) noexcept : registry_{registry} {}
+    explicit FakeDisconnector(AgentRegistry& registry) noexcept
+        : registry_{registry} {}
 
     std::vector<ConnectionId> disconnected;
 
@@ -111,7 +112,7 @@ TEST(HandshakeMonitorTest, BindGrantsNewBudgetForAck) {
     f.clock.advance(2s); // 접속 기준 4s지만 bind 기준 2s
     f.monitor.sweep(f.clock.now());
 
-    EXPECT_TRUE(f.disconnector.disconnected.empty()); // ack 대기 구간은 자기 budget을 받는다
+    EXPECT_TRUE(f.disconnector.disconnected.empty()); // ack 대기 구간은 자기 budget을 받는다.
 }
 
 TEST(HandshakeMonitorTest, ActiveAgentIgnored) {

@@ -58,7 +58,7 @@ TEST(AgentRegistryTest, BindIndexesDeviceAndTransitionsToConfirming) {
     Agent* by_conn = registry.find(ConnectionId{1});
     Agent* by_device = registry.find(make_device_id(0xAA));
     ASSERT_NE(by_conn, nullptr);
-    EXPECT_EQ(by_conn, by_device); // 역색인이 같은 엔티티에 닿는다 (ack 전에도 device 점유)
+    EXPECT_EQ(by_conn, by_device); // 역색인이 같은 엔티티에 닿는다(ack 전에도 device 점유).
     EXPECT_EQ(by_conn->state(), Agent::State::confirming);
 }
 
@@ -79,8 +79,9 @@ TEST(AgentRegistryTest, BindRejectsOccupiedDevice) {
 
     EXPECT_FALSE(registry.bind(ConnectionId{2}, make_device_id(0xAA), clock.now()));
 
-    EXPECT_EQ(registry.find(make_device_id(0xAA)), registry.find(ConnectionId{1})); // 기존 바인딩 유지
-    EXPECT_EQ(registry.find(ConnectionId{2})->state(), Agent::State::handshaking);  // 상태 불변
+    // 기존 바인딩 유지
+    EXPECT_EQ(registry.find(make_device_id(0xAA)), registry.find(ConnectionId{1}));
+    EXPECT_EQ(registry.find(ConnectionId{2})->state(), Agent::State::handshaking); // 상태 불변
 }
 
 TEST(AgentRegistryTest, BindRejectsNilDeviceWithoutIndexResidue) {
@@ -112,7 +113,7 @@ TEST(AgentRegistryTest, EraseConfirmingAgentClearsIndex) {
     ASSERT_TRUE(registry.add(ConnectionId{1}, clock.now()));
     ASSERT_TRUE(registry.bind(ConnectionId{1}, make_device_id(0xAA), clock.now()));
 
-    EXPECT_TRUE(registry.erase(ConnectionId{1})); // ack 전 이탈도 역색인을 비워야 한다
+    EXPECT_TRUE(registry.erase(ConnectionId{1})); // ack 전 이탈도 역색인을 비워야 한다.
 
     EXPECT_EQ(registry.find(ConnectionId{1}), nullptr);
     EXPECT_EQ(registry.find(make_device_id(0xAA)), nullptr);

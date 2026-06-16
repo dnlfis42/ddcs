@@ -25,10 +25,11 @@ using ddcs::ctrl::app::agent::port::Disconnector;
 using ddcs::ctrl::domain::DeviceId;
 using namespace std::chrono_literals;
 
-// infra 계약처럼 disconnect가 동기로 erase까지 끝내는 대역.
+// infra 계약처럼 disconnect가 동기로 erase까지 끝내는 대역
 class FakeDisconnector final : public Disconnector {
 public:
-    explicit FakeDisconnector(AgentRegistry& registry) noexcept : registry_{registry} {}
+    explicit FakeDisconnector(AgentRegistry& registry) noexcept
+        : registry_{registry} {}
 
     std::vector<ConnectionId> disconnected;
 

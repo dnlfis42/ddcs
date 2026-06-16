@@ -24,30 +24,41 @@ namespace wire_frame = ddcs::wire::frame;
 namespace {
 
 constexpr std::size_t pool_chunk{64};
-// frame이 실을 수 있는 payload 상한. 최대 frame이 rx ring에 통째로 들어가야 부분 frame 대기가 끝난다.
+// frame이 실을 수 있는 payload 상한
+//  최대 frame이 rx ring에 통째로 들어가야 부분 frame 대기가 끝난다.
 constexpr std::size_t payload_capacity{inbound_buffer_capacity - wire_frame::header_size};
 constexpr std::size_t payload_buf_capacity{wire_frame::header_size + payload_capacity};
+// 완료를 writable로 감지
 constexpr io::ChannelEvents connect_interest{
     io::ChannelEvents::writable | io::ChannelEvents::edge_triggered
-}; // 완료를 writable로 감지
-constexpr io::ChannelEvents read_interest{io::ChannelEvents::readable | io::ChannelEvents::edge_triggered};
+};
+constexpr io::ChannelEvents read_interest{
+    io::ChannelEvents::readable | io::ChannelEvents::edge_triggered
+};
 
 } // namespace
 
-Connector::Connector(io::Reactor& reactor, io::TimerScheduler& timers, std::string host, std::uint16_t port)
-    : reactor_{reactor}, timers_{timers}, host_{std::move(host)}, port_{port},
-      payload_pool_{common::make_object_pool<common::LinearBuffer>(0, pool_chunk, payload_buf_capacity)} {}
+Connector::Connector(
+    io::Reactor& reactor, io::TimerScheduler& timers, std::string host, std::uint16_t port
+)
+    : reactor_{reactor},
+      timers_{timers},
+      host_{std::move(host)},
+      port_{port},
+      payload_pool_{
+          common::make_object_pool<common::LinearBuffer>(0, pool_chunk, payload_buf_capacity)
+      } {}
 
 Connector::~Connector() {
     if (connection_.registered()) {
         reactor_.remove(connection_.channel());
     }
-    // connection_ dtor가 fd를 닫고, 타이머는 TimerScheduler와 함께 소멸.
+    // connection_ dtor가 fd를 닫고, 타이머는 TimerScheduler와 함께 소멸
 }
 
-void Connector::start() { try_connect(); }
-
-// --- Outbound -------------------------------------------------------------
+void Connector::start() {
+    try_connect();
+}
 
 common::PoolHandle<common::LinearBuffer> Connector::payload_buffer() {
     auto buf = payload_pool_.acquire();
@@ -89,9 +100,10 @@ void Connector::cancel_timer(TimerId id) {
     }
 }
 
-void Connector::close() { disconnect_and_reconnect(); }
+void Connector::close() {
+    disconnect_and_reconnect();
+}
 
-// --- io::TimerHandler -----------------------------------------------------
 
 void Connector::on_expired(io::TimerId id) {
     if (id == reconnect_timer_) {
@@ -109,7 +121,6 @@ void Connector::on_expired(io::TimerId id) {
     // 취소 후 잔여 등은 무시
 }
 
-// --- 연결 수명 ------------------------------------------------------------
 
 void Connector::try_connect() {
     reconnect_timer_ = io::TimerId{};
@@ -125,7 +136,8 @@ void Connector::try_connect() {
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = ::htons(port_);
-    // 호스트네임(DNS) 또는 숫자 IP 해석. 단일 연결 client 이므로 (재)연결 시 blocking resolve 1회 허용.
+    // 호스트네임(DNS) 또는 숫자 IP 해석
+    // 단일 연결 client 이므로 (재)연결 시 blocking resolve 1회 허용
     addrinfo hints{};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -162,7 +174,11 @@ void Connector::try_connect() {
         arm_reconnect();
         return;
     }
-    LOG_DEBUG("agent_transport.connecting", ddcs::logger::kv("host", host_), ddcs::logger::kv("port", port_));
+
+    LOG_DEBUG(
+        "agent_transport.connecting", ddcs::logger::kv("host", host_),
+        ddcs::logger::kv("port", port_)
+    );
 }
 
 void Connector::on_connection_event(Connection& conn, io::ChannelEvents events) {
@@ -179,10 +195,12 @@ void Connector::on_connection_event(Connection& conn, io::ChannelEvents events) 
 }
 
 void Connector::on_connecting(io::ChannelEvents events) {
-    if (io::contains(events, io::ChannelEvents::error) || io::contains(events, io::ChannelEvents::hangup)) {
+    if (io::contains(events, io::ChannelEvents::error) ||
+        io::contains(events, io::ChannelEvents::hangup)) {
         disconnect_and_reconnect();
         return;
     }
+
     int err = 0;
     socklen_t len = sizeof(err);
     if (::getsockopt(connection_.fd(), SOL_SOCKET, SO_ERROR, &err, &len) < 0 || err != 0) {
@@ -190,21 +208,28 @@ void Connector::on_connecting(io::ChannelEvents events) {
         disconnect_and_reconnect();
         return;
     }
+
     (void)connection_.transition(Connection::State::connected);
     backoff_.reset();
     if (!reactor_.modify(connection_.channel(), read_interest)) {
         disconnect_and_reconnect();
         return;
     }
-    LOG_INFO("agent_transport.connected", ddcs::logger::kv("host", host_), ddcs::logger::kv("port", port_));
+
+    LOG_INFO(
+        "agent_transport.connected", ddcs::logger::kv("host", host_),
+        ddcs::logger::kv("port", port_)
+    );
     handler_->on_connected(); // app이 register 시작 (send가 writable 무장)
 }
 
 void Connector::on_connected_io(io::ChannelEvents events) {
-    if (io::contains(events, io::ChannelEvents::error) || io::contains(events, io::ChannelEvents::hangup)) {
+    if (io::contains(events, io::ChannelEvents::error) ||
+        io::contains(events, io::ChannelEvents::hangup)) {
         disconnect_and_reconnect();
         return;
     }
+
     if (io::contains(events, io::ChannelEvents::readable)) {
         for (;;) {
             auto const r = connection_.receive();
@@ -222,12 +247,14 @@ void Connector::on_connected_io(io::ChannelEvents events) {
             return;
         }
     }
+
     if (io::contains(events, io::ChannelEvents::writable)) {
         if (connection_.transmit() == Connection::IoResult::error) {
             disconnect_and_reconnect();
             return;
         }
     }
+
     update_interest();
 }
 
@@ -237,6 +264,7 @@ void Connector::framing() {
         if (connection_.rx_size() < wire_frame::header_size) {
             return;
         }
+
         wire_frame::HeaderBytes hb{};
         connection_.rx_peek({hb.data(), hb.size()});
         auto const parsed_header = wire_frame::parse(hb);
@@ -245,12 +273,14 @@ void Connector::framing() {
             disconnect_and_reconnect();
             return;
         }
+
         auto const header = *parsed_header;
         if (header.payload_length > payload_capacity) {
             LOG_WARN("agent_transport.frame_too_long");
             disconnect_and_reconnect();
             return;
         }
+
         std::size_t const total = wire_frame::header_size + header.payload_length;
         if (connection_.rx_size() < total) {
             return; // 부분 프레임
@@ -303,9 +333,12 @@ void Connector::disconnect_and_reconnect() {
 void Connector::arm_reconnect() {
     auto const delay = backoff_.next_delay();
     reconnect_timer_ = timers_.schedule(delay, *this);
+
     LOG_DEBUG(
         "agent_transport.reconnect_scheduled",
-        ddcs::logger::kv("delay_ms", std::chrono::duration_cast<std::chrono::milliseconds>(delay).count())
+        ddcs::logger::kv(
+            "delay_ms", std::chrono::duration_cast<std::chrono::milliseconds>(delay).count()
+        )
     );
 }
 

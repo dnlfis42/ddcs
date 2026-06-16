@@ -9,7 +9,7 @@ namespace {
 using ddcs::agent::infra::BackoffSchedule;
 using namespace std::chrono_literals;
 
-// jitter가 있으니 +/-25% 범위 확인.
+// jitter가 있으니 +/-25% 범위 확인
 void expect_within_jitter(std::chrono::nanoseconds actual, std::chrono::nanoseconds base) {
     auto const lower = base - base * 25 / 100;
     auto const upper = base + base * 25 / 100;

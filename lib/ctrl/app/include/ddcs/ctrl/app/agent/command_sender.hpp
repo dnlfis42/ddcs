@@ -17,7 +17,7 @@ class CommandSender final : public device::port::CommandSender {
 public:
     CommandSender(AgentRegistry& agents, port::MessageSender& sender) noexcept;
 
-    // frame(infra) 위에 command 헤더 자리를 적층 예약한 빈 buffer.
+    // frame(infra) 위에 command 헤더 자리를 적층 예약한 빈 buffer
     device::port::CommandBuffer make_command_buffer() override;
 
     // best-effort

@@ -18,13 +18,16 @@ public:
         double temp{40.0};      // 고정 온도 C
     };
 
+public:
     explicit SimulatedDevice(device::Mode initial = device::Mode::normal) noexcept;
     SimulatedDevice(device::Mode initial, Config cfg) noexcept;
 
     DeviceState query() override; // 위상 전진 후 load 계산
     bool apply(device::SetMode const& cmd) override;
 
-    device::Mode mode() const noexcept { return mode_; }
+    device::Mode mode() const noexcept {
+        return mode_;
+    }
 
 private:
     device::Mode mode_;

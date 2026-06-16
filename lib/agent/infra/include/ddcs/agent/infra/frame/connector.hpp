@@ -18,8 +18,10 @@
 #include <cstdint>
 
 namespace ddcs::io {
+
 class Reactor;
 class TimerScheduler;
+
 } // namespace ddcs::io
 
 namespace ddcs::agent::infra::frame {
@@ -28,15 +30,25 @@ using ddcs::agent::app::port::Inbound;
 using ddcs::agent::app::port::Outbound;
 using ddcs::agent::app::port::TimerId;
 
-// agent 측 transport. 단일 connection을 유지하고 끊기면 backoff 후 재연결.
-// app과는 Outbound(송신/타이머/close) / Inbound(통지) 포트로만 통신.
+// agent 측 transport. 단일 connection을 유지하고 끊기면 backoff 후 재연결
+// app과는 Outbound(송신/타이머/close) / Inbound(통지) 포트로만 통신
 // - Outbound 구현: payload_buffer/send/schedule_timer/cancel_timer/close
 // - io::TimerHandler: app 타이머 + reconnect 타이머 만료 수신
 // - Connection(io::ChannelHandler)의 on_ready 위임을 on_connection_event로 받음
 // Reactor는 이 클래스를 모른다. 재연결/framing은 전부 여기 산다.
 class Connector : public Outbound, public io::TimerHandler {
+private:
+    static constexpr std::size_t timer_slot_count{3}; // port::TimerId 종류 수
+
+private:
+    static std::size_t slot_of(TimerId id) noexcept {
+        return static_cast<std::size_t>(id);
+    }
+
 public:
-    Connector(io::Reactor& reactor, io::TimerScheduler& timers, std::string host, std::uint16_t port);
+    Connector(
+        io::Reactor& reactor, io::TimerScheduler& timers, std::string host, std::uint16_t port
+    );
     ~Connector() override;
 
     Connector(Connector const&) = delete;
@@ -44,10 +56,16 @@ public:
     Connector(Connector&&) noexcept = delete;
     Connector& operator=(Connector&&) noexcept = delete;
 
-    void init(Inbound& handler) noexcept { handler_ = &handler; }
+    Connection::State state() const noexcept {
+        return connection_.state();
+    }
+
+    void init(Inbound& handler) noexcept {
+        handler_ = &handler;
+    }
     void start(); // 첫 connect 시도
 
-public: // Outbound (app에서 transport로)
+public: // port::Outbound
     common::PoolHandle<common::LinearBuffer> payload_buffer() override;
     void send(common::PoolHandle<common::LinearBuffer> message) override;
     void schedule_timer(TimerId id, std::chrono::nanoseconds delay) override;
@@ -60,9 +78,6 @@ public: // io::TimerHandler: TimerScheduler가 만료 통지
 public: // Connection::on_ready 위임 받음
     void on_connection_event(Connection& conn, io::ChannelEvents events);
 
-public: // 조회 (테스트)
-    Connection::State state() const noexcept { return connection_.state(); }
-
 private:
     void try_connect();
     void on_connecting(io::ChannelEvents events); // connecting: SO_ERROR 확인
@@ -73,16 +88,15 @@ private:
     void arm_reconnect();
     void cancel_app_timers();
 
-    static constexpr std::size_t timer_slot_count{3}; // port::TimerId 종류 수
-    static std::size_t slot_of(TimerId id) noexcept { return static_cast<std::size_t>(id); }
-
+private:
     io::Reactor& reactor_;
     io::TimerScheduler& timers_;
     std::string host_;
     std::uint16_t port_;
     Inbound* handler_{nullptr};
-    // payload_pool_는 connection_보다 먼저 선언한다. connection_의 tx_queue(PoolHandle)가
-    // 역순 소멸에서 풀보다 *먼저* 반납되도록(풀이 핸들보다 오래 살아야 함). 순서 바꾸지 말 것.
+    // payload_pool_는 connection_보다 먼저 선언한다.
+    // connection_의 tx_queue(PoolHandle)가 역순 소멸에서 풀보다 먼저 반납되도록 해야한다.
+    // 풀이 핸들보다 오래 살아야 함
     common::ObjectPool<common::LinearBuffer> payload_pool_;
     Connection connection_;
     BackoffSchedule backoff_;

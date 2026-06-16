@@ -51,17 +51,34 @@ public:
     Connection(Connection&&) noexcept = delete;
     Connection& operator=(Connection&&) noexcept = delete;
 
-    [[nodiscard]] port::ConnectionId id() const noexcept { return id_; }
-    [[nodiscard]] PeerAddress peer() const noexcept { return peer_; }
-    [[nodiscard]] State state() const noexcept { return state_; }
-    [[nodiscard]] io::Channel& channel() noexcept { return channel_; }
-    [[nodiscard]] io::Channel const& channel() const noexcept { return channel_; }
+    port::ConnectionId id() const noexcept {
+        return id_;
+    }
+
+    PeerAddress peer() const noexcept {
+        return peer_;
+    }
+
+    State state() const noexcept {
+        return state_;
+    }
+
+    io::Channel& channel() noexcept {
+        return channel_;
+    }
+
+    io::Channel const& channel() const noexcept {
+        return channel_;
+    }
 
     bool init(
-        Server& server, port::ConnectionId id, PeerAddress peer, common::Fd&& fd, io::ChannelEvents interests
+        Server& server, port::ConnectionId id, PeerAddress peer, common::Fd&& fd,
+        io::ChannelEvents interests
     ) noexcept;
     void close() noexcept;
-    void reset() noexcept { close(); }
+    void reset() noexcept {
+        close();
+    }
 
 private: // io::ChannelHandler
     void on_ready(io::Channel& channel, io::ChannelEvents events) override;
@@ -75,13 +92,29 @@ private:
     IoResult receive();  // full | would_block | peer_closed | error
     IoResult transmit(); // ok | would_block | error
 
-    [[nodiscard]] std::size_t rx_size() const noexcept { return rx_buffer_.size(); }
-    bool rx_peek(std::span<std::byte> dst) const noexcept { return rx_buffer_.peek(dst); }
-    bool rx_read(std::span<std::byte> dst) noexcept { return rx_buffer_.read(dst); }
-    bool rx_consume(std::size_t n) noexcept { return rx_buffer_.consume(n); }
+    std::size_t rx_size() const noexcept {
+        return rx_buffer_.size();
+    }
 
-    [[nodiscard]] bool tx_empty() const noexcept { return tx_queue_.empty(); }
-    void tx_enqueue(port::MessageBuffer&& buffer) { tx_queue_.push(std::move(buffer)); }
+    bool rx_peek(std::span<std::byte> dst) const noexcept {
+        return rx_buffer_.peek(dst);
+    }
+
+    bool rx_read(std::span<std::byte> dst) noexcept {
+        return rx_buffer_.read(dst);
+    }
+
+    bool rx_consume(std::size_t n) noexcept {
+        return rx_buffer_.consume(n);
+    }
+
+    bool tx_empty() const noexcept {
+        return tx_queue_.empty();
+    }
+
+    void tx_enqueue(port::MessageBuffer&& buffer) {
+        tx_queue_.push(std::move(buffer));
+    }
 
 private:
     Server* server_{nullptr};

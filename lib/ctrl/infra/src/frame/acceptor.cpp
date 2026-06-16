@@ -51,7 +51,9 @@ namespace {
 } // namespace
 
 Acceptor::Acceptor(Server& server, std::uint16_t listen_port, int accept_backlog) noexcept
-    : server_{server}, listen_port_{listen_port}, accept_backlog_{accept_backlog} {}
+    : server_{server},
+      listen_port_{listen_port},
+      accept_backlog_{accept_backlog} {}
 
 bool Acceptor::init() noexcept {
     if (valid()) {
@@ -118,8 +120,9 @@ void Acceptor::on_ready(io::Channel& channel, io::ChannelEvents events) {
         return;
     }
 
-    if (io::contains(events, io::ChannelEvents::error) || io::contains(events, io::ChannelEvents::hangup)) {
-        server_.handle_acceptor_failure(events); // 로깅은 Server가 담당한다
+    if (io::contains(events, io::ChannelEvents::error) ||
+        io::contains(events, io::ChannelEvents::hangup)) {
+        server_.handle_acceptor_failure(events); // 로깅은 Server가 담당한다.
         return;
     }
     if (io::contains(events, io::ChannelEvents::readable)) {
@@ -132,7 +135,8 @@ void Acceptor::drain_accepts() {
         sockaddr_storage peer_addr{};
         socklen_t peer_addr_len{sizeof(peer_addr)};
         common::Fd conn_fd{::accept4(
-            channel_.fd(), reinterpret_cast<sockaddr*>(&peer_addr), &peer_addr_len, SOCK_NONBLOCK | SOCK_CLOEXEC
+            channel_.fd(), reinterpret_cast<sockaddr*>(&peer_addr), &peer_addr_len,
+            SOCK_NONBLOCK | SOCK_CLOEXEC
         )};
 
         if (!conn_fd.valid()) {
@@ -155,7 +159,8 @@ void Acceptor::drain_accepts() {
 
         int const yes{1};
         (void)::setsockopt(conn_fd.get(), IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
-        PeerAddress const peer = to_peer_address(reinterpret_cast<sockaddr const&>(peer_addr), peer_addr_len);
+        PeerAddress const peer =
+            to_peer_address(reinterpret_cast<sockaddr const&>(peer_addr), peer_addr_len);
         server_.handle_accepted(std::move(conn_fd), peer);
     }
 }

@@ -17,8 +17,12 @@ using ddcs::io::SignalSource;
 
 class SignalMaskGuard {
 public:
-    SignalMaskGuard() { EXPECT_EQ(::sigprocmask(SIG_SETMASK, nullptr, &saved_mask_), 0); }
-    ~SignalMaskGuard() { (void)::sigprocmask(SIG_SETMASK, &saved_mask_, nullptr); }
+    SignalMaskGuard() {
+        EXPECT_EQ(::sigprocmask(SIG_SETMASK, nullptr, &saved_mask_), 0);
+    }
+    ~SignalMaskGuard() {
+        (void)::sigprocmask(SIG_SETMASK, &saved_mask_, nullptr);
+    }
 
     SignalMaskGuard(SignalMaskGuard const&) = delete;
     SignalMaskGuard& operator=(SignalMaskGuard const&) = delete;

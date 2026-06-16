@@ -24,9 +24,13 @@ struct SignalSource::Impl final : ChannelHandler {
     };
 
     Impl(Reactor& reactor_ref, std::initializer_list<int> signal_list, Callback callback_fn)
-        : reactor{reactor_ref}, signals{signal_list}, callback{std::move(callback_fn)} {}
+        : reactor{reactor_ref},
+          signals{signal_list},
+          callback{std::move(callback_fn)} {}
 
-    [[nodiscard]] bool active() const noexcept { return state == State::active; }
+    [[nodiscard]] bool active() const noexcept {
+        return state == State::active;
+    }
 
     void start() {
         if (state == State::active) {
@@ -39,7 +43,8 @@ struct SignalSource::Impl final : ChannelHandler {
             sigaddset(&signal_mask, signal);
         }
 
-        if (int const err = ::pthread_sigmask(SIG_BLOCK, &signal_mask, &previous_signal_mask); err != 0) {
+        if (int const err = ::pthread_sigmask(SIG_BLOCK, &signal_mask, &previous_signal_mask);
+            err != 0) {
             common::throw_errno(err, "pthread_sigmask");
         }
         has_previous_signal_mask = true;
@@ -51,7 +56,9 @@ struct SignalSource::Impl final : ChannelHandler {
             common::throw_errno(err, "signalfd");
         }
 
-        if (!channel.init(std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this)) {
+        if (!channel.init(
+                std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this
+            )) {
             restore_previous_signal_mask();
             common::throw_errno(EINVAL, "signal channel init");
         }
@@ -137,12 +144,20 @@ struct SignalSource::Impl final : ChannelHandler {
 SignalSource::SignalSource(Reactor& reactor, std::initializer_list<int> signals, Callback callback)
     : impl_{std::make_unique<Impl>(reactor, signals, std::move(callback))} {}
 
-SignalSource::~SignalSource() { stop(); }
+SignalSource::~SignalSource() {
+    stop();
+}
 
-bool SignalSource::active() const noexcept { return impl_->active(); }
+bool SignalSource::active() const noexcept {
+    return impl_->active();
+}
 
-void SignalSource::start() { impl_->start(); }
+void SignalSource::start() {
+    impl_->start();
+}
 
-void SignalSource::stop() noexcept { impl_->stop(); }
+void SignalSource::stop() noexcept {
+    impl_->stop();
+}
 
 } // namespace ddcs::io

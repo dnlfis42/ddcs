@@ -56,23 +56,34 @@ std::span<std::byte const> as_bytes(std::string_view s) {
     return {reinterpret_cast<std::byte const*>(s.data()), s.size()};
 }
 
-bool contains(std::string const& s, char const* sub) { return s.find(sub) != std::string::npos; }
+bool contains(std::string const& s, char const* sub) {
+    return s.find(sub) != std::string::npos;
+}
 
 class FakeCommandSender final : public CommandSender {
 public:
     bool accept = true;
-    CommandBuffer make_command_buffer() override { return pool_.acquire(); }
-    bool try_send(ddcs::ctrl::domain::DeviceId, CommandId, std::uint8_t, CommandBuffer) override { return accept; }
+    CommandBuffer make_command_buffer() override {
+        return pool_.acquire();
+    }
+    bool try_send(ddcs::ctrl::domain::DeviceId, CommandId, std::uint8_t, CommandBuffer) override {
+        return accept;
+    }
 
 private:
-    ObjectPool<LinearBuffer> pool_{ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{64})};
+    ObjectPool<LinearBuffer> pool_{
+        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{64})
+    };
 };
 
-// infra처럼 disconnect가 동기로 registry erase까지 끝내는 대역.
+// infra처럼 disconnect가 동기로 registry erase까지 끝내는 대역
 class FakeDisconnector final : public Disconnector {
 public:
-    explicit FakeDisconnector(AgentRegistry& agents) noexcept : agents_{agents} {}
-    void disconnect(ConnectionId id) override { agents_.erase(id); }
+    explicit FakeDisconnector(AgentRegistry& agents) noexcept
+        : agents_{agents} {}
+    void disconnect(ConnectionId id) override {
+        agents_.erase(id);
+    }
 
 private:
     AgentRegistry& agents_;

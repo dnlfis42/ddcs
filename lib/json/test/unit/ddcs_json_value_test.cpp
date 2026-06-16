@@ -13,7 +13,6 @@ namespace {
 
 using ddcs::json::Value;
 
-// --- 빌드 + 접근 -------------------------------------------------------------
 TEST(JsonValueTest, ScalarTypePredicatesAndAccessors) {
     EXPECT_TRUE(Value{}.is_null());
     EXPECT_TRUE(Value{nullptr}.is_null());
@@ -89,7 +88,6 @@ TEST(JsonValueTest, PushBackOnNullPromotesToArray) {
     EXPECT_EQ(v.dump(), "[1]");
 }
 
-// --- dump --------------------------------------------------------------------
 TEST(JsonValueTest, DumpsScalarsAndEmptyContainers) {
     EXPECT_EQ(Value{}.dump(), "null");
     EXPECT_EQ(Value{true}.dump(), "true");
@@ -118,7 +116,6 @@ TEST(JsonValueTest, DumpNestedStructure) {
     EXPECT_EQ(root.dump(), R"({"rule":{"threshold":80},"groups":["a","b"]})");
 }
 
-// --- parse -------------------------------------------------------------------
 TEST(JsonValueTest, ParsesScalars) {
     EXPECT_TRUE(Value::parse("null")->is_null());
     EXPECT_EQ(Value::parse("true")->as_bool(), std::optional<bool>{true});
@@ -141,9 +138,8 @@ TEST(JsonValueTest, ParsesStringEscapesAndUnicode) {
     EXPECT_EQ(Value::parse(R"("a\"b")")->as_string(), std::optional<std::string_view>{"a\"b"});
     EXPECT_EQ(Value::parse(R"("\n\t")")->as_string(), std::optional<std::string_view>{"\n\t"});
     EXPECT_EQ(Value::parse(R"("A")")->as_string(), std::optional<std::string_view>{"A"}); // BMP
-    EXPECT_EQ(
-        Value::parse(R"("😀")")->as_string(), std::optional<std::string_view>{"\U0001F600"}
-    ); // 서러게이트쌍 (U+1F600)
+    // 서러게이트쌍 (U+1F600)
+    EXPECT_EQ(Value::parse(R"("😀")")->as_string(), std::optional<std::string_view>{"\U0001F600"});
 }
 
 TEST(JsonValueTest, ForEachMemberIteratesObjectInInsertionOrder) {
@@ -184,7 +180,6 @@ TEST(JsonValueTest, RoundTripsThroughDumpAndParse) {
     EXPECT_EQ(reparsed->dump(), root.dump()); // 텍스트 동등
 }
 
-// --- parse 실패 시 nullopt ----------------------------------------------------
 TEST(JsonValueTest, RejectsMalformedInput) {
     EXPECT_EQ(Value::parse(""), std::nullopt);            // 빈 입력
     EXPECT_EQ(Value::parse("  "), std::nullopt);          // 공백뿐

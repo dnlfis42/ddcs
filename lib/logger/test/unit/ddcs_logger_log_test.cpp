@@ -15,7 +15,11 @@ namespace {
 
 class CaptureSink : public ddcs::logger::Sink {
 public:
-    void write(std::string_view line) noexcept override { lines.emplace_back(line); }
+    void write(std::string_view line) noexcept override {
+        lines.emplace_back(line);
+    }
+
+public:
     std::vector<std::string> lines;
 };
 
@@ -26,10 +30,11 @@ protected:
         ddcs::logger::Logger::instance().set_level(ddcs::logger::Level::Debug);
     }
 
+protected:
     CaptureSink sink;
 };
 
-// 헤더에 ts/level/file/line/msg가 포함되는지.
+// 헤더에 ts/level/file/line/msg가 포함되는지
 TEST_F(LogTest, EmitsRequiredHeaderFields) {
     LOG_INFO("hello");
     ASSERT_EQ(sink.lines.size(), 1u);
@@ -42,7 +47,7 @@ TEST_F(LogTest, EmitsRequiredHeaderFields) {
     EXPECT_EQ(l.back(), '}');
 }
 
-// 레벨 임계 이하는 emit 안 함.
+// 레벨 임계 이하는 emit 안 함
 TEST_F(LogTest, LevelThresholdFiltersBelow) {
     ddcs::logger::Logger::instance().set_level(ddcs::logger::Level::Warn);
     LOG_DEBUG("d");
@@ -54,7 +59,7 @@ TEST_F(LogTest, LevelThresholdFiltersBelow) {
     EXPECT_NE(sink.lines[1].find("\"level\":\"ERROR\""), std::string::npos);
 }
 
-// 레벨별 라벨 정확.
+// 레벨별 라벨 정확
 TEST_F(LogTest, AllLevelLabels) {
     LOG_DEBUG("x");
     LOG_INFO("x");
@@ -67,10 +72,12 @@ TEST_F(LogTest, AllLevelLabels) {
     EXPECT_NE(sink.lines[3].find("\"level\":\"ERROR\""), std::string::npos);
 }
 
-// kv 직렬화: 문자열/정수/bool.
+// kv 직렬화: 문자열/정수/bool
 TEST_F(LogTest, KvBasicTypes) {
     using ddcs::logger::kv;
-    LOG_INFO("evt", kv("peer", "127.0.0.1:5432"), kv("id", 42), kv("ok", true), kv("missing", nullptr));
+    LOG_INFO(
+        "evt", kv("peer", "127.0.0.1:5432"), kv("id", 42), kv("ok", true), kv("missing", nullptr)
+    );
     ASSERT_EQ(sink.lines.size(), 1u);
     auto const& l = sink.lines.front();
     EXPECT_NE(l.find("\"peer\":\"127.0.0.1:5432\""), std::string::npos);
@@ -79,7 +86,7 @@ TEST_F(LogTest, KvBasicTypes) {
     EXPECT_NE(l.find("\"missing\":null"), std::string::npos);
 }
 
-// kv 직렬화: 부호 있는 정수.
+// kv 직렬화: 부호 있는 정수
 TEST_F(LogTest, KvSignedInt) {
     using ddcs::logger::kv;
     LOG_INFO("evt", kv("n", -7));
@@ -87,7 +94,7 @@ TEST_F(LogTest, KvSignedInt) {
     EXPECT_NE(sink.lines.front().find("\"n\":-7"), std::string::npos);
 }
 
-// kv 직렬화: 64비트 정수 (큰 수).
+// kv 직렬화: 64비트 정수 (큰 수)
 TEST_F(LogTest, KvLargeInteger) {
     using ddcs::logger::kv;
     std::uint64_t const big = 18446744073709551615ull; // u64 max
@@ -96,7 +103,7 @@ TEST_F(LogTest, KvLargeInteger) {
     EXPECT_NE(sink.lines.front().find("\"big\":18446744073709551615"), std::string::npos);
 }
 
-// JSON escape: 따옴표/백슬래시/제어문자.
+// JSON escape: 따옴표/백슬래시/제어문자
 TEST_F(LogTest, JsonEscapeSpecialChars) {
     using ddcs::logger::kv;
     LOG_INFO("evt", kv("s", "a\"b\\c\nd\te"));
@@ -105,7 +112,7 @@ TEST_F(LogTest, JsonEscapeSpecialChars) {
     EXPECT_NE(l.find("\"s\":\"a\\\"b\\\\c\\nd\\te\""), std::string::npos);
 }
 
-// JSON escape: 낮은 제어문자(\u 형식).
+// JSON escape: 낮은 제어문자(\u 형식)
 TEST_F(LogTest, JsonEscapesLowControl) {
     using ddcs::logger::kv;
     std::string s;
@@ -115,14 +122,14 @@ TEST_F(LogTest, JsonEscapesLowControl) {
     EXPECT_NE(sink.lines.front().find("\"s\":\"\\u0001\""), std::string::npos);
 }
 
-// msg도 escape.
+// msg도 escape
 TEST_F(LogTest, MsgEscaped) {
     LOG_INFO("a\"b");
     ASSERT_EQ(sink.lines.size(), 1u);
     EXPECT_NE(sink.lines.front().find("\"msg\":\"a\\\"b\""), std::string::npos);
 }
 
-// source_location: 한 줄 위/아래 라인 번호가 다르게 캡처되는지.
+// source_location: 한 줄 위/아래 라인 번호가 다르게 캡처되는지
 TEST_F(LogTest, SourceLocationCapturesLine) {
     LOG_INFO("first");
     LOG_INFO("second");
@@ -142,7 +149,7 @@ TEST_F(LogTest, SourceLocationCapturesLine) {
     EXPECT_EQ(l2, l1 + 1);
 }
 
-// file 필드: basename (경로 segment 없이).
+// file 필드: basename (경로 segment 없이)
 TEST_F(LogTest, FileFieldIsBasename) {
     LOG_INFO("x");
     ASSERT_EQ(sink.lines.size(), 1u);
@@ -150,7 +157,7 @@ TEST_F(LogTest, FileFieldIsBasename) {
     EXPECT_NE(l.find("\"file\":\"ddcs_logger_log_test.cpp\""), std::string::npos);
 }
 
-// enum kv: underlying integer로 직렬화.
+// enum kv: underlying integer로 직렬화
 TEST_F(LogTest, KvEnum) {
     using ddcs::logger::kv;
     enum class E : std::uint8_t { A = 0, B = 7 };
@@ -159,7 +166,7 @@ TEST_F(LogTest, KvEnum) {
     EXPECT_NE(sink.lines.front().find("\"e\":7"), std::string::npos);
 }
 
-// 로거 출력이 substring이 아니라 *유효한 JSON* 인지. ddcs::json 파서로 교차검증(escape 라운드트립).
+// 로거 출력이 substring이 아니라 *유효한 JSON* 인지. ddcs::json 파서로 교차검증 (escape 라운드트립)
 TEST_F(LogTest, EmitsValidJsonParseableByJsonLib) {
     using ddcs::logger::kv;
     std::string tricky = "q\"b\\s\nt";
@@ -176,10 +183,11 @@ TEST_F(LogTest, EmitsValidJsonParseableByJsonLib) {
     EXPECT_EQ(parsed->find("id")->as_int(), std::optional<std::int64_t>{42});
     EXPECT_EQ(parsed->find("ok")->as_bool(), std::optional<bool>{true});
     EXPECT_EQ(parsed->find("peer")->as_string(), std::optional<std::string_view>{"1.2.3.4:5"});
-    EXPECT_EQ(parsed->find("s")->as_string(), std::optional<std::string_view>{tricky}); // escape 후 parse로 원문 복원
+    // escape 후 parse로 원문 복원
+    EXPECT_EQ(parsed->find("s")->as_string(), std::optional<std::string_view>{tricky});
 }
 
-// level_from_string: 대소문자 무시 매칭 + 미매칭 fallback.
+// level_from_string: 대소문자 무시 매칭 + 미매칭 fallback
 TEST(LogLevelFromStringTest, ParsesKnownLevels) {
     using ddcs::logger::Level;
     using ddcs::logger::level_from_string;
@@ -198,10 +206,10 @@ TEST(LogLevelFromStringTest, FallsBackOnUnknown) {
     EXPECT_EQ(level_from_string("inf", Level::Error), Level::Error); // 부분일치 불가
 }
 
-// sink 없음. crash 없이 무시.
+// sink 없음. crash 없이 무시
 TEST(LogNoSinkTest, NoSinkIsSafe) {
     ddcs::logger::Logger::instance().set_level(ddcs::logger::Level::Debug);
-    // 명시적으로 sink 해제는 API가 없으므로 다른 sink로 갈음.
+    // 명시적으로 sink 해제는 API가 없으므로 다른 sink로 갈음
     CaptureSink dummy;
     ddcs::logger::Logger::instance().set_sink(dummy);
     EXPECT_NO_THROW(LOG_INFO("ping"));

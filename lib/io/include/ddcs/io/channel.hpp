@@ -32,14 +32,26 @@ public:
     Channel(Channel&&) noexcept = delete;
     Channel& operator=(Channel&&) noexcept = delete;
 
-    [[nodiscard]] int fd() const noexcept { return fd_.get(); }
-    [[nodiscard]] ChannelEvents interests() const noexcept { return interests_; }
+    [[nodiscard]] int fd() const noexcept {
+        return fd_.get();
+    }
+
+    [[nodiscard]] ChannelEvents interests() const noexcept {
+        return interests_;
+    }
+
     [[nodiscard]] ChannelHandler& handler() const noexcept {
         assert(handler_ != nullptr);
         return *handler_;
     }
-    [[nodiscard]] bool valid() const noexcept { return state_ != State::idle; }
-    [[nodiscard]] bool registered() const noexcept { return state_ == State::registered; }
+
+    [[nodiscard]] bool valid() const noexcept {
+        return state_ != State::idle;
+    }
+
+    [[nodiscard]] bool registered() const noexcept {
+        return state_ == State::registered;
+    }
 
     bool init(common::Fd&& fd, ChannelEvents interests, ChannelHandler& handler) noexcept {
         if (valid() || !fd.valid()) {
@@ -62,10 +74,14 @@ public:
         state_ = State::idle;
     }
 
-    void reset() noexcept { close(); }
+    void reset() noexcept {
+        close();
+    }
 
 private:
-    void set_interests(ChannelEvents interests) noexcept { interests_ = interests; }
+    void set_interests(ChannelEvents interests) noexcept {
+        interests_ = interests;
+    }
 
     void mark_registered() noexcept {
         assert(state_ == State::ready);

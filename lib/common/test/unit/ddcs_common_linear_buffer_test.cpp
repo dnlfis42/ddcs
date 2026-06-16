@@ -89,8 +89,8 @@ TEST(LinearBufferTest, RejectsReserveFrontLargerThanCapacity) {
 }
 
 TEST(LinearBufferTest, StacksReserveFrontWhileEmpty) {
-    // frame 헤더 위에 message 헤더를 적층하는 시나리오: reserve(5), reserve(9), payload 순서로 쌓고,
-    // write_front 역순 소모 후 read 커서가 정확히 0으로 돌아온다.
+    // frame 헤더 위에 message 헤더를 적층하는 시나리오: reserve(5), reserve(9), payload 순서로
+    // 쌓고, write_front 역순 소모 후 read 커서가 정확히 0으로 돌아온다.
     LinearBuffer lb{32};
     ASSERT_TRUE(lb.reserve_front(5));
     ASSERT_TRUE(lb.reserve_front(9));

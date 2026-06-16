@@ -28,10 +28,15 @@ namespace {
 
 constexpr std::size_t connection_pool_chunk_size{64};
 constexpr std::size_t message_pool_chunk_size{64};
-constexpr io::ChannelEvents base_connection_interests{io::ChannelEvents::readable | io::ChannelEvents::edge_triggered};
+constexpr io::ChannelEvents base_connection_interests{
+    io::ChannelEvents::readable | io::ChannelEvents::edge_triggered
+};
 
-// rx ring이 받을 수 있는 payload 상한. 최대 frame이 ring에 통째로 들어가야 부분 frame 대기가 끝난다.
-constexpr std::size_t rx_payload_capacity{Connection::rx_buffer_capacity - wire::frame::header_size};
+// rx ring이 받을 수 있는 payload 상한
+// 최대 frame이 ring에 통째로 들어가야 부분 frame 대기가 끝난다.
+constexpr std::size_t rx_payload_capacity{
+    Connection::rx_buffer_capacity - wire::frame::header_size
+};
 
 } // namespace
 
@@ -47,8 +52,13 @@ struct Server::Impl final : public port::MessageSender, public port::Disconnecto
         port::DisconnectReason reason;
     };
 
-    Impl(Server& owner_ref, io::Reactor& reactor_ref, std::uint16_t port, int backlog, std::size_t max_payload_size)
-        : owner{owner_ref}, reactor{reactor_ref}, acceptor{owner_ref, port, backlog},
+    Impl(
+        Server& owner_ref, io::Reactor& reactor_ref, std::uint16_t port, int backlog,
+        std::size_t max_payload_size
+    )
+        : owner{owner_ref},
+          reactor{reactor_ref},
+          acceptor{owner_ref, port, backlog},
           payload_capacity{std::min(max_payload_size, rx_payload_capacity)},
           connection_pool{common::make_object_pool<Connection>(0, connection_pool_chunk_size)},
           message_pool{common::make_object_pool<common::LinearBuffer>(
@@ -105,9 +115,13 @@ struct Server::Impl final : public port::MessageSender, public port::Disconnecto
         state = State::idle;
     }
 
-    [[nodiscard]] bool active() const noexcept { return state == State::active; }
+    [[nodiscard]] bool active() const noexcept {
+        return state == State::active;
+    }
 
-    [[nodiscard]] std::uint16_t port() const noexcept { return acceptor.port(); }
+    [[nodiscard]] std::uint16_t port() const noexcept {
+        return acceptor.port();
+    }
 
     void handle_accepted(common::Fd&& fd, PeerAddress peer) {
         auto conn = connection_pool.acquire();
@@ -141,7 +155,9 @@ struct Server::Impl final : public port::MessageSender, public port::Disconnecto
         drain_reap_queue();
     }
 
-    void handle_accept_error(int err) noexcept { LOG_WARN("frame.server.accept_error", logger::kv("errno", err)); }
+    void handle_accept_error(int err) noexcept {
+        LOG_WARN("frame.server.accept_error", logger::kv("errno", err));
+    }
 
     void handle_acceptor_failure(io::ChannelEvents events) noexcept {
         LOG_ERROR("frame.server.acceptor_failure", logger::kv("events", io::to_underlying(events)));
@@ -165,7 +181,8 @@ struct Server::Impl final : public port::MessageSender, public port::Disconnecto
             return;
         }
 
-        if (io::contains(events, io::ChannelEvents::error) || io::contains(events, io::ChannelEvents::hangup)) {
+        if (io::contains(events, io::ChannelEvents::error) ||
+            io::contains(events, io::ChannelEvents::hangup)) {
             begin_reap(*conn, port::DisconnectReason::io_error);
             drain_reap_queue();
             return;
@@ -183,7 +200,8 @@ struct Server::Impl final : public port::MessageSender, public port::Disconnecto
 private: // port::MessageSender / port::Disconnector
     [[nodiscard]] port::MessageBuffer make_message_buffer() override {
         auto message = message_pool.acquire();
-        bool const reserved = message->reserve_front(wire::frame::header_size); // frame header 자리 미리 확보
+        bool const reserved =
+            message->reserve_front(wire::frame::header_size); // frame header 자리 미리 확보
         assert(reserved);
         (void)reserved;
         return message;
@@ -308,7 +326,8 @@ public:
         }
     }
 
-    // receive와 frame dispatch를 반복: ring이 full이어도 dispatch로 공간을 비우고 이어 읽는다(edge-triggered).
+    // receive와 frame dispatch를 반복:
+    // - ring이 full이어도 dispatch로 공간을 비우고 이어 읽는다(edge-triggered).
     void handle_readable(Connection& connection) {
         auto const id = connection.id();
         for (;;) {
@@ -320,7 +339,7 @@ public:
             Connection::IoResult const result = conn->receive();
             dispatch_frames(id); // 결과 처리 전에 도착분 디스패치
 
-            conn = find_active(id); // 콜백 재진입으로 정리됐을 수 있다
+            conn = find_active(id); // 콜백 재진입으로 정리됐을 수 있다.
             if (conn == nullptr) {
                 return;
             }
@@ -330,7 +349,7 @@ public:
             case Connection::IoResult::would_block:
                 return;
             case Connection::IoResult::full:
-                continue; // dispatch가 공간을 비웠으니 더 읽는다
+                continue; // dispatch가 공간을 비웠으니 더 읽는다.
             case Connection::IoResult::peer_closed:
                 begin_reap(*conn, port::DisconnectReason::peer_closed);
                 return;
@@ -356,7 +375,7 @@ public:
         }
     }
 
-    // rx ring의 완성된 frame을 모두 on_message로 올린다. 콜백 재진입에 대비해 매 반복 재조회.
+    // rx ring의 완성된 frame을 모두 on_message로 올린다. 콜백 재진입에 대비해 매 반복 재조회
     void dispatch_frames(port::ConnectionId id) {
         for (;;) {
             Connection* conn = find_active(id);
@@ -376,7 +395,7 @@ public:
             }
 
             if (header->payload_length > payload_capacity) {
-                begin_reap(*conn, port::DisconnectReason::protocol_error); // 용량 초과(손상/악성)
+                begin_reap(*conn, port::DisconnectReason::protocol_error); // 용량 초과 (손상/악성)
                 return;
             }
             std::size_t const total = wire::frame::header_size + header->payload_length;
@@ -403,7 +422,9 @@ public:
         try {
             observer->on_connected(id);
         } catch (...) {
-            LOG_ERROR("frame.server.observer_callback_failed", logger::kv("callback", "on_connected"));
+            LOG_ERROR(
+                "frame.server.observer_callback_failed", logger::kv("callback", "on_connected")
+            );
             if (Connection* conn = find_active(id)) {
                 begin_reap(*conn, port::DisconnectReason::local_drop);
             }
@@ -417,7 +438,9 @@ public:
         try {
             observer->on_message(id, std::move(payload));
         } catch (...) {
-            LOG_ERROR("frame.server.observer_callback_failed", logger::kv("callback", "on_message"));
+            LOG_ERROR(
+                "frame.server.observer_callback_failed", logger::kv("callback", "on_message")
+            );
             if (Connection* conn = find_active(id)) {
                 begin_reap(*conn, port::DisconnectReason::local_drop);
             }
@@ -431,7 +454,9 @@ public:
         try {
             observer->on_disconnected(id, reason);
         } catch (...) {
-            LOG_ERROR("frame.server.observer_callback_failed", logger::kv("callback", "on_disconnected"));
+            LOG_ERROR(
+                "frame.server.observer_callback_failed", logger::kv("callback", "on_disconnected")
+            );
         }
     }
 
@@ -442,7 +467,8 @@ public:
 
     Acceptor acceptor;
 
-    std::size_t payload_capacity; // frame당 acmp payload 상한(message pool buffer 용량에서 frame header 제외)
+    // frame당 acmp payload 상한 (message pool buffer 용량에서 frame header 제외)
+    std::size_t payload_capacity;
 
     common::ObjectPool<Connection> connection_pool;
     common::ObjectPool<common::LinearBuffer> message_pool;
@@ -456,29 +482,53 @@ public:
 Server::Server(io::Reactor& reactor, std::uint16_t port, int backlog, std::size_t max_payload_size)
     : impl_{std::make_unique<Impl>(*this, reactor, port, backlog, max_payload_size)} {}
 
-Server::~Server() { close(); }
+Server::~Server() {
+    close();
+}
 
-std::uint16_t Server::port() const noexcept { return impl_->port(); }
+std::uint16_t Server::port() const noexcept {
+    return impl_->port();
+}
 
-bool Server::active() const noexcept { return impl_->active(); }
+bool Server::active() const noexcept {
+    return impl_->active();
+}
 
-bool Server::init(port::ConnectionObserver& observer) noexcept { return impl_->init(observer); }
+bool Server::init(port::ConnectionObserver& observer) noexcept {
+    return impl_->init(observer);
+}
 
-bool Server::start() { return impl_->start(); }
+bool Server::start() {
+    return impl_->start();
+}
 
-void Server::stop() noexcept { impl_->stop(); }
+void Server::stop() noexcept {
+    impl_->stop();
+}
 
-void Server::close() noexcept { impl_->close(); }
+void Server::close() noexcept {
+    impl_->close();
+}
 
-port::MessageSender& Server::sender() noexcept { return *impl_; }
+port::MessageSender& Server::sender() noexcept {
+    return *impl_;
+}
 
-port::Disconnector& Server::disconnector() noexcept { return *impl_; }
+port::Disconnector& Server::disconnector() noexcept {
+    return *impl_;
+}
 
-void Server::handle_accepted(common::Fd&& fd, PeerAddress peer) { impl_->handle_accepted(std::move(fd), peer); }
+void Server::handle_accepted(common::Fd&& fd, PeerAddress peer) {
+    impl_->handle_accepted(std::move(fd), peer);
+}
 
-void Server::handle_accept_error(int err) { impl_->handle_accept_error(err); }
+void Server::handle_accept_error(int err) {
+    impl_->handle_accept_error(err);
+}
 
-void Server::handle_acceptor_failure(io::ChannelEvents events) { impl_->handle_acceptor_failure(events); }
+void Server::handle_acceptor_failure(io::ChannelEvents events) {
+    impl_->handle_acceptor_failure(events);
+}
 
 void Server::handle_connection_ready(Connection& connection, io::ChannelEvents events) {
     impl_->handle_connection_ready(connection, events);

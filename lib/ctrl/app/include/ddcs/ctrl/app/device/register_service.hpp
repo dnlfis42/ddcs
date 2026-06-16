@@ -11,9 +11,10 @@ namespace ddcs::ctrl::app::device {
 // 등록 identity 확정 use-case. uuid를 Device 트윈으로 해소하고 선언된 group을 반영한다.
 class RegisterService {
 public:
-    explicit RegisterService(domain::DeviceRegistry& devices) noexcept : devices_{devices} {}
+    explicit RegisterService(domain::DeviceRegistry& devices) noexcept
+        : devices_{devices} {}
 
-    // uuid를 DeviceId로 확정 (없으면 Device 생성) + group 갱신. nil uuid는 무효 DeviceId로 거부.
+    // uuid를 DeviceId로 확정 (없으면 Device 생성) + group 갱신. nil uuid는 무효 DeviceId로 거부
     [[nodiscard]] domain::DeviceId enroll(common::Uuid const& id, std::string_view group);
 
 private:

@@ -23,10 +23,12 @@ using namespace std::chrono_literals;
 
 class FakeSource final : public ddcs::ctrl::app::metrics::port::MetricsSource {
 public:
-    std::string scrape() override { return "test_metric 42\n"; }
+    std::string scrape() override {
+        return "test_metric 42\n";
+    }
 };
 
-// 127.0.0.1:port로 connect 후 request 전송, reactor 구동하며 전체 응답 read.
+// 127.0.0.1:port로 connect 후 request 전송, reactor 구동하며 전체 응답 read
 std::string scrape_over_socket(std::uint16_t port, Reactor& reactor, std::string const& request) {
     int const cfd = ::socket(AF_INET, SOCK_STREAM, 0);
     EXPECT_GE(cfd, 0);
@@ -63,7 +65,8 @@ TEST(PrometheusServerTest, ServesScrapeOverHttp) {
     ASSERT_TRUE(server.start());
     ASSERT_NE(server.port(), 0);
 
-    auto const resp = scrape_over_socket(server.port(), reactor, "GET /metrics HTTP/1.1\r\nHost: x\r\n\r\n");
+    auto const resp =
+        scrape_over_socket(server.port(), reactor, "GET /metrics HTTP/1.1\r\nHost: x\r\n\r\n");
 
     EXPECT_NE(resp.find("200 OK"), std::string::npos);
     EXPECT_NE(resp.find("text/plain"), std::string::npos);
@@ -86,7 +89,7 @@ TEST(PrometheusServerTest, StopDropsOpenConnections) {
     ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
     ASSERT_EQ(::connect(cfd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), 0);
     for (int i = 0; i < 10 && server.connection_count() == 0; ++i) {
-        reactor.run_once(50ms); // accept만 일어나고 요청은 미완(읽기 대기)
+        reactor.run_once(50ms); // accept만 일어나고 요청은 미완 (읽기 대기)
     }
     ASSERT_EQ(server.connection_count(), 1u);
 

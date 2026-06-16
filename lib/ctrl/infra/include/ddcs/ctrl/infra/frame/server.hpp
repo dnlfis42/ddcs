@@ -35,7 +35,8 @@ struct PeerAddress;
 
 class Server {
 public:
-    // max_payload_size: 한 frame이 실을 수 있는 acmp payload 상한(frame header 제외). rx ring 한도로 clamp된다.
+    // max_payload_size: 한 frame이 실을 수 있는 acmp payload 상한 (frame header 제외)
+    //                   rx ring 한도로 clamp된다.
     Server(io::Reactor& reactor, std::uint16_t port, int backlog, std::size_t max_payload_size);
     ~Server();
 

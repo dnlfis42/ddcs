@@ -49,17 +49,21 @@ class MockObserver : public ConnectionObserver {
 public:
     std::vector<ConnectionId> connected;
     std::vector<std::pair<ConnectionId, DisconnectReason>> disconnected;
-    std::vector<std::string> payload; // 수신한 acmp payload 통째(`[type][body]`)
+    std::vector<std::string> payload; // 수신한 acmp payload 통째 (`[type][body]`)
 
-    void on_connected(ConnectionId id) override { connected.push_back(id); }
+    void on_connected(ConnectionId id) override {
+        connected.push_back(id);
+    }
     void on_message(ConnectionId, MessageBuffer p) override {
         auto const r = p->readable();
         payload.emplace_back(reinterpret_cast<char const*>(r.data()), r.size());
     }
-    void on_disconnected(ConnectionId id, DisconnectReason reason) override { disconnected.emplace_back(id, reason); }
+    void on_disconnected(ConnectionId id, DisconnectReason reason) override {
+        disconnected.emplace_back(id, reason);
+    }
 };
 
-// socketpair 한 쌍: conn 측 fd를 nonblocking으로 넘기고, peer 측은 보관.
+// socketpair 한 쌍: conn 측 fd를 nonblocking으로 넘기고, peer 측은 보관
 struct SocketPair {
     int peer{-1};
     Fd take_conn() {
@@ -87,7 +91,7 @@ void write_frame(int fd, std::uint8_t type, std::string_view body) {
     ASSERT_EQ(::write(fd, payload.data(), payload.size()), static_cast<ssize_t>(payload.size()));
 }
 
-// reactor + server + mock observer 조립. accept는 handle_accepted로 직접 주입.
+// reactor + server + mock observer 조립. accept는 handle_accepted로 직접 주입
 // observer는 server보다 먼저 선언: server dtor가 notify하므로 server가 먼저 파괴돼야 한다.
 struct ServerFixture {
     Reactor reactor;
@@ -96,7 +100,7 @@ struct ServerFixture {
 
     ServerFixture() {
         EXPECT_TRUE(server.init(observer));
-        EXPECT_TRUE(server.start()); // 미시작 상태로 connection을 주입하면 dtor가 reap하지 않는다
+        EXPECT_TRUE(server.start()); // 미시작 상태로 connection을 주입하면 dtor가 reap하지 않는다.
     }
 
     ConnectionId accept(SocketPair& sp) {
@@ -127,7 +131,14 @@ TEST(FrameServerTest, FramedPayloadDeliveredToOnMessage) {
     f.reactor.run_once(1000ms);
 
     ASSERT_EQ(f.observer.payload.size(), 1u);
-    EXPECT_EQ(f.observer.payload[0], std::string("\x42""abc", 4)); // [type][body]
+    // `[type][body]`
+    EXPECT_EQ(
+        f.observer.payload[0], std::string(
+                                   "\x42"
+                                   "abc",
+                                   4
+                               )
+    );
 }
 
 TEST(FrameServerTest, TypeOnlyPayloadDelivered) {
@@ -148,7 +159,7 @@ TEST(FrameServerTest, PartialFrameWaitsForCompletion) {
     SocketPair sp;
     f.accept(sp);
 
-    auto const hb = frame::encode(4); // payload length = type(1) + body(3)
+    auto const hb = frame::encode(4);             // payload length = type(1) + body(3)
     ASSERT_EQ(::write(sp.peer, hb.data(), 2), 2); // header 일부만
     f.reactor.run_once(1000ms);
     EXPECT_TRUE(f.observer.payload.empty());
@@ -159,7 +170,13 @@ TEST(FrameServerTest, PartialFrameWaitsForCompletion) {
     f.reactor.run_once(1000ms);
 
     ASSERT_EQ(f.observer.payload.size(), 1u);
-    EXPECT_EQ(f.observer.payload[0], std::string("\x42""abc", 4));
+    EXPECT_EQ(
+        f.observer.payload[0], std::string(
+                                   "\x42"
+                                   "abc",
+                                   4
+                               )
+    );
     EXPECT_TRUE(f.observer.disconnected.empty()); // 부분 frame은 오류가 아님
 }
 
@@ -173,8 +190,20 @@ TEST(FrameServerTest, MultipleFramesInOneBurstAllDelivered) {
     f.reactor.run_once(1000ms);
 
     ASSERT_EQ(f.observer.payload.size(), 2u);
-    EXPECT_EQ(f.observer.payload[0], std::string("\x01""one", 4));
-    EXPECT_EQ(f.observer.payload[1], std::string("\x02""two", 4));
+    EXPECT_EQ(
+        f.observer.payload[0], std::string(
+                                   "\x01"
+                                   "one",
+                                   4
+                               )
+    );
+    EXPECT_EQ(
+        f.observer.payload[1], std::string(
+                                   "\x02"
+                                   "two",
+                                   4
+                               )
+    );
 }
 
 TEST(FrameServerTest, BadMagicDisconnectsWithProtocolError) {
@@ -182,7 +211,7 @@ TEST(FrameServerTest, BadMagicDisconnectsWithProtocolError) {
     SocketPair sp;
     ConnectionId const id = f.accept(sp);
 
-    // magic 2바이트가 0xDDC5가 아니라 parse 실패.
+    // magic 2바이트가 0xDDC5가 아니라 parse 실패
     std::array<std::uint8_t, 4> const junk{0xDE, 0xAD, 0x00, 0x00};
     ASSERT_EQ(::write(sp.peer, junk.data(), junk.size()), static_cast<ssize_t>(junk.size()));
     f.reactor.run_once(1000ms);
@@ -198,7 +227,7 @@ TEST(FrameServerTest, OversizedLengthDisconnectsWithProtocolError) {
     SocketPair sp;
     f.accept(sp);
 
-    // length=0xFFFF > max_payload_size: 용량 초과.
+    // length=0xFFFF > max_payload_size: 용량 초과
     auto const hb = frame::encode(0xFFFF);
     ASSERT_EQ(::write(sp.peer, hb.data(), hb.size()), static_cast<ssize_t>(hb.size()));
     f.reactor.run_once(1000ms);
@@ -220,7 +249,9 @@ TEST(FrameServerTest, SendFramesPayloadOnWire) {
     f.reactor.run_once(1000ms); // writable이면 transmit
 
     std::array<std::byte, 16> got{};
-    ASSERT_EQ(::read(sp.peer, got.data(), got.size()), static_cast<ssize_t>(frame::header_size + 3));
+    ASSERT_EQ(
+        ::read(sp.peer, got.data(), got.size()), static_cast<ssize_t>(frame::header_size + 3)
+    );
     frame::HeaderBytes hb{};
     std::memcpy(hb.data(), got.data(), frame::header_size);
     auto const header = frame::parse(hb);
@@ -241,7 +272,13 @@ TEST(FrameServerTest, PeerFinDisconnectsAfterDeliveringPendingFrames) {
 
     // FIN 처리 전에 도착분이 먼저 전달된다.
     ASSERT_EQ(f.observer.payload.size(), 1u);
-    EXPECT_EQ(f.observer.payload[0], std::string("\x42""last", 5));
+    EXPECT_EQ(
+        f.observer.payload[0], std::string(
+                                   "\x42"
+                                   "last",
+                                   5
+                               )
+    );
     ASSERT_EQ(f.observer.disconnected.size(), 1u);
     EXPECT_EQ(f.observer.disconnected[0].first, id);
     EXPECT_EQ(f.observer.disconnected[0].second, DisconnectReason::peer_closed);
@@ -272,7 +309,9 @@ TEST(FrameServerTest, DisconnectInsideOnMessageIsSafe) {
 
     Reactor reactor;
     DisconnectingObserver observer;
-    Server server{reactor, 0, 8, test_max_payload_size}; // observer보다 늦게 생성(dtor에서 notify하므로 먼저 파괴)
+    Server server{
+        reactor, 0, 8, test_max_payload_size
+    }; // observer보다 늦게 생성 (dtor에서 notify하므로 먼저 파괴)
     observer.server = &server;
     ASSERT_TRUE(server.init(observer));
     ASSERT_TRUE(server.start());
@@ -286,7 +325,13 @@ TEST(FrameServerTest, DisconnectInsideOnMessageIsSafe) {
     reactor.run_once(1000ms);
 
     ASSERT_EQ(observer.payload.size(), 1u);
-    EXPECT_EQ(observer.payload[0], std::string("\x01""one", 4));
+    EXPECT_EQ(
+        observer.payload[0], std::string(
+                                 "\x01"
+                                 "one",
+                                 4
+                             )
+    );
     ASSERT_EQ(observer.disconnected.size(), 1u);
     EXPECT_EQ(observer.disconnected[0].first, id);
 }

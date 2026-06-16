@@ -14,14 +14,22 @@ public:
 
 public:
     constexpr StrongValue() = default;
-    constexpr explicit StrongValue(T value) noexcept : value_{value} {}
+    constexpr explicit StrongValue(T value) noexcept
+        : value_{value} {}
 
-    constexpr T value() const noexcept { return value_; }
-    constexpr bool valid() const noexcept { return value_ != invalid; }
+    constexpr T value() const noexcept {
+        return value_;
+    }
+
+    constexpr bool valid() const noexcept {
+        return value_ != invalid;
+    }
 
     constexpr bool operator==(StrongValue const&) const = default;
 
-    constexpr void clear() noexcept { value_ = invalid; }
+    constexpr void clear() noexcept {
+        value_ = invalid;
+    }
 
 private:
     T value_{invalid};

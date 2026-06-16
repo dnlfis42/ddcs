@@ -81,7 +81,8 @@ private:
         return static_cast<std::uint32_t>(token >> 32);
     }
 
-    [[nodiscard]] static constexpr std::uint32_t next_generation(std::uint32_t generation) noexcept {
+    [[nodiscard]] static constexpr std::uint32_t
+    next_generation(std::uint32_t generation) noexcept {
         ++generation;
         return generation == 0 ? 1 : generation;
     }
@@ -93,7 +94,8 @@ private:
         }
 
         Slot const& slot = slots_[index];
-        if (!slot.active || slot.generation != unpack_generation(token) || slot.channel == nullptr) {
+        if (!slot.active || slot.generation != unpack_generation(token) ||
+            slot.channel == nullptr) {
             return nullptr;
         }
         return &slot;

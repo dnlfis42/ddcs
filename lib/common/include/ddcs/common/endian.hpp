@@ -18,7 +18,8 @@ constexpr T byteswap(T v) noexcept {
         return static_cast<T>(((v & 0x00FFu) << 8) | ((v & 0xFF00u) >> 8));
     } else if constexpr (sizeof(T) == 4) {
         return static_cast<T>(
-            ((v & 0x000000FFu) << 24) | ((v & 0x0000FF00u) << 8) | ((v & 0x00FF0000u) >> 8) | ((v & 0xFF000000u) >> 24)
+            ((v & 0x000000FFu) << 24) | ((v & 0x0000FF00u) << 8) | ((v & 0x00FF0000u) >> 8) |
+            ((v & 0xFF000000u) >> 24)
         );
     } else {
         return static_cast<T>(

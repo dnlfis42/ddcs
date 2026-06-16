@@ -25,7 +25,7 @@ enum class MessageType : std::uint8_t {
     command_outcome = 0x22,  // Agent가 Controller로 보내는 명령 수행 결과
 };
 
-// command_request 헤더(`[type][command_id(u64le)][command_type(u8)]`)의 wire 크기.
+// command_request 헤더(`[type][command_id(u64le)][command_type(u8)]`)의 wire 크기
 // payload 앞에 헤더를 제자리 prepend하는 송신 경로의 headroom 요구량이다.
 inline constexpr std::size_t command_request_header_size{
     sizeof(MessageType) + sizeof(std::uint64_t) + sizeof(std::uint8_t)
@@ -73,19 +73,28 @@ struct CommandOutcome {
 // CAUTION: 값 유효성은 검증하지 않는다. 빈 span이면 invalid를 돌려준다(empty/0x00 모두 invalid).
 [[nodiscard]] MessageType peek_type(std::span<std::byte const> in) noexcept;
 
-// encode_<X>: out에 [type][body]를 forward로 기록하고 쓴 바이트 수를 반환한다(공간 부족이면 nullopt).
-// decode_<X>: in(= type 이후 body)에서 메시지를 푼다. 구조 불일치(부족/trailing)면 nullopt.
-//             결과의 view 멤버는 in을 차용한다.
+// encode_<X>:
+// - out에 [type][body]를 forward로 기록하고 쓴 바이트 수를 반환한다.
+//   - 공간 부족이면 nullopt
+// decode_<X>:
+// - in(= type 이후 body)에서 메시지를 푼다.
+//   - 구조 불일치(부족/trailing)면 nullopt
+// - 결과의 view 멤버는 in을 차용한다.
+
+[[nodiscard]] std::optional<std::size_t> encode_register_request(
+    common::Uuid const& id, std::string_view group, std::span<std::byte> out
+) noexcept;
+[[nodiscard]] std::optional<RegisterRequest>
+decode_register_request(std::span<std::byte const> in) noexcept;
 
 [[nodiscard]] std::optional<std::size_t>
-encode_register_request(common::Uuid const& id, std::string_view group, std::span<std::byte> out) noexcept;
-[[nodiscard]] std::optional<RegisterRequest> decode_register_request(std::span<std::byte const> in) noexcept;
-
-[[nodiscard]] std::optional<std::size_t> encode_register_outcome(std::uint8_t code, std::span<std::byte> out) noexcept;
-[[nodiscard]] std::optional<RegisterOutcome> decode_register_outcome(std::span<std::byte const> in) noexcept;
+encode_register_outcome(std::uint8_t code, std::span<std::byte> out) noexcept;
+[[nodiscard]] std::optional<RegisterOutcome>
+decode_register_outcome(std::span<std::byte const> in) noexcept;
 
 [[nodiscard]] std::optional<std::size_t> encode_register_ack(std::span<std::byte> out) noexcept;
-[[nodiscard]] std::optional<RegisterAck> decode_register_ack(std::span<std::byte const> in) noexcept;
+[[nodiscard]] std::optional<RegisterAck>
+decode_register_ack(std::span<std::byte const> in) noexcept;
 
 [[nodiscard]] std::optional<std::size_t> encode_heartbeat(std::span<std::byte> out) noexcept;
 [[nodiscard]] std::optional<Heartbeat> decode_heartbeat(std::span<std::byte const> in) noexcept;
@@ -94,17 +103,22 @@ encode_register_request(common::Uuid const& id, std::string_view group, std::spa
 encode_status(std::uint8_t mode, double load, double temp, std::span<std::byte> out) noexcept;
 [[nodiscard]] std::optional<Status> decode_status(std::span<std::byte const> in) noexcept;
 
-// payload는 호출측이 out 뒤에 직접 append한다(예: device가 command body 인코딩). 여기선 header만 쓴다.
-[[nodiscard]] std::optional<std::size_t>
-encode_command_request_header(std::uint64_t command_id, std::uint8_t command_type, std::span<std::byte> out) noexcept;
-[[nodiscard]] std::optional<CommandRequest> decode_command_request(std::span<std::byte const> in) noexcept;
+// payload는 호출측이 out 뒤에 직접 append한다(예: device가 command body 인코딩).
+// 여기선 header만 쓴다.
+[[nodiscard]] std::optional<std::size_t> encode_command_request_header(
+    std::uint64_t command_id, std::uint8_t command_type, std::span<std::byte> out
+) noexcept;
+[[nodiscard]] std::optional<CommandRequest>
+decode_command_request(std::span<std::byte const> in) noexcept;
 
 [[nodiscard]] std::optional<std::size_t>
 encode_command_ack(std::uint64_t command_id, std::span<std::byte> out) noexcept;
 [[nodiscard]] std::optional<CommandAck> decode_command_ack(std::span<std::byte const> in) noexcept;
 
-[[nodiscard]] std::optional<std::size_t>
-encode_command_outcome(std::uint64_t command_id, std::uint8_t code, std::span<std::byte> out) noexcept;
-[[nodiscard]] std::optional<CommandOutcome> decode_command_outcome(std::span<std::byte const> in) noexcept;
+[[nodiscard]] std::optional<std::size_t> encode_command_outcome(
+    std::uint64_t command_id, std::uint8_t code, std::span<std::byte> out
+) noexcept;
+[[nodiscard]] std::optional<CommandOutcome>
+decode_command_outcome(std::span<std::byte const> in) noexcept;
 
 } // namespace ddcs::wire::acmp

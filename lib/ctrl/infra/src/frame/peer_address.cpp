@@ -12,7 +12,7 @@ namespace ddcs::ctrl::infra::frame {
 
 namespace {
 
-// INET6_ADDRSTRLEN은 nul까지 포함한다. bracket 표기와 최대 5자리 port를 더한 worst-case 길이.
+// INET6_ADDRSTRLEN은 nul까지 포함한다. bracket 표기와 최대 5자리 port를 더한 worst-case 길이
 constexpr std::size_t required_peer_address_format_buffer_size = 1 + INET6_ADDRSTRLEN + 1 + 1 + 5;
 static_assert(
     min_peer_address_format_buffer_size >= required_peer_address_format_buffer_size,
@@ -33,8 +33,9 @@ std::string_view PeerAddress::format(std::span<char> buf) const noexcept {
         return {};
     }
 
-    int const written = (family == Family::v4) ? std::snprintf(buf.data(), buf.size(), "%s:%u", ip, port)
-                                               : std::snprintf(buf.data(), buf.size(), "[%s]:%u", ip, port);
+    int const written = (family == Family::v4)
+                            ? std::snprintf(buf.data(), buf.size(), "%s:%u", ip, port)
+                            : std::snprintf(buf.data(), buf.size(), "[%s]:%u", ip, port);
     if (written < 0) {
         return {};
     }

@@ -23,14 +23,18 @@ private:
         Node* next{nullptr};
         alignas(T) std::byte storage[sizeof(T)];
 
-        T* ptr() noexcept { return std::launder(reinterpret_cast<T*>(storage)); }
+        T* ptr() noexcept {
+            return std::launder(reinterpret_cast<T*>(storage));
+        }
     };
 
 public:
     class Deleter {
     public:
         Deleter() noexcept = default;
-        Deleter(ObjectPool& pool, Node& node) noexcept : pool_{&pool}, node_{&node} {}
+        Deleter(ObjectPool& pool, Node& node) noexcept
+            : pool_{&pool},
+              node_{&node} {}
 
         void operator()(T*) const noexcept {
             if (pool_ != nullptr) {
@@ -47,13 +51,17 @@ public:
     using Handle = std::unique_ptr<T, Deleter>;
 
 public:
-    explicit ObjectPool(Constructor constructor, std::size_t initial_capacity = 0, std::size_t chunk_size = 64)
-        : constructor_{std::move(constructor)}, chunk_size_{chunk_size == 0 ? 1 : chunk_size} {
+    explicit ObjectPool(
+        Constructor constructor, std::size_t initial_capacity = 0, std::size_t chunk_size = 64
+    )
+        : constructor_{std::move(constructor)},
+          chunk_size_{chunk_size == 0 ? 1 : chunk_size} {
         std::size_t const initial_chunks = (initial_capacity + chunk_size_ - 1) / chunk_size_;
         for (std::size_t i = 0; i < initial_chunks; ++i) {
             grow();
         }
     }
+
     ~ObjectPool() {
         for (auto& chunk : chunks_) {
             for (std::size_t i = 0; i < chunk_size_; ++i) {
@@ -67,10 +75,21 @@ public:
     ObjectPool(ObjectPool&&) = delete;
     ObjectPool& operator=(ObjectPool&&) = delete;
 
-    std::size_t chunk_size() const noexcept { return chunk_size_; }
-    std::size_t capacity() const noexcept { return capacity_; }
-    std::size_t available() const noexcept { return available_; }
-    std::size_t in_use() const noexcept { return capacity_ - available_; }
+    std::size_t chunk_size() const noexcept {
+        return chunk_size_;
+    }
+
+    std::size_t capacity() const noexcept {
+        return capacity_;
+    }
+
+    std::size_t available() const noexcept {
+        return available_;
+    }
+
+    std::size_t in_use() const noexcept {
+        return capacity_ - available_;
+    }
 
     [[nodiscard]] Handle acquire() {
         if (head_free_ == nullptr) [[unlikely]] {
@@ -116,7 +135,8 @@ private:
         }
         new_chunk[chunk_size_ - 1].next = head_free_;
 
-        // CAUTION: chunk은 위 push_back에서 이미 move됐다. 새 슬롯은 chunks_가 소유한 new_chunk로만 가리킨다.
+        // CAUTION: chunk은 위 push_back에서 이미 move됐다.
+        // CAUTION  새 슬롯은 chunks_가 소유한 new_chunk로만 가리킨다.
         head_free_ = &new_chunk[0];
         capacity_ += chunk_size_;
         available_ += chunk_size_;
@@ -137,9 +157,12 @@ using PoolHandle = typename ObjectPool<T>::Handle;
 template <typename T, typename... Args>
     requires std::constructible_from<T, std::decay_t<Args> const&...> &&
              (std::copy_constructible<std::decay_t<Args>> && ...)
-[[nodiscard]] ObjectPool<T> make_object_pool(std::size_t initial_capacity, std::size_t chunk_size, Args&&... args) {
+[[nodiscard]] ObjectPool<T>
+make_object_pool(std::size_t initial_capacity, std::size_t chunk_size, Args&&... args) {
     return ObjectPool<T>{
-        [... args = std::forward<Args>(args)](void* p) { std::construct_at(static_cast<T*>(p), args...); },
+        [... args = std::forward<Args>(args)](void* p) {
+            std::construct_at(static_cast<T*>(p), args...);
+        },
         initial_capacity, chunk_size
     };
 }

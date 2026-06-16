@@ -21,7 +21,7 @@ using ddcs::agent::app::port::TimerId;
 using ddcs::agent::domain::Device;
 
 // agent 측 protocol FSM. Inbound를 구현하고 Outbound로 송신한다.
-// transport 헤더는 모르고 포트로만 통신한다. 단일 연결.
+// transport 헤더는 모르고 포트로만 통신한다. 단일 연결
 class SessionService : public Inbound {
 public:
     struct Config {
@@ -38,8 +38,11 @@ public:
         closing,     // 종료 진행
     };
 
+public:
     SessionService(common::Uuid agent_uuid, Device& device, Outbound& outbound) noexcept;
-    SessionService(common::Uuid agent_uuid, Device& device, Outbound& outbound, Config cfg) noexcept;
+    SessionService(
+        common::Uuid agent_uuid, Device& device, Outbound& outbound, Config cfg
+    ) noexcept;
 
     // Inbound (transport에서 app으로)
     void on_connected() override;
@@ -47,8 +50,13 @@ public:
     void on_disconnected() override;
     void on_timer(TimerId id) override;
 
-    State state() const noexcept { return state_; }
-    common::Uuid const& agent_uuid() const noexcept { return agent_uuid_; }
+    State state() const noexcept {
+        return state_;
+    }
+
+    common::Uuid const& agent_uuid() const noexcept {
+        return agent_uuid_;
+    }
 
 private:
     void send_register_request();
@@ -61,14 +69,15 @@ private:
     void handle_register_outcome(std::span<std::byte const> body);
     void handle_command(std::span<std::byte const> body);
 
+private:
     common::Uuid agent_uuid_;
     Device& device_;
     Outbound& outbound_;
     Config cfg_;
     State state_{State::idle};
 
-    // 명령 dedup: 같은 command_id 재수신 시 apply 없이 이전 ACK+Outcome 재송신.
-    // 0 = 아직 처리한 명령 없음(controller는 1부터 발급).
+    // 명령 dedup: 같은 command_id 재수신 시 apply 없이 이전 ACK+Outcome 재송신
+    // 0 = 아직 처리한 명령 없음 (controller는 1부터 발급)
     std::uint64_t last_command_id_{0};
     std::uint8_t last_command_code_{0};
 };

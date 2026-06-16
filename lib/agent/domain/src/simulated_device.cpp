@@ -4,9 +4,12 @@
 
 namespace ddcs::agent::domain {
 
-SimulatedDevice::SimulatedDevice(device::Mode initial) noexcept : SimulatedDevice{initial, Config{}} {}
+SimulatedDevice::SimulatedDevice(device::Mode initial) noexcept
+    : SimulatedDevice{initial, Config{}} {}
 
-SimulatedDevice::SimulatedDevice(device::Mode initial, Config cfg) noexcept : mode_{initial}, cfg_{cfg} {}
+SimulatedDevice::SimulatedDevice(device::Mode initial, Config cfg) noexcept
+    : mode_{initial},
+      cfg_{cfg} {}
 
 DeviceState SimulatedDevice::query() {
     phase_ += cfg_.step;

@@ -13,23 +13,29 @@ namespace ddcs::ctrl::app::agent {
 
 namespace {
 
-// RegisterOutcome/CommandOutcome의 code 약속: 0 = success, 그 외 = failed.
+// RegisterOutcome/CommandOutcome의 code 약속: 0 = success, 그 외 = failed
 constexpr std::uint8_t outcome_success{0};
 constexpr std::uint8_t outcome_failed{1};
 
 } // namespace
 
 AgentService::AgentService(
-    AgentRegistry& agents, port::MessageSender& sender, port::Disconnector& disconnector, common::Clock& clock,
-    device::RegisterService& register_service, device::StatusService& status_service,
-    device::CommandService& command_service
+    AgentRegistry& agents, port::MessageSender& sender, port::Disconnector& disconnector,
+    common::Clock& clock, device::RegisterService& register_service,
+    device::StatusService& status_service, device::CommandService& command_service
 ) noexcept
-    : agents_{agents}, sender_{sender}, disconnector_{disconnector}, clock_{clock}, register_service_{register_service},
-      status_service_{status_service}, command_service_{command_service} {}
+    : agents_{agents},
+      sender_{sender},
+      disconnector_{disconnector},
+      clock_{clock},
+      register_service_{register_service},
+      status_service_{status_service},
+      command_service_{command_service} {}
 
 void AgentService::on_connected(port::ConnectionId conn) {
     if (!agents_.add(conn, clock_.now())) {
-        LOG_WARN("agent.connect.duplicate", logger::kv("conn", conn.value())); // infra 유일성 위반. 버그 신호
+        // infra 유일성 위반. 버그 신호
+        LOG_WARN("agent.connect.duplicate", logger::kv("conn", conn.value()));
         return;
     }
     LOG_INFO("agent.connected", logger::kv("conn", conn.value()));
@@ -48,7 +54,8 @@ void AgentService::on_message(port::ConnectionId conn, port::MessageBuffer paylo
     auto const now = clock_.now();
     Agent* const agent = agents_.find(conn);
     if (agent == nullptr) {
-        LOG_WARN("agent.message.unknown_conn", logger::kv("conn", conn.value())); // 종료 직후 잔여. 무해
+        // 종료 직후 잔여. 무해
+        LOG_WARN("agent.message.unknown_conn", logger::kv("conn", conn.value()));
         return;
     }
 
@@ -80,7 +87,7 @@ void AgentService::on_message(port::ConnectionId conn, port::MessageBuffer paylo
         handle_active_message(*agent, type, body, now);
         return;
     case Agent::State::idle:
-        kick(conn, "idle agent"); // 불가 경로 방어. registry는 idle을 담지 않는다
+        kick(conn, "idle agent"); // 불가 경로 방어. registry는 idle을 담지 않는다.
         return;
     }
 }
@@ -96,7 +103,10 @@ void AgentService::handle_register_request(
     }
     domain::DeviceId const device = register_service_.enroll(request->id, request->group);
     if (!device.valid()) {
-        LOG_WARN("agent.register.reject", logger::kv("conn", conn.value()), logger::kv("why", "invalid identity"));
+        LOG_WARN(
+            "agent.register.reject", logger::kv("conn", conn.value()),
+            logger::kv("why", "invalid identity")
+        );
         send_register_outcome(conn, false);
         disconnector_.disconnect(conn); // 등록 실패라 판정 송신 후 종료
         return;
@@ -104,39 +114,52 @@ void AgentService::handle_register_request(
     // kick-old(new-wins): 점유된 device는 옛 연결을 먼저 비운다.
     if (Agent const* const old = agents_.find(device); old != nullptr) {
         LOG_INFO(
-            "agent.kick_old", logger::kv("old_conn", old->conn().value()), logger::kv("device", device.to_string())
+            "agent.kick_old", logger::kv("old_conn", old->conn().value()),
+            logger::kv("device", device.to_string())
         );
-        disconnector_.disconnect(old->conn()); // CAUTION: 동기로 on_disconnected가 불리고 erase가 되돌아온다
+        // CAUTION: 동기로 on_disconnected가 불리고 erase가 되돌아온다
+        disconnector_.disconnect(old->conn());
     }
     if (!agents_.bind(conn, device, now)) {
-        LOG_WARN("agent.register.reject", logger::kv("conn", conn.value()), logger::kv("why", "bind rejected")); // 방어
+        // 방어
+        LOG_WARN(
+            "agent.register.reject", logger::kv("conn", conn.value()),
+            logger::kv("why", "bind rejected")
+        );
         send_register_outcome(conn, false);
         disconnector_.disconnect(conn);
         return;
     }
     if (!send_register_outcome(conn, true)) {
-        disconnector_.disconnect(conn); // 판정 전달 불가라 끊고 처음부터 재시도하는 게 깨끗하다
+        disconnector_.disconnect(conn); // 판정 전달 불가라 끊고 처음부터 재시도하는 게 깨끗하다.
         return;
     }
-    LOG_INFO("agent.registered", logger::kv("conn", conn.value()), logger::kv("device", device.to_string()));
+    LOG_INFO(
+        "agent.registered", logger::kv("conn", conn.value()),
+        logger::kv("device", device.to_string())
+    );
 }
 
-void AgentService::handle_register_ack(Agent& agent, std::span<std::byte const> body, common::Clock::time_point now) {
+void AgentService::handle_register_ack(
+    Agent& agent, std::span<std::byte const> body, common::Clock::time_point now
+) {
     if (!acmp::decode_register_ack(body)) {
         kick(agent.conn(), "register_ack decode_fail");
         return;
     }
     if (!agent.confirm(now)) {
-        kick(agent.conn(), "confirm rejected"); // 방어. 상태는 caller가 보장한다
+        kick(agent.conn(), "confirm rejected"); // 방어. 상태는 caller가 보장한다.
         return;
     }
     LOG_INFO(
-        "agent.confirmed", logger::kv("conn", agent.conn().value()), logger::kv("device", agent.device().to_string())
+        "agent.confirmed", logger::kv("conn", agent.conn().value()),
+        logger::kv("device", agent.device().to_string())
     );
 }
 
 void AgentService::handle_active_message(
-    Agent& agent, acmp::MessageType type, std::span<std::byte const> body, common::Clock::time_point now
+    Agent& agent, acmp::MessageType type, std::span<std::byte const> body,
+    common::Clock::time_point now
 ) {
     switch (type) {
     case acmp::MessageType::heartbeat: {
@@ -153,7 +176,8 @@ void AgentService::handle_active_message(
             kick(agent.conn(), "status decode_fail");
             return;
         }
-        // decode 성공한 status frame은 liveness 신호다. 비유한 telemetry는 StatusService가 twin 갱신만 건너뛴다.
+        // decode 성공한 status frame은 liveness 신호다.
+        // 비유한 telemetry는 StatusService가 twin 갱신만 건너뛴다.
         agent.update_seen(now);
         status_service_.update_status(agent.device(), status->mode, status->load, status->temp);
         return;
@@ -176,7 +200,8 @@ void AgentService::handle_active_message(
         }
         agent.update_seen(now);
         command_service_.settle(
-            agent.device(), device::port::CommandId{outcome->command_id}, outcome->code == outcome_success, {}, now
+            agent.device(), device::port::CommandId{outcome->command_id},
+            outcome->code == outcome_success, {}, now
         );
         return;
     }
@@ -188,7 +213,8 @@ void AgentService::handle_active_message(
 
 bool AgentService::send_register_outcome(port::ConnectionId conn, bool success) {
     auto buf = sender_.make_message_buffer();
-    auto const written = acmp::encode_register_outcome(success ? outcome_success : outcome_failed, buf->writable());
+    auto const written =
+        acmp::encode_register_outcome(success ? outcome_success : outcome_failed, buf->writable());
     if (!written) {
         LOG_WARN("agent.register.encode_fail", logger::kv("conn", conn.value()));
         return false;

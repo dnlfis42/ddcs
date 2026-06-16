@@ -22,6 +22,7 @@ template <std::unsigned_integral T>
     if (in.size() < sizeof(T)) {
         return false;
     }
+
     T le_value{};
     std::memcpy(&le_value, in.data(), sizeof(T));
     value = common::from_le(le_value);
@@ -34,11 +35,13 @@ template <std::unsigned_integral T>
     if (!extract_le(in, bits)) {
         return false;
     }
+
     value = std::bit_cast<double>(bits);
     return true;
 }
 
-[[nodiscard]] bool extract_string(std::span<std::byte const>& in, std::string_view& value) noexcept {
+[[nodiscard]] bool
+extract_string(std::span<std::byte const>& in, std::string_view& value) noexcept {
     std::uint16_t length{};
     if (!extract_le(in, length)) {
         return false;
@@ -46,7 +49,10 @@ template <std::unsigned_integral T>
     if (in.size() < length) {
         return false;
     }
-    value = std::string_view{reinterpret_cast<char const*>(in.data()), static_cast<std::size_t>(length)};
+
+    value = std::string_view{
+        reinterpret_cast<char const*>(in.data()), static_cast<std::size_t>(length)
+    };
     in = in.subspan(length);
     return true;
 }
@@ -56,6 +62,7 @@ template <std::unsigned_integral T>
     if (!extract_le(in, raw)) {
         return false;
     }
+
     value = static_cast<MessageType>(raw);
     return true;
 }
@@ -65,6 +72,7 @@ template <std::unsigned_integral T>
     if (in.size() < bytes.size()) {
         return false;
     }
+
     std::memcpy(bytes.data(), in.data(), bytes.size());
     value = common::Uuid{bytes};
     in = in.subspan(bytes.size());
@@ -76,6 +84,7 @@ template <std::unsigned_integral T>
     if (out.size() < sizeof(T)) {
         return false;
     }
+
     T const le_value = common::to_le(value);
     std::memcpy(out.data(), &le_value, sizeof(T));
     out = out.subspan(sizeof(T));
@@ -132,8 +141,9 @@ MessageType peek_type(std::span<std::byte const> in) noexcept {
 }
 
 // RegisterRequest body: [id: uuid(16)][group: str]
-std::optional<std::size_t>
-encode_register_request(common::Uuid const& id, std::string_view group, std::span<std::byte> out) noexcept {
+std::optional<std::size_t> encode_register_request(
+    common::Uuid const& id, std::string_view group, std::span<std::byte> out
+) noexcept {
     std::span<std::byte> cur = out;
     if (!append_type(MessageType::register_request, cur)) {
         return std::nullopt;
@@ -161,7 +171,8 @@ std::optional<RegisterRequest> decode_register_request(std::span<std::byte const
 }
 
 // RegisterOutcome body: [code(u8)]
-std::optional<std::size_t> encode_register_outcome(std::uint8_t code, std::span<std::byte> out) noexcept {
+std::optional<std::size_t>
+encode_register_outcome(std::uint8_t code, std::span<std::byte> out) noexcept {
     std::span<std::byte> cur = out;
     if (!append_type(MessageType::register_outcome, cur)) {
         return std::nullopt;
@@ -249,8 +260,9 @@ std::optional<Status> decode_status(std::span<std::byte const> in) noexcept {
 
 // CommandRequest body: [command_id(u64le)][command_type(u8)][payload(rest)]
 // payload는 호출측이 out 뒤에 직접 append한다. 여기선 header까지만 쓴다.
-std::optional<std::size_t>
-encode_command_request_header(std::uint64_t command_id, std::uint8_t command_type, std::span<std::byte> out) noexcept {
+std::optional<std::size_t> encode_command_request_header(
+    std::uint64_t command_id, std::uint8_t command_type, std::span<std::byte> out
+) noexcept {
     std::span<std::byte> cur = out;
     if (!append_type(MessageType::command_request, cur)) {
         return std::nullopt;
@@ -271,13 +283,15 @@ std::optional<CommandRequest> decode_command_request(std::span<std::byte const> 
     if (!extract_le(in, out.command_type)) {
         return std::nullopt;
     }
+
     // payload는 body 나머지 전부다. 입력 span을 차용하며 비어도 유효하다.
     out.payload = in;
     return out;
 }
 
 // CommandAck body: [command_id(u64le)]
-std::optional<std::size_t> encode_command_ack(std::uint64_t command_id, std::span<std::byte> out) noexcept {
+std::optional<std::size_t>
+encode_command_ack(std::uint64_t command_id, std::span<std::byte> out) noexcept {
     std::span<std::byte> cur = out;
     if (!append_type(MessageType::command_ack, cur)) {
         return std::nullopt;
@@ -299,8 +313,9 @@ std::optional<CommandAck> decode_command_ack(std::span<std::byte const> in) noex
 }
 
 // CommandOutcome body: [command_id(u64le)][code(u8)]
-std::optional<std::size_t>
-encode_command_outcome(std::uint64_t command_id, std::uint8_t code, std::span<std::byte> out) noexcept {
+std::optional<std::size_t> encode_command_outcome(
+    std::uint64_t command_id, std::uint8_t code, std::span<std::byte> out
+) noexcept {
     std::span<std::byte> cur = out;
     if (!append_type(MessageType::command_outcome, cur)) {
         return std::nullopt;
