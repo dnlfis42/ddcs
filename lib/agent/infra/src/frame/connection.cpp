@@ -1,6 +1,6 @@
-#include "ddcs/agent/infra/connection.hpp"
+#include "ddcs/agent/infra/frame/connection.hpp"
 
-#include "ddcs/agent/infra/connector.hpp"
+#include "ddcs/agent/infra/frame/connector.hpp"
 
 #include <cassert>
 #include <cerrno>
@@ -11,7 +11,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
-namespace ddcs::agent::infra {
+namespace ddcs::agent::infra::frame {
 
 namespace {
 
@@ -31,12 +31,16 @@ bool can_transition(Connection::State from, Connection::State to) noexcept {
 } // namespace
 
 // 정책 없음: Reactor가 알려온 readiness를 Connector로 곧장 위임.
-void Connection::on_fd_event(std::uint32_t events) { connector_->on_connection_event(*this, events); }
+void Connection::on_ready(io::Channel& channel, io::ChannelEvents events) {
+    if (&channel != &channel_) {
+        return;
+    }
+    connector_->on_connection_event(*this, events);
+}
 
-void Connection::assign(common::Fd fd, std::uint32_t io_interest) noexcept {
+bool Connection::assign(common::Fd fd, io::ChannelEvents io_interest) noexcept {
     assert(state_ == State::idle && "assign() on non-idle connection");
-    fd_ = std::move(fd);
-    io_interest_ = io_interest;
+    return channel_.init(std::move(fd), io_interest, *this);
 }
 
 bool Connection::transition(State to) noexcept {
@@ -48,10 +52,9 @@ bool Connection::transition(State to) noexcept {
 }
 
 void Connection::reset() noexcept {
-    fd_.reset();
-    io_interest_ = 0;
+    assert(!channel_.registered());
+    channel_.close();
     state_ = State::idle;
-    in_epoll_ = false;
     rx_buffer_.clear();
     while (!tx_queue_.empty()) {
         tx_queue_.pop();
@@ -68,7 +71,7 @@ Connection::IoResult Connection::receive() {
 
         ssize_t n;
         do {
-            n = ::recv(fd_.get(), dst.data(), dst.size(), 0);
+            n = ::recv(channel_.fd(), dst.data(), dst.size(), 0);
         } while (n < 0 && errno == EINTR);
 
         if (n > 0) {
@@ -99,7 +102,7 @@ Connection::IoResult Connection::transmit() {
 
         ssize_t n;
         do {
-            n = ::send(fd_.get(), data.data(), data.size(), MSG_NOSIGNAL);
+            n = ::send(channel_.fd(), data.data(), data.size(), MSG_NOSIGNAL);
         } while (n < 0 && errno == EINTR);
 
         if (n > 0) {
@@ -109,14 +112,17 @@ Connection::IoResult Connection::transmit() {
             }
             continue;
         }
+        if (n == 0) {
+            return IoResult::error;
+        }
 
         int const err = errno;
         if (err == EAGAIN || err == EWOULDBLOCK) {
-            return IoResult::would_block; // 커널 버퍼 포화 시 EPOLLOUT 무장
+            return IoResult::would_block; // 커널 버퍼 포화 시 writable 무장
         }
         return IoResult::error;
     }
     return IoResult::ok;
 }
 
-} // namespace ddcs::agent::infra
+} // namespace ddcs::agent::infra::frame

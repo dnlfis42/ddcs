@@ -1,9 +1,9 @@
 #include "ddcs/agent/agent.hpp"
 
-#include "ddcs/agent/infra/connector.hpp"
-#include "ddcs/runtime/reactor.hpp"
-#include "ddcs/runtime/signal_fd.hpp"
-#include "ddcs/runtime/timer_scheduler.hpp"
+#include "ddcs/agent/infra/frame/connector.hpp"
+#include "ddcs/io/reactor.hpp"
+#include "ddcs/io/signal_source.hpp"
+#include "ddcs/io/timer_scheduler.hpp"
 
 #include <csignal>
 #include <memory>
@@ -31,15 +31,15 @@ public:
 private:
     logger::StdoutSink default_sink_;
     std::unique_ptr<domain::Device> device_;
-    runtime::Reactor reactor_;
-    runtime::SignalFd signal_fd_;
-    runtime::TimerScheduler timer_scheduler_;
-    infra::Connector connector_;
+    io::Reactor reactor_;
+    io::SignalSource signal_source_;
+    io::TimerScheduler timer_scheduler_;
+    infra::frame::Connector connector_;
     app::SessionService session_;
 };
 
 Agent::Impl::Impl(Config cfg)
-    : device_{std::move(cfg.device)}, signal_fd_{reactor_, {SIGINT, SIGTERM}, [this] { stop(); }},
+    : device_{std::move(cfg.device)}, signal_source_{reactor_, {SIGINT, SIGTERM}, [this](int) { stop(); }},
       timer_scheduler_{reactor_}, connector_{reactor_, timer_scheduler_, cfg.controller_host, cfg.controller_port},
       session_{cfg.agent_uuid, *device_, connector_, cfg.session} {
     auto& lg = logger::Logger::instance();
@@ -54,11 +54,11 @@ Agent::Impl::Impl(Config cfg)
 
 Agent::Impl::~Impl() {
     stop();
-    // 멤버 dtor 역순: session_, connector_, timer_scheduler_, signal_fd_, reactor_, device_ 순서로.
+    // 멤버 dtor 역순: session_, connector_, timer_scheduler_, signal_source_, reactor_, device_ 순서로.
 }
 
 void Agent::Impl::start() {
-    signal_fd_.start();
+    signal_source_.start();
     timer_scheduler_.start();
     connector_.start();
 }
@@ -69,7 +69,7 @@ void Agent::Impl::run_once(std::chrono::milliseconds timeout) { reactor_.run_onc
 
 void Agent::Impl::stop() {
     timer_scheduler_.stop();
-    signal_fd_.stop();
+    signal_source_.stop();
     reactor_.stop();
 }
 

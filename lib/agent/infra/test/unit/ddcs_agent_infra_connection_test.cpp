@@ -1,8 +1,9 @@
-#include "ddcs/agent/infra/connection.hpp"
+#include "ddcs/agent/infra/frame/connection.hpp"
 
 #include "ddcs/common/fd.hpp"
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
+#include "ddcs/io/channel_events.hpp"
 
 #include <gtest/gtest.h>
 
@@ -16,13 +17,13 @@
 
 namespace {
 
-using ddcs::agent::infra::Connection;
+using ddcs::agent::infra::frame::Connection;
 using ddcs::common::Fd;
 using ddcs::common::LinearBuffer;
 
 // socketpair 한쪽을 connected Connection으로 만든다.
 void make_connected(Connection& conn, int fd) {
-    conn.assign(Fd{fd}, 0);
+    ASSERT_TRUE(conn.assign(Fd{fd}, ddcs::io::ChannelEvents::none));
     ASSERT_TRUE(conn.transition(Connection::State::connecting));
     ASSERT_TRUE(conn.transition(Connection::State::connected));
 }

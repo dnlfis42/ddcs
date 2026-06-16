@@ -4,7 +4,6 @@ add_subdirectory(json)
 add_subdirectory(logger)
 
 add_subdirectory(device)
-add_subdirectory(runtime) # deprecated
 add_subdirectory(io)
 add_subdirectory(wire)
 
