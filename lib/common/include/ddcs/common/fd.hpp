@@ -7,12 +7,11 @@ namespace ddcs::common {
 // POSIX fd 래퍼
 class Fd {
 public:
-    static constexpr int invalid{-1};
+    static constexpr int invalid = -1;
 
-public:
     Fd() noexcept = default;
     explicit Fd(int fd) noexcept
-        : fd_{fd} {}
+        : fd_(fd) {}
 
     ~Fd() noexcept {
         close();
@@ -22,7 +21,7 @@ public:
     Fd& operator=(Fd const&) = delete;
 
     Fd(Fd&& other) noexcept
-        : fd_{other.release()} {}
+        : fd_(other.release()) {}
 
     Fd& operator=(Fd&& other) noexcept {
         if (this != &other) {
@@ -61,7 +60,7 @@ public:
     }
 
 private:
-    int fd_{invalid};
+    int fd_ = invalid;
 };
 
 } // namespace ddcs::common

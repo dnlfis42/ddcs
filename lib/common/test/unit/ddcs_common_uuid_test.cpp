@@ -9,15 +9,45 @@
 
 namespace ddcs::common {
 
-static_assert(std::is_trivially_copyable_v<Uuid>);
+namespace {
 
-TEST(UuidTest, ReportsDefaultUuidAsNil) {
+static_assert(std::is_trivially_copyable_v<Uuid>);
+static_assert(sizeof(Uuid) == 16);
+static_assert(Uuid{}.bytes() == Uuid::invalid);
+static_assert(!Uuid{}.valid());
+static_assert(Uuid{} == Uuid{});
+
+consteval bool clear_makes_uuid_invalid() {
+    std::array<std::byte, 16> bytes{};
+    bytes[0] = std::byte{0x01};
+
+    Uuid uuid{bytes};
+    uuid.clear();
+    return uuid.bytes() == Uuid::invalid && !uuid.valid();
+}
+
+static_assert(clear_makes_uuid_invalid());
+
+} // namespace
+
+TEST(UuidTest, StartsInvalid) {
     Uuid u;
     for (auto b : u.bytes()) {
         EXPECT_EQ(b, std::byte{0});
     }
     EXPECT_EQ(u.to_string(), "00000000-0000-0000-0000-000000000000");
     EXPECT_FALSE(u.valid());
+}
+
+TEST(UuidTest, ClearsValueToInvalid) {
+    std::array<std::byte, 16> bytes{};
+    bytes[0] = std::byte{0x01};
+    Uuid uuid{bytes};
+
+    uuid.clear();
+
+    EXPECT_EQ(uuid.bytes(), Uuid::invalid);
+    EXPECT_FALSE(uuid.valid());
 }
 
 TEST(UuidTest, FormatsBytesAsCanonicalString) {

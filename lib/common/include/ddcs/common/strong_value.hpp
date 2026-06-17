@@ -12,27 +12,26 @@ class StrongValue {
 public:
     static constexpr T invalid{};
 
-public:
     constexpr StrongValue() = default;
     constexpr explicit StrongValue(T value) noexcept
-        : value_{value} {}
+        : value_(value) {}
 
-    constexpr T value() const noexcept {
+    [[nodiscard]] constexpr T value() const noexcept {
         return value_;
     }
 
-    constexpr bool valid() const noexcept {
+    [[nodiscard]] constexpr bool valid() const noexcept {
         return value_ != invalid;
     }
-
-    constexpr bool operator==(StrongValue const&) const = default;
 
     constexpr void clear() noexcept {
         value_ = invalid;
     }
 
+    constexpr bool operator==(StrongValue const&) const = default;
+
 private:
-    T value_{invalid};
+    T value_ = invalid;
 };
 
 } // namespace ddcs::common

@@ -1,6 +1,7 @@
 #include "ddcs/common/fd.hpp"
 
 #include <cerrno>
+#include <type_traits>
 #include <utility>
 
 #include <fcntl.h>
@@ -12,6 +13,11 @@
 namespace ddcs::common {
 
 namespace {
+
+static_assert(!std::is_copy_constructible_v<Fd>);
+static_assert(!std::is_copy_assignable_v<Fd>);
+static_assert(std::is_move_constructible_v<Fd>);
+static_assert(std::is_move_assignable_v<Fd>);
 
 Fd make_fd() {
     int const raw = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
@@ -48,6 +54,17 @@ TEST(FdTest, ReportsWrappedDescriptorAsValid) {
     EXPECT_NE(fd.get(), Fd::invalid);
     EXPECT_TRUE(fd.valid());
     EXPECT_TRUE(is_open(fd.get()));
+}
+
+TEST(FdTest, ClosesDescriptorOnClose) {
+    Fd fd = make_fd();
+    int const raw = fd.get();
+
+    fd.close();
+
+    EXPECT_EQ(fd.get(), Fd::invalid);
+    EXPECT_FALSE(fd.valid());
+    EXPECT_TRUE(is_closed(raw));
 }
 
 TEST(FdTest, ClosesDescriptorOnDestruction) {
@@ -141,6 +158,18 @@ TEST(FdTest, TransfersOwnershipOnMoveAssignment) {
     EXPECT_FALSE(source.valid());
     EXPECT_EQ(target.get(), source_raw);
     EXPECT_TRUE(is_open(source_raw));
+}
+
+TEST(FdTest, PreservesDescriptorOnSelfMoveAssignment) {
+    Fd fd = make_fd();
+    Fd* const same = &fd;
+    int const raw = fd.get();
+
+    *same = std::move(fd);
+
+    EXPECT_EQ(fd.get(), raw);
+    EXPECT_TRUE(fd.valid());
+    EXPECT_TRUE(is_open(raw));
 }
 
 } // namespace ddcs::common

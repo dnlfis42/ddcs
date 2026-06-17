@@ -5,13 +5,17 @@
 
 namespace ddcs::common {
 
-template <std::unsigned_integral T>
-constexpr T byteswap(T v) noexcept {
-    static_assert(
-        sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8,
-        "byteswap supports only 1, 2, 4, and 8 byte unsigned integers"
-    );
+namespace detail::endian {
 
+template <typename T>
+concept byteswappable_unsigned =
+    std::unsigned_integral<T> && !std::same_as<T, bool> &&
+    (sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8);
+
+}
+
+template <detail::endian::byteswappable_unsigned T>
+[[nodiscard]] constexpr T byteswap(T v) noexcept {
     if constexpr (sizeof(T) == 1) {
         return v;
     } else if constexpr (sizeof(T) == 2) {
@@ -31,8 +35,8 @@ constexpr T byteswap(T v) noexcept {
     }
 }
 
-template <std::unsigned_integral T>
-constexpr T to_be(T v) noexcept {
+template <detail::endian::byteswappable_unsigned T>
+[[nodiscard]] constexpr T to_be(T v) noexcept {
     if constexpr (std::endian::native == std::endian::big) {
         return v;
     } else {
@@ -40,8 +44,8 @@ constexpr T to_be(T v) noexcept {
     }
 }
 
-template <std::unsigned_integral T>
-constexpr T to_le(T v) noexcept {
+template <detail::endian::byteswappable_unsigned T>
+[[nodiscard]] constexpr T to_le(T v) noexcept {
     if constexpr (std::endian::native == std::endian::little) {
         return v;
     } else {
@@ -49,13 +53,13 @@ constexpr T to_le(T v) noexcept {
     }
 }
 
-template <std::unsigned_integral T>
-constexpr T from_be(T v) noexcept {
+template <detail::endian::byteswappable_unsigned T>
+[[nodiscard]] constexpr T from_be(T v) noexcept {
     return to_be(v);
 }
 
-template <std::unsigned_integral T>
-constexpr T from_le(T v) noexcept {
+template <detail::endian::byteswappable_unsigned T>
+[[nodiscard]] constexpr T from_le(T v) noexcept {
     return to_le(v);
 }
 

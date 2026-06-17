@@ -9,7 +9,6 @@ public:
     using time_point = std::chrono::steady_clock::time_point;
     using duration = std::chrono::steady_clock::duration;
 
-public:
     Clock() = default;
     virtual ~Clock() = default;
 
@@ -18,12 +17,12 @@ public:
     Clock(Clock&&) = delete;
     Clock& operator=(Clock&&) = delete;
 
-    virtual time_point now() const noexcept = 0;
+    [[nodiscard]] virtual time_point now() const noexcept = 0;
 };
 
 class SteadyClock final : public Clock {
 public:
-    time_point now() const noexcept override {
+    [[nodiscard]] time_point now() const noexcept override {
         return std::chrono::steady_clock::now();
     }
 };
@@ -31,9 +30,9 @@ public:
 class ManualClock final : public Clock {
 public:
     explicit ManualClock(time_point t = time_point{}) noexcept
-        : now_{t} {}
+        : now_(t) {}
 
-    time_point now() const noexcept override {
+    [[nodiscard]] time_point now() const noexcept override {
         return now_;
     }
 
