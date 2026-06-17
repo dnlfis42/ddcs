@@ -55,7 +55,7 @@ public:
         connected.push_back(id);
     }
     void on_message(ConnectionId, MessageBuffer p) override {
-        auto const r = p->readable();
+        auto const r = p->data_span();
         payload.emplace_back(reinterpret_cast<char const*>(r.data()), r.size());
     }
     void on_disconnected(ConnectionId id, DisconnectReason reason) override {
@@ -244,7 +244,7 @@ TEST(FrameServerTest, SendFramesPayloadOnWire) {
     // app은 acmp payload(`[type][body]`)를 통째로 넣는다. infra는 frame header만 덧씌운다.
     auto buf = f.server.sender().make_message_buffer();
     std::array<std::byte, 3> const payload{std::byte{0x11}, std::byte{'h'}, std::byte{'i'}};
-    ASSERT_TRUE(buf->write(payload));
+    ASSERT_TRUE(buf->try_append(payload));
     f.server.sender().send(id, std::move(buf));
     f.reactor.run_once(1000ms); // writable이면 transmit
 

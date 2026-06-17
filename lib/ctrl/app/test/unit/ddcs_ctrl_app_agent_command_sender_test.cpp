@@ -64,13 +64,13 @@ public:
 
     MessageBuffer make_message_buffer() override {
         auto message = pool_.acquire();
-        EXPECT_TRUE(message->reserve_front(frame::header_size)); // infra 계약 모사
+        EXPECT_TRUE(message->try_grow_headroom(frame::header_size)); // infra 계약 모사
         return message;
     }
 
     void send(ConnectionId conn, MessageBuffer message) override {
         //  // [type][command_id][command_type][payload]
-        auto const bytes = message->readable();
+        auto const bytes = message->data_span();
         ASSERT_FALSE(bytes.empty());
         EXPECT_EQ(acmp::peek_type(bytes), acmp::MessageType::command_request);
         auto const cmd = acmp::decode_command_request(bytes.subspan(1));
@@ -85,14 +85,14 @@ public:
                 .command_id = cmd->command_id,
                 .type = cmd->command_type,
                 .payload = std::move(payload_copy),
-                .frame_headroom_ok = message->write_front(frame_stub),
+                .frame_headroom_ok = message->try_prepend(frame_stub),
             }
         );
     }
 
 private:
     ddcs::common::ObjectPool<ddcs::common::LinearBuffer> pool_{
-        ddcs::common::make_object_pool<ddcs::common::LinearBuffer>(0, 4, std::size_t{128})
+        ddcs::common::ObjectPool<ddcs::common::LinearBuffer>::create<4>(std::size_t{128})
     };
 };
 
@@ -112,7 +112,7 @@ struct SenderFixture {
 
     ddcs::ctrl::app::device::port::CommandBuffer payload(std::string_view s) {
         auto buf = sender.make_command_buffer();
-        EXPECT_TRUE(buf->write(as_bytes(s)));
+        EXPECT_TRUE(buf->try_append(as_bytes(s)));
         return buf;
     }
 };
@@ -164,7 +164,7 @@ TEST(CommandSenderTest, ReturnsFalseWithoutHeaderHeadroom) {
 
     // make_command_buffer를 거치지 않은 buffer. command headroom 없음
     auto raw = f.outbox.make_message_buffer();
-    ASSERT_TRUE(raw->write(as_bytes("p")));
+    ASSERT_TRUE(raw->try_append(as_bytes("p")));
 
     EXPECT_FALSE(f.sender.try_send(make_device_id(0xAA), CommandId{42}, 0x01, std::move(raw)));
     EXPECT_TRUE(f.outbox.sent.empty());

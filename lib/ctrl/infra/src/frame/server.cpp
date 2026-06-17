@@ -60,9 +60,9 @@ struct Server::Impl final : public port::MessageSender, public port::Disconnecto
           reactor{reactor_ref},
           acceptor{owner_ref, port, backlog},
           payload_capacity{std::min(max_payload_size, rx_payload_capacity)},
-          connection_pool{common::make_object_pool<Connection>(0, connection_pool_chunk_size)},
-          message_pool{common::make_object_pool<common::LinearBuffer>(
-              0, message_pool_chunk_size, wire::frame::header_size + payload_capacity
+          connection_pool{common::ObjectPool<Connection>::create<connection_pool_chunk_size>()},
+          message_pool{common::ObjectPool<common::LinearBuffer>::create<message_pool_chunk_size>(
+              wire::frame::header_size + payload_capacity
           )} {}
 
     [[nodiscard]] bool init(port::ConnectionObserver& observer_ref) noexcept {
@@ -201,7 +201,7 @@ private: // port::MessageSender / port::Disconnector
     [[nodiscard]] port::MessageBuffer make_message_buffer() override {
         auto message = message_pool.acquire();
         bool const reserved =
-            message->reserve_front(wire::frame::header_size); // frame header 자리 미리 확보
+            message->try_grow_headroom(wire::frame::header_size); // frame header 자리 미리 확보
         assert(reserved);
         (void)reserved;
         return message;
@@ -223,7 +223,7 @@ private: // port::MessageSender / port::Disconnector
             return;
         }
         auto const header = wire::frame::encode(static_cast<std::uint16_t>(message->size()));
-        if (!message->write_front(header)) {
+        if (!message->try_prepend(header)) {
             assert(false);
             return;
         }
@@ -403,12 +403,18 @@ public:
                 return; // 부분 frame이라 더 기다림
             }
 
-            conn->rx_consume(wire::frame::header_size);
+            if (!conn->rx_consume(wire::frame::header_size)) {
+                begin_reap(*conn, port::DisconnectReason::protocol_error);
+                return;
+            }
             auto message = message_pool.acquire();
             if (header->payload_length > 0) {
-                auto const dst = message->writable();
-                conn->rx_read(dst.first(header->payload_length));
-                message->commit(header->payload_length);
+                auto const dst = message->tailroom_span();
+                if (!conn->rx_read(dst.first(header->payload_length)) ||
+                    !message->try_commit(header->payload_length)) {
+                    begin_reap(*conn, port::DisconnectReason::protocol_error);
+                    return;
+                }
             }
             // payload = acmp `[type][body]` 통째. type 디스패치는 app(peek_type)이 한다.
             notify_message(id, std::move(message));

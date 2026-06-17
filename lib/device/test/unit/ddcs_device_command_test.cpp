@@ -26,7 +26,7 @@ TEST(CommandCodecTest, RoundTripsSetMode) {
     ASSERT_TRUE(encode(in, buf));
 
     SetMode out{};
-    ASSERT_TRUE(decode(buf.readable(), out));
+    ASSERT_TRUE(decode(buf.data_span(), out));
     EXPECT_EQ(in, out);
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <cstddef>
 #include <cstring>
 #include <memory>
@@ -10,8 +11,8 @@ namespace ddcs::common {
 class LinearBuffer {
 public:
     explicit LinearBuffer(std::size_t capacity)
-        : buffer_{new std::byte[capacity]},
-          capacity_{capacity} {}
+        : storage_(new std::byte[capacity]),
+          capacity_(capacity) {}
     ~LinearBuffer() = default;
 
     LinearBuffer(LinearBuffer const&) = delete;
@@ -19,100 +20,130 @@ public:
     LinearBuffer(LinearBuffer&&) noexcept = delete;
     LinearBuffer& operator=(LinearBuffer&&) noexcept = delete;
 
-    std::size_t capacity() const noexcept {
+    [[nodiscard]] std::size_t capacity() const noexcept {
         return capacity_;
     }
 
-    std::size_t size() const noexcept {
-        return write_pos_ - read_pos_;
+    [[nodiscard]] std::size_t size() const noexcept {
+        return tail_offset_ - data_offset_;
     }
 
-    std::size_t available() const noexcept {
-        return capacity_ - write_pos_;
+    [[nodiscard]] bool empty() const noexcept {
+        return data_offset_ == tail_offset_;
     }
 
-    bool empty() const noexcept {
-        return read_pos_ == write_pos_;
+    [[nodiscard]] std::size_t headroom_size() const noexcept {
+        return data_offset_;
     }
 
-    std::span<std::byte const> readable() const noexcept {
-        return {buffer_.get() + read_pos_, size()};
+    [[nodiscard]] std::size_t tailroom_size() const noexcept {
+        return capacity_ - tail_offset_;
     }
 
-    std::span<std::byte> writable() noexcept {
-        return {buffer_.get() + write_pos_, available()};
+    [[nodiscard]] std::span<std::byte const> data_span() const noexcept {
+        return {data_ptr(), size()};
     }
 
-    bool peek(std::span<std::byte> dst) const noexcept {
+    [[nodiscard]] std::span<std::byte> tailroom_span() noexcept {
+        return {tailroom_ptr(), tailroom_size()};
+    }
+
+    [[nodiscard]] bool try_peek(std::span<std::byte> dst) const noexcept {
         if (size() < dst.size()) {
             return false;
         }
 
-        std::memcpy(dst.data(), buffer_.get() + read_pos_, dst.size());
+        if (!dst.empty()) {
+            std::memcpy(dst.data(), data_ptr(), dst.size());
+        }
         return true;
     }
 
-    bool read(std::span<std::byte> dst) noexcept {
-        if (!peek(dst)) {
+    [[nodiscard]] bool try_extract(std::span<std::byte> dst) noexcept {
+        if (!try_peek(dst)) {
             return false;
         }
 
-        read_pos_ += dst.size();
+        data_offset_ += dst.size();
+        assert_invariant();
         return true;
     }
 
-    // NOTE: 버퍼가 빈 경우에만 예약 가능
-    bool reserve_front(std::size_t n) noexcept {
-        if (!empty() || read_pos_ + n > capacity_) {
+    [[nodiscard]] bool try_append(std::span<std::byte const> src) noexcept {
+        if (tailroom_size() < src.size()) {
             return false;
         }
 
-        read_pos_ += n;
-        write_pos_ = read_pos_;
+        if (!src.empty()) {
+            std::memcpy(storage_.get() + tail_offset_, src.data(), src.size());
+            tail_offset_ += src.size();
+            assert_invariant();
+        }
         return true;
     }
 
-    bool write_front(std::span<std::byte const> src) noexcept {
-        if (read_pos_ < src.size()) {
+    [[nodiscard]] bool try_prepend(std::span<std::byte const> src) noexcept {
+        if (headroom_size() < src.size()) {
             return false;
         }
 
-        read_pos_ -= src.size();
-        std::memcpy(buffer_.get() + read_pos_, src.data(), src.size());
-        return true;
-    }
-
-    bool write(std::span<std::byte const> src) noexcept {
-        if (available() < src.size()) {
-            return false;
+        if (!src.empty()) {
+            data_offset_ -= src.size();
+            assert_invariant();
+            std::memcpy(storage_.get() + data_offset_, src.data(), src.size());
         }
-
-        std::memcpy(buffer_.get() + write_pos_, src.data(), src.size());
-        write_pos_ += src.size();
         return true;
     }
 
-    bool commit(std::size_t n) noexcept {
-        if (available() < n) {
-            return false;
-        }
-
-        write_pos_ += n;
-        return true;
-    }
-
-    bool consume(std::size_t n) noexcept {
+    // 앞쪽 data 영역의 n 바이트를 소비한다.
+    [[nodiscard]] bool try_consume(std::size_t n) noexcept {
         if (size() < n) {
             return false;
         }
 
-        read_pos_ += n;
+        data_offset_ += n;
+        assert_invariant();
+        return true;
+    }
+
+    // 뒤쪽 여유 공간의 n 바이트를 data 영역으로 확정한다.
+    [[nodiscard]] bool try_commit(std::size_t n) noexcept {
+        if (tailroom_size() < n) {
+            return false;
+        }
+
+        tail_offset_ += n;
+        assert_invariant();
+        return true;
+    }
+
+    // 버퍼가 비어 있을 때 headroom 크기를 n 바이트로 설정한다.
+    [[nodiscard]] bool try_set_headroom(std::size_t n) noexcept {
+        if (!empty() || n > capacity()) {
+            return false;
+        }
+
+        data_offset_ = n;
+        tail_offset_ = n;
+        assert_invariant();
+        return true;
+    }
+
+    // 버퍼가 비어 있을 때 headroom 크기를 n 바이트만큼 늘린다.
+    [[nodiscard]] bool try_grow_headroom(std::size_t n) noexcept {
+        if (!empty() || n > tailroom_size()) {
+            return false;
+        }
+
+        data_offset_ += n;
+        tail_offset_ += n;
+        assert_invariant();
         return true;
     }
 
     void clear() noexcept {
-        read_pos_ = 0;
-        write_pos_ = 0;
+        data_offset_ = 0;
+        tail_offset_ = 0;
     }
 
     void reset() noexcept {
@@ -120,10 +151,30 @@ public:
     }
 
 private:
-    std::unique_ptr<std::byte[]> buffer_;
+    std::byte const* data_ptr() const noexcept {
+        return storage_.get() + data_offset_;
+    }
+
+    std::byte* tailroom_ptr() noexcept {
+        return storage_.get() + tail_offset_;
+    }
+
+    // Layout:
+    // [0, data_offset_)            : headroom
+    // [data_offset_, tail_offset_) : data
+    // [tail_offset_, capacity_)    : tailroom
+    //
+    // Invariant:
+    // data_offset_ <= tail_offset_ <= capacity_
+    void assert_invariant() const noexcept {
+        assert(data_offset_ <= tail_offset_);
+        assert(tail_offset_ <= capacity_);
+    }
+
+    std::unique_ptr<std::byte[]> storage_;
     std::size_t capacity_;
-    std::size_t read_pos_{0};
-    std::size_t write_pos_{0};
+    std::size_t data_offset_ = 0;
+    std::size_t tail_offset_ = 0;
 };
 
 } // namespace ddcs::common

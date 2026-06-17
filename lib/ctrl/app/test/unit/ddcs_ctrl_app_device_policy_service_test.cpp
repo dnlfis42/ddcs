@@ -86,7 +86,7 @@ public:
         DeviceId device, CommandId command_id, std::uint8_t command_type, CommandBuffer message
     ) override {
         cmd::SetMode set_mode{};
-        EXPECT_TRUE(cmd::decode(message->readable(), set_mode));
+        EXPECT_TRUE(cmd::decode(message->data_span(), set_mode));
         sent.push_back(
             Sent{
                 .device = device,
@@ -100,7 +100,7 @@ public:
 
 private:
     ObjectPool<LinearBuffer> pool_{
-        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{128})
+        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128})
     };
 };
 
@@ -146,7 +146,7 @@ public:
 private:
     WindowedDeviceRoster& roster_;
     ObjectPool<LinearBuffer> pool_{
-        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{128})
+        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128})
     };
 };
 

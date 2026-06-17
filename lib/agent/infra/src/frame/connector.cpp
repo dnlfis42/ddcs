@@ -46,7 +46,7 @@ Connector::Connector(
       host_{std::move(host)},
       port_{port},
       payload_pool_{
-          common::make_object_pool<common::LinearBuffer>(0, pool_chunk, payload_buf_capacity)
+          common::ObjectPool<common::LinearBuffer>::create<pool_chunk>(payload_buf_capacity)
       } {}
 
 Connector::~Connector() {
@@ -62,7 +62,9 @@ void Connector::start() {
 
 common::PoolHandle<common::LinearBuffer> Connector::payload_buffer() {
     auto buf = payload_pool_.acquire();
-    buf->reserve_front(wire_frame::header_size); // frame header 자리 확보
+    bool const reserved = buf->try_grow_headroom(wire_frame::header_size); // frame header 자리 확보
+    assert(reserved);
+    (void)reserved;
     return buf;
 }
 
@@ -76,7 +78,7 @@ void Connector::send(common::PoolHandle<common::LinearBuffer> message) {
         return;
     }
     auto const hdr = wire_frame::encode(static_cast<std::uint16_t>(message->size()));
-    if (!message->write_front({hdr.data(), hdr.size()})) {
+    if (!message->try_prepend({hdr.data(), hdr.size()})) {
         assert(false && "payload_buffer() 로 받지 않은 버퍼 - headroom 없음");
         return;
     }
@@ -104,7 +106,6 @@ void Connector::close() {
     disconnect_and_reconnect();
 }
 
-
 void Connector::on_expired(io::TimerId id) {
     if (id == reconnect_timer_) {
         reconnect_timer_ = io::TimerId{};
@@ -120,7 +121,6 @@ void Connector::on_expired(io::TimerId id) {
     }
     // 취소 후 잔여 등은 무시
 }
-
 
 void Connector::try_connect() {
     reconnect_timer_ = io::TimerId{};
@@ -286,12 +286,18 @@ void Connector::framing() {
             return; // 부분 프레임
         }
 
-        connection_.rx_consume(wire_frame::header_size);
+        if (!connection_.rx_consume(wire_frame::header_size)) {
+            disconnect_and_reconnect();
+            return;
+        }
         auto payload = payload_pool_.acquire();
         if (header.payload_length > 0) {
-            auto const w = payload->writable();
-            connection_.rx_read({w.data(), header.payload_length});
-            payload->commit(header.payload_length);
+            auto const w = payload->tailroom_span();
+            if (!connection_.rx_read({w.data(), header.payload_length}) ||
+                !payload->try_commit(header.payload_length)) {
+                disconnect_and_reconnect();
+                return;
+            }
         }
         // payload = acmp `[type][body]` 통째. type 디스패치는 app(peek_type)이 한다.
         handler_->on_recv(std::move(payload));

@@ -86,7 +86,7 @@ public:
     }
 
     void send(ConnectionId conn, MessageBuffer message) override {
-        auto const readable = message->readable();
+        auto const readable = message->data_span();
         sent.push_back(
             Sent{
                 .conn = conn,
@@ -97,7 +97,7 @@ public:
 
 private:
     ObjectPool<LinearBuffer> pool_{
-        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{256})
+        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256})
     };
 };
 
@@ -129,7 +129,7 @@ struct ServiceFixture {
     AgentService service{agents,           outbox,         disconnector, clock,
                          register_service, status_service, commands};
     ObjectPool<LinearBuffer> body_pool{
-        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{256})
+        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256})
     };
 
     ServiceFixture() {
@@ -139,55 +139,55 @@ struct ServiceFixture {
     // 타입별 acmp payload(`[type][body]`) 생성
     MessageBuffer payload_register_request(Uuid const& id, std::string_view group) {
         auto buf = body_pool.acquire();
-        auto const w = acmp::encode_register_request(id, group, buf->writable());
+        auto const w = acmp::encode_register_request(id, group, buf->tailroom_span());
         EXPECT_TRUE(w.has_value());
         if (w) {
-            buf->commit(*w);
+            EXPECT_TRUE(buf->try_commit(*w));
         }
         return buf;
     }
     MessageBuffer payload_register_ack() {
         auto buf = body_pool.acquire();
-        auto const w = acmp::encode_register_ack(buf->writable());
+        auto const w = acmp::encode_register_ack(buf->tailroom_span());
         EXPECT_TRUE(w.has_value());
         if (w) {
-            buf->commit(*w);
+            EXPECT_TRUE(buf->try_commit(*w));
         }
         return buf;
     }
     MessageBuffer payload_heartbeat() {
         auto buf = body_pool.acquire();
-        auto const w = acmp::encode_heartbeat(buf->writable());
+        auto const w = acmp::encode_heartbeat(buf->tailroom_span());
         EXPECT_TRUE(w.has_value());
         if (w) {
-            buf->commit(*w);
+            EXPECT_TRUE(buf->try_commit(*w));
         }
         return buf;
     }
     MessageBuffer payload_status(std::uint8_t mode, double load, double temp) {
         auto buf = body_pool.acquire();
-        auto const w = acmp::encode_status(mode, load, temp, buf->writable());
+        auto const w = acmp::encode_status(mode, load, temp, buf->tailroom_span());
         EXPECT_TRUE(w.has_value());
         if (w) {
-            buf->commit(*w);
+            EXPECT_TRUE(buf->try_commit(*w));
         }
         return buf;
     }
     MessageBuffer payload_command_ack(std::uint64_t command_id) {
         auto buf = body_pool.acquire();
-        auto const w = acmp::encode_command_ack(command_id, buf->writable());
+        auto const w = acmp::encode_command_ack(command_id, buf->tailroom_span());
         EXPECT_TRUE(w.has_value());
         if (w) {
-            buf->commit(*w);
+            EXPECT_TRUE(buf->try_commit(*w));
         }
         return buf;
     }
     MessageBuffer payload_command_outcome(std::uint64_t command_id, std::uint8_t code) {
         auto buf = body_pool.acquire();
-        auto const w = acmp::encode_command_outcome(command_id, code, buf->writable());
+        auto const w = acmp::encode_command_outcome(command_id, code, buf->tailroom_span());
         EXPECT_TRUE(w.has_value());
         if (w) {
-            buf->commit(*w);
+            EXPECT_TRUE(buf->try_commit(*w));
         }
         return buf;
     }
@@ -195,9 +195,9 @@ struct ServiceFixture {
     MessageBuffer payload_raw(std::uint8_t type, std::string_view body) {
         auto buf = body_pool.acquire();
         std::array<std::byte, 1> const t{std::byte{type}};
-        EXPECT_TRUE(buf->write(t));
+        EXPECT_TRUE(buf->try_append(t));
         if (!body.empty()) {
-            EXPECT_TRUE(buf->write(as_bytes(body)));
+            EXPECT_TRUE(buf->try_append(as_bytes(body)));
         }
         return buf;
     }
@@ -381,7 +381,7 @@ TEST(AgentServiceTest, CommandAckAndOutcomeSettlePending) {
     DeviceId const device = f.register_active(1, 0xAA);
 
     auto payload = f.commands.make_command_buffer();
-    ASSERT_TRUE(payload->write(as_bytes("p")));
+    ASSERT_TRUE(payload->try_append(as_bytes("p")));
     auto const command_id = f.commands.dispatch(device, 0x01, std::move(payload), f.clock.now());
     ASSERT_TRUE(command_id.valid());
 

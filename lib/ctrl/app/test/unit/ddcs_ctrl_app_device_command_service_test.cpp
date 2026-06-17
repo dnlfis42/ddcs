@@ -65,7 +65,7 @@ public:
         if (!accept) {
             return false;
         }
-        auto const readable = message->readable();
+        auto const readable = message->data_span();
         sent.push_back(
             Sent{
                 .device = device,
@@ -80,7 +80,7 @@ public:
 
 private:
     ObjectPool<LinearBuffer> pool_{
-        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{128})
+        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128})
     };
 };
 
@@ -91,7 +91,7 @@ struct CommandFixture {
 
     CommandId send(std::uint8_t type, std::string_view payload, std::uint8_t seed = 0xAA) {
         auto buf = commands.make_command_buffer();
-        EXPECT_TRUE(buf->write(as_bytes(payload)));
+        EXPECT_TRUE(buf->try_append(as_bytes(payload)));
         return commands.dispatch(make_device_id(seed), type, std::move(buf), clock.now());
     }
 };
@@ -239,7 +239,7 @@ TEST(CommandServiceTest, RetryResendsSameIdWithRetainedPayload) {
     CommandService commands{sender, 5s, 2, 500ms}; // 재시도 1회 허용
 
     auto buf = commands.make_command_buffer();
-    ASSERT_TRUE(buf->write(as_bytes("p")));
+    ASSERT_TRUE(buf->try_append(as_bytes("p")));
     auto const id = commands.dispatch(make_device_id(0xAA), 0x01, std::move(buf), clock.now());
     ASSERT_TRUE(id.valid());
 
@@ -268,7 +268,7 @@ TEST(CommandServiceTest, RetryGivesUpWhenSendRejected) {
     CommandService commands{sender, 5s, 2, 500ms};
 
     auto buf = commands.make_command_buffer();
-    ASSERT_TRUE(buf->write(as_bytes("p")));
+    ASSERT_TRUE(buf->try_append(as_bytes("p")));
     ASSERT_TRUE(commands.dispatch(make_device_id(0xAA), 0x01, std::move(buf), clock.now()).valid());
 
     clock.advance(6s);

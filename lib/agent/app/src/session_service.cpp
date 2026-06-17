@@ -27,12 +27,15 @@ constexpr std::uint8_t outcome_failed{1};
 template <typename Encode>
 void emit(Outbound& outbound, Encode&& encode) {
     auto buf = outbound.payload_buffer();
-    auto const written = encode(buf->writable());
+    auto const written = encode(buf->tailroom_span());
     if (!written) {
         outbound.close(); // 버퍼 부족(방어)
         return;
     }
-    buf->commit(*written);
+    if (!buf->try_commit(*written)) {
+        outbound.close();
+        return;
+    }
     outbound.send(std::move(buf));
 }
 
@@ -61,7 +64,7 @@ void SessionService::on_connected() {
 
 void SessionService::on_recv(common::PoolHandle<common::LinearBuffer> payload) {
     // payload = acmp `[type][body]`. type를 떼고 body만 핸들러로 넘긴다.
-    auto const bytes = payload->readable();
+    auto const bytes = payload->data_span();
     acmp::MessageType const type = acmp::peek_type(bytes);
     auto const body = bytes.empty() ? bytes : bytes.subspan(1);
 

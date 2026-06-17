@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <type_traits>
 #include <utility>
 
 #include <gtest/gtest.h>
@@ -31,29 +32,153 @@ struct ConstructedItem {
     }
 };
 
+struct ThrowingResetItem {
+    void reset() {}
+};
+
+struct NonVoidResetItem {
+    int reset() noexcept {
+        return 0;
+    }
+};
+
+template <std::size_t ChunkSize>
+concept valid_item_pool_chunk_size = requires { ObjectPool<Item>::template create<ChunkSize>(); };
+
+static_assert(!std::is_copy_constructible_v<ObjectPool<Item>>);
+static_assert(!std::is_copy_assignable_v<ObjectPool<Item>>);
+static_assert(!std::is_move_constructible_v<ObjectPool<Item>>);
+static_assert(!std::is_move_assignable_v<ObjectPool<Item>>);
+
+static_assert(std::is_same_v<PoolHandle<Item>, ObjectPool<Item>::Handle>);
+
+static_assert(detail::object_pool::resettable<Item>);
+static_assert(!detail::object_pool::resettable<ThrowingResetItem>);
+static_assert(!detail::object_pool::resettable<NonVoidResetItem>);
+
+static_assert(!valid_item_pool_chunk_size<0>);
+static_assert(valid_item_pool_chunk_size<1>);
+static_assert(valid_item_pool_chunk_size<64>);
+
 } // namespace
 
-TEST(ObjectPoolTest, TracksUseCountAcrossAcquireAndRelease) {
-    auto pool = make_object_pool<Item>(0, 64);
+TEST(ObjectPoolTest, UsesDefaultChunkSize) {
+    auto pool = ObjectPool<Item>::create();
+
+    EXPECT_EQ(pool.chunk_size(), 64u);
     EXPECT_EQ(pool.capacity(), 0u);
-    EXPECT_EQ(pool.available(), 0u);
-    EXPECT_EQ(pool.in_use(), 0u);
+    EXPECT_EQ(pool.available_count(), 0u);
+    EXPECT_EQ(pool.acquired_count(), 0u);
+}
+
+TEST(ObjectPoolTest, ConstructsObjectsWithCreateArguments) {
+    auto pool = ObjectPool<ConstructedItem>::create<2>(42);
+
+    auto handle = pool.acquire();
+    ASSERT_NE(handle.get(), nullptr);
+    EXPECT_EQ(handle->value, 42);
+}
+
+TEST(ObjectPoolTest, ReserveZeroDoesNothing) {
+    auto pool = ObjectPool<Item>::create<4>();
+
+    pool.reserve(0);
+
+    EXPECT_EQ(pool.chunk_size(), 4u);
+    EXPECT_EQ(pool.capacity(), 0u);
+    EXPECT_EQ(pool.available_count(), 0u);
+    EXPECT_EQ(pool.acquired_count(), 0u);
+}
+
+TEST(ObjectPoolTest, ReserveRoundsCapacityUpToChunkSize) {
+    auto pool = ObjectPool<Item>::create<4>();
+    pool.reserve(5);
+
+    EXPECT_EQ(pool.chunk_size(), 4u);
+    EXPECT_EQ(pool.capacity(), 8u);
+    EXPECT_EQ(pool.available_count(), 8u);
+    EXPECT_EQ(pool.acquired_count(), 0u);
+}
+
+TEST(ObjectPoolTest, ReserveDoesNothingWhenCapacityAlreadySatisfiesMinimum) {
+    auto pool = ObjectPool<Item>::create<4>();
+    pool.reserve(5);
+
+    auto handle = pool.acquire();
+    ASSERT_NE(handle.get(), nullptr);
+
+    pool.reserve(4);
+    EXPECT_EQ(pool.capacity(), 8u);
+    EXPECT_EQ(pool.available_count(), 7u);
+    EXPECT_EQ(pool.acquired_count(), 1u);
+}
+
+TEST(ObjectPoolTest, ReserveCanAddChunksWhileObjectsAreAcquired) {
+    auto pool = ObjectPool<Item>::create<4>();
+    pool.reserve(4);
+
+    auto handle = pool.acquire();
+    ASSERT_NE(handle.get(), nullptr);
+
+    pool.reserve(9);
+    EXPECT_EQ(pool.capacity(), 12u);
+    EXPECT_EQ(pool.available_count(), 11u);
+    EXPECT_EQ(pool.acquired_count(), 1u);
+}
+
+TEST(ObjectPoolTest, TracksCountsAcrossAcquireAndRelease) {
+    auto pool = ObjectPool<Item>::create<64>();
+    EXPECT_EQ(pool.capacity(), 0u);
+    EXPECT_EQ(pool.available_count(), 0u);
+    EXPECT_EQ(pool.acquired_count(), 0u);
 
     {
         auto handle = pool.acquire();
         ASSERT_NE(handle.get(), nullptr);
         EXPECT_EQ(pool.capacity(), 64u);
-        EXPECT_EQ(pool.available(), 63u);
-        EXPECT_EQ(pool.in_use(), 1u);
+        EXPECT_EQ(pool.available_count(), 63u);
+        EXPECT_EQ(pool.acquired_count(), 1u);
     }
 
     EXPECT_EQ(pool.capacity(), 64u);
-    EXPECT_EQ(pool.available(), 64u);
-    EXPECT_EQ(pool.in_use(), 0u);
+    EXPECT_EQ(pool.available_count(), 64u);
+    EXPECT_EQ(pool.acquired_count(), 0u);
 }
 
-TEST(ObjectPoolTest, ResetsObjectWhenHandleIsReleased) {
-    auto pool = make_object_pool<Item>(0, 1);
+TEST(ObjectPoolTest, AddsChunkWhenFreeListIsEmpty) {
+    auto pool = ObjectPool<Item>::create<4>();
+    std::array<PoolHandle<Item>, 5> handles{};
+
+    EXPECT_EQ(pool.capacity(), 0u);
+
+    for (std::size_t i = 0; i < 4; ++i) {
+        handles[i] = pool.acquire();
+    }
+    EXPECT_EQ(pool.capacity(), 4u);
+    EXPECT_EQ(pool.available_count(), 0u);
+    EXPECT_EQ(pool.acquired_count(), 4u);
+
+    handles[4] = pool.acquire();
+    EXPECT_EQ(pool.capacity(), 8u);
+    EXPECT_EQ(pool.available_count(), 3u);
+    EXPECT_EQ(pool.acquired_count(), 5u);
+}
+
+TEST(ObjectPoolTest, ReleasesSlotWhenHandleIsDestroyed) {
+    auto pool = ObjectPool<Item>::create();
+
+    Item* released{};
+    {
+        auto handle = pool.acquire();
+        released = handle.get();
+    }
+
+    auto reacquired = pool.acquire();
+    EXPECT_EQ(reacquired.get(), released);
+}
+
+TEST(ObjectPoolTest, ResetsObjectWhenReleased) {
+    auto pool = ObjectPool<Item>::create<1>();
 
     Item* released{};
     {
@@ -68,8 +193,8 @@ TEST(ObjectPoolTest, ResetsObjectWhenHandleIsReleased) {
     EXPECT_EQ(reacquired->reset_count, 1);
 }
 
-TEST(ObjectPoolTest, ReusesReleasedSlotsInLifoOrder) {
-    auto pool = make_object_pool<Item>(0, 64);
+TEST(ObjectPoolTest, ReusesReleasedSlotsInLastInFirstOutOrder) {
+    auto pool = ObjectPool<Item>::create<64>();
 
     auto first = pool.acquire();
     auto second = pool.acquire();
@@ -87,70 +212,8 @@ TEST(ObjectPoolTest, ReusesReleasedSlotsInLifoOrder) {
     EXPECT_EQ(fourth.get(), second_ptr);
 }
 
-TEST(ObjectPoolTest, GrowsWhenFreeListIsEmpty) {
-    auto pool = make_object_pool<Item>(0, 4);
-    std::array<PoolHandle<Item>, 5> handles{};
-
-    EXPECT_EQ(pool.capacity(), 0u);
-
-    for (std::size_t i = 0; i < 4; ++i) {
-        handles[i] = pool.acquire();
-    }
-    EXPECT_EQ(pool.capacity(), 4u);
-    EXPECT_EQ(pool.available(), 0u);
-    EXPECT_EQ(pool.in_use(), 4u);
-
-    handles[4] = pool.acquire();
-    EXPECT_EQ(pool.capacity(), 8u);
-    EXPECT_EQ(pool.available(), 3u);
-    EXPECT_EQ(pool.in_use(), 5u);
-}
-
-TEST(ObjectPoolTest, RoundsInitialCapacityToChunkSize) {
-    auto pool = make_object_pool<Item>(5, 4);
-
-    EXPECT_EQ(pool.chunk_size(), 4u);
-    EXPECT_EQ(pool.capacity(), 8u);
-    EXPECT_EQ(pool.available(), 8u);
-    EXPECT_EQ(pool.in_use(), 0u);
-}
-
-TEST(ObjectPoolTest, NormalizesZeroChunkSizeToOne) {
-    auto pool = make_object_pool<Item>(0, 0);
-
-    EXPECT_EQ(pool.chunk_size(), 1u);
-
-    auto first = pool.acquire();
-    EXPECT_EQ(pool.capacity(), 1u);
-
-    auto second = pool.acquire();
-    EXPECT_NE(first.get(), second.get());
-    EXPECT_EQ(pool.capacity(), 2u);
-}
-
-TEST(ObjectPoolTest, ConstructsObjectsWithMakePoolArguments) {
-    auto pool = make_object_pool<ConstructedItem>(0, 2, 42);
-
-    auto handle = pool.acquire();
-    ASSERT_NE(handle.get(), nullptr);
-    EXPECT_EQ(handle->value, 42);
-}
-
-TEST(ObjectPoolTest, ReturnsSlotWhenHandleIsDestroyed) {
-    auto pool = make_object_pool<Item>(0, 64);
-
-    Item* released{};
-    {
-        auto handle = pool.acquire();
-        released = handle.get();
-    }
-
-    auto reacquired = pool.acquire();
-    EXPECT_EQ(reacquired.get(), released);
-}
-
-TEST(ObjectPoolTest, TransfersHandleOwnershipOnMove) {
-    auto pool = make_object_pool<Item>(0, 64);
+TEST(ObjectPoolTest, TransfersHandleOwnershipOnMoveConstruction) {
+    auto pool = ObjectPool<Item>::create();
 
     auto first = pool.acquire();
     ASSERT_TRUE(static_cast<bool>(first));

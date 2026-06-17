@@ -43,7 +43,7 @@ constexpr std::uint8_t outcome_failed{1};
 class MockOutbound : public Outbound {
 public:
     ObjectPool<LinearBuffer> pool{
-        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{1024})
+        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{1024})
     };
 
     std::vector<std::string> sends; // 각 원소가 acmp payload(`[type][body]`)
@@ -55,7 +55,7 @@ public:
         return pool.acquire();
     }
     void send(PoolHandle<LinearBuffer> message) override {
-        auto const r = message->readable();
+        auto const r = message->data_span();
         sends.emplace_back(reinterpret_cast<char const*>(r.data()), r.size());
     }
     void schedule_timer(TimerId id, std::chrono::nanoseconds d) override {
@@ -76,26 +76,26 @@ Uuid make_uuid(std::uint8_t seed) {
 }
 
 ObjectPool<LinearBuffer>& build_pool() {
-    static auto pool = ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{256});
+    static auto pool = ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256});
     return pool;
 }
 
 // 수신 payload(acmp `[type][body]`) 빌더.
 PoolHandle<LinearBuffer> payload_register_outcome(std::uint8_t code) {
     auto buf = build_pool().acquire();
-    auto const w = acmp::encode_register_outcome(code, buf->writable());
+    auto const w = acmp::encode_register_outcome(code, buf->tailroom_span());
     EXPECT_TRUE(w.has_value());
     if (w) {
-        buf->commit(*w);
+        EXPECT_TRUE(buf->try_commit(*w));
     }
     return buf;
 }
 PoolHandle<LinearBuffer> payload_heartbeat() {
     auto buf = build_pool().acquire();
-    auto const w = acmp::encode_heartbeat(buf->writable());
+    auto const w = acmp::encode_heartbeat(buf->tailroom_span());
     EXPECT_TRUE(w.has_value());
     if (w) {
-        buf->commit(*w);
+        EXPECT_TRUE(buf->try_commit(*w));
     }
     return buf;
 }
@@ -103,22 +103,22 @@ PoolHandle<LinearBuffer> payload_heartbeat() {
 PoolHandle<LinearBuffer>
 payload_command(std::uint64_t id, std::uint8_t command_type, std::span<std::byte const> cmd) {
     auto buf = build_pool().acquire();
-    auto const w = acmp::encode_command_request_header(id, command_type, buf->writable());
+    auto const w = acmp::encode_command_request_header(id, command_type, buf->tailroom_span());
     EXPECT_TRUE(w.has_value());
     if (w) {
-        buf->commit(*w);
+        EXPECT_TRUE(buf->try_commit(*w));
     }
     if (!cmd.empty()) {
-        EXPECT_TRUE(buf->write(cmd));
+        EXPECT_TRUE(buf->try_append(cmd));
     }
     return buf;
 }
 PoolHandle<LinearBuffer> setmode_command(std::uint64_t id, Mode mode) {
-    static auto cmd_pool = ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{64});
+    static auto cmd_pool = ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{64});
     auto cmd_buf = cmd_pool.acquire();
     EXPECT_TRUE(ddcs::device::encode(ddcs::device::SetMode{.mode = mode}, *cmd_buf));
     return payload_command(
-        id, static_cast<std::uint8_t>(ddcs::device::CommandType::set_mode), cmd_buf->readable()
+        id, static_cast<std::uint8_t>(ddcs::device::CommandType::set_mode), cmd_buf->data_span()
     );
 }
 

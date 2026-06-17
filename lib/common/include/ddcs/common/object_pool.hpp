@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cassert>
 #include <concepts>
 #include <cstddef>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <new>
@@ -11,63 +13,75 @@
 
 namespace ddcs::common {
 
+namespace detail::object_pool {
+
 template <typename T>
-concept pool_resettable = requires(T& t) {
+concept resettable = requires(T& t) {
     { t.reset() } noexcept -> std::same_as<void>;
 };
 
-template <pool_resettable T>
+template <typename T, typename... Args>
+concept pool_constructible_from = std::constructible_from<T, std::decay_t<Args> const&...> &&
+                                  (std::copy_constructible<std::decay_t<Args>> && ...);
+
+} // namespace detail::object_pool
+
+template <detail::object_pool::resettable T>
 class ObjectPool {
 private:
-    struct Node {
-        Node* next{nullptr};
+    struct Slot {
+        Slot* next_available = nullptr;
         alignas(T) std::byte storage[sizeof(T)];
 
-        T* ptr() noexcept {
+        T* object_ptr() noexcept {
             return std::launder(reinterpret_cast<T*>(storage));
         }
     };
+
+    using Chunk = std::unique_ptr<Slot[]>;
 
 public:
     class Deleter {
     public:
         Deleter() noexcept = default;
-        Deleter(ObjectPool& pool, Node& node) noexcept
-            : pool_{&pool},
-              node_{&node} {}
 
-        void operator()(T*) const noexcept {
+        void operator()(T* object) const noexcept {
             if (pool_ != nullptr) {
-                pool_->release(*node_);
+                assert(slot_ != nullptr);
+                assert(object == slot_->object_ptr());
+                (void)object;
+
+                pool_->release(*slot_);
             }
         }
 
     private:
-        ObjectPool* pool_{nullptr};
-        Node* node_{nullptr};
+        friend class ObjectPool;
+
+        Deleter(ObjectPool& pool, Slot& slot) noexcept
+            : pool_(&pool),
+              slot_(&slot) {}
+
+        ObjectPool* pool_ = nullptr;
+        Slot* slot_ = nullptr;
     };
 
-    using Constructor = std::function<void(void*)>;
     using Handle = std::unique_ptr<T, Deleter>;
 
-public:
-    explicit ObjectPool(
-        Constructor constructor, std::size_t initial_capacity = 0, std::size_t chunk_size = 64
-    )
-        : constructor_{std::move(constructor)},
-          chunk_size_{chunk_size == 0 ? 1 : chunk_size} {
-        std::size_t const initial_chunks = (initial_capacity + chunk_size_ - 1) / chunk_size_;
-        for (std::size_t i = 0; i < initial_chunks; ++i) {
-            grow();
-        }
+    template <std::size_t ChunkSize = 64, typename... Args>
+        requires(ChunkSize > 0) && detail::object_pool::pool_constructible_from<T, Args...>
+    [[nodiscard]] static ObjectPool create(Args&&... args) {
+        return ObjectPool{
+            ChunkSize, // 청크 당 슬롯 개수
+            [... captured_args = std::forward<Args>(args)](void* storage) {
+                std::construct_at(static_cast<T*>(storage), captured_args...);
+            }
+        };
     }
 
     ~ObjectPool() {
-        for (auto& chunk : chunks_) {
-            for (std::size_t i = 0; i < chunk_size_; ++i) {
-                chunk[i].ptr()->~T();
-            }
-        }
+        ensure_all_objects_released();
+        destroy_all_objects();
     }
 
     ObjectPool(ObjectPool const&) = delete;
@@ -75,96 +89,120 @@ public:
     ObjectPool(ObjectPool&&) = delete;
     ObjectPool& operator=(ObjectPool&&) = delete;
 
-    std::size_t chunk_size() const noexcept {
+    [[nodiscard]] std::size_t chunk_size() const noexcept {
         return chunk_size_;
     }
 
-    std::size_t capacity() const noexcept {
+    [[nodiscard]] std::size_t capacity() const noexcept {
         return capacity_;
     }
 
-    std::size_t available() const noexcept {
-        return available_;
+    [[nodiscard]] std::size_t available_count() const noexcept {
+        return available_count_;
     }
 
-    std::size_t in_use() const noexcept {
-        return capacity_ - available_;
+    [[nodiscard]] std::size_t acquired_count() const noexcept {
+        return capacity_ - available_count_;
+    }
+
+    void reserve(std::size_t min_capacity) {
+        std::size_t chunk_count =
+            min_capacity / chunk_size_ + (min_capacity % chunk_size_ == 0 ? 0 : 1);
+
+        while (chunks_.size() < chunk_count) {
+            add_chunk();
+        }
     }
 
     [[nodiscard]] Handle acquire() {
-        if (head_free_ == nullptr) [[unlikely]] {
-            grow();
+        if (available_head_ == nullptr) [[unlikely]] {
+            add_chunk();
         }
-        Node& node = *head_free_;
-        head_free_ = node.next;
-        --available_;
-        return Handle{node.ptr(), Deleter{*this, node}};
+
+        Slot& slot = *available_head_;
+        available_head_ = slot.next_available;
+        slot.next_available = nullptr;
+
+        --available_count_;
+
+        return Handle{slot.object_ptr(), Deleter{*this, slot}};
     }
 
 private:
-    void release(Node& node) noexcept {
-        node.ptr()->reset();
-        node.next = head_free_;
-        head_free_ = &node;
-        ++available_;
-    }
+    using ObjectConstructor = std::function<void(void*)>;
 
-    void grow() {
-        auto chunk = std::make_unique<Node[]>(chunk_size_);
+    explicit ObjectPool(std::size_t chunk_size, ObjectConstructor construct_object)
+        : chunk_size_(chunk_size),
+          construct_object_(std::move(construct_object)) {}
+
+    void add_chunk() {
+        Chunk chunk = std::make_unique<Slot[]>(chunk_size_);
 
         // PERF: 슬롯 객체는 chunk 생성 시 한 번만 만들고, 반환 시에는 reset()으로 재사용한다.
-        std::size_t constructed = 0;
+        std::size_t constructed_count = 0;
+
         try {
-            for (; constructed < chunk_size_; ++constructed) {
-                constructor_(chunk[constructed].storage);
+            for (; constructed_count < chunk_size_; ++constructed_count) {
+                construct_object_(chunk[constructed_count].storage);
             }
 
             chunks_.push_back(std::move(chunk));
         } catch (...) {
             // 생성 중 예외가 나면 이미 생성된 슬롯만 직접 되돌린다.
-            for (std::size_t i = 0; i < constructed; ++i) {
-                chunk[i].ptr()->~T();
-            }
+            destroy_objects(chunk.get(), constructed_count);
             throw;
         }
 
-        Node* const new_chunk = chunks_.back().get();
+        Slot* const slots = chunks_.back().get();
 
         for (std::size_t i = 0; i + 1 < chunk_size_; ++i) {
-            new_chunk[i].next = &new_chunk[i + 1];
+            slots[i].next_available = &slots[i + 1];
         }
-        new_chunk[chunk_size_ - 1].next = head_free_;
 
-        // CAUTION: chunk은 위 push_back에서 이미 move됐다.
-        // CAUTION  새 슬롯은 chunks_가 소유한 new_chunk로만 가리킨다.
-        head_free_ = &new_chunk[0];
+        slots[chunk_size_ - 1].next_available = available_head_;
+        available_head_ = &slots[0];
+
         capacity_ += chunk_size_;
-        available_ += chunk_size_;
+        available_count_ += chunk_size_;
     }
 
-private:
-    Constructor constructor_;
-    std::vector<std::unique_ptr<Node[]>> chunks_;
-    Node* head_free_{nullptr};
-    std::size_t chunk_size_;
-    std::size_t capacity_{0};
-    std::size_t available_{0};
+    void release(Slot& slot) noexcept {
+        slot.object_ptr()->reset();
+
+        slot.next_available = available_head_;
+        available_head_ = &slot;
+
+        ++available_count_;
+    }
+
+    static void destroy_objects(Slot* slots, std::size_t count) noexcept {
+        for (std::size_t i = 0; i < count; ++i) {
+            slots[i].object_ptr()->~T();
+        }
+    }
+
+    void destroy_all_objects() noexcept {
+        for (auto& chunk : chunks_) {
+            destroy_objects(chunk.get(), chunk_size_);
+        }
+    }
+
+    void ensure_all_objects_released() const noexcept {
+        if (available_count_ != capacity_) {
+            assert(false && "ObjectPool destroyed while objects are still alive");
+            std::terminate();
+        }
+    }
+
+    const std::size_t chunk_size_;
+    ObjectConstructor construct_object_;
+    std::vector<Chunk> chunks_;
+    Slot* available_head_ = nullptr;
+    std::size_t capacity_ = 0;
+    std::size_t available_count_ = 0;
 };
 
-template <typename T>
+template <detail::object_pool::resettable T>
 using PoolHandle = typename ObjectPool<T>::Handle;
-
-template <typename T, typename... Args>
-    requires std::constructible_from<T, std::decay_t<Args> const&...> &&
-             (std::copy_constructible<std::decay_t<Args>> && ...)
-[[nodiscard]] ObjectPool<T>
-make_object_pool(std::size_t initial_capacity, std::size_t chunk_size, Args&&... args) {
-    return ObjectPool<T>{
-        [... args = std::forward<Args>(args)](void* p) {
-            std::construct_at(static_cast<T*>(p), args...);
-        },
-        initial_capacity, chunk_size
-    };
-}
 
 } // namespace ddcs::common

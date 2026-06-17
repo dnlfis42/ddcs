@@ -52,10 +52,10 @@ TEST(AgentConnectionTest, TransmitDrainsTxQueue) {
     make_connected(conn, sv[0]);
     Fd peer{sv[1]};
 
-    auto pool = ddcs::common::make_object_pool<LinearBuffer>(0, 4, std::size_t{64});
+    auto pool = ddcs::common::ObjectPool<LinearBuffer>::create<4>(std::size_t{64});
     auto out = pool.acquire();
     char const msg[] = "world";
-    ASSERT_TRUE(out->write({reinterpret_cast<std::byte const*>(msg), 5}));
+    ASSERT_TRUE(out->try_append({reinterpret_cast<std::byte const*>(msg), 5}));
     conn.tx_enqueue(std::move(out));
 
     EXPECT_EQ(conn.transmit(), Connection::IoResult::ok);

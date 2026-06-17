@@ -60,7 +60,7 @@ void AgentService::on_message(port::ConnectionId conn, port::MessageBuffer paylo
     }
 
     // payload = acmp `[type][body]`. type를 떼고 body만 핸들러로 넘긴다.
-    auto const bytes = payload->readable();
+    auto const bytes = payload->data_span();
     if (bytes.empty()) {
         kick(conn, "empty payload"); // acmp 메시지는 최소 type 1바이트
         return;
@@ -213,13 +213,17 @@ void AgentService::handle_active_message(
 
 bool AgentService::send_register_outcome(port::ConnectionId conn, bool success) {
     auto buf = sender_.make_message_buffer();
-    auto const written =
-        acmp::encode_register_outcome(success ? outcome_success : outcome_failed, buf->writable());
+    auto const written = acmp::encode_register_outcome(
+        success ? outcome_success : outcome_failed, buf->tailroom_span()
+    );
     if (!written) {
         LOG_WARN("agent.register.encode_fail", logger::kv("conn", conn.value()));
         return false;
     }
-    buf->commit(*written);
+    if (!buf->try_commit(*written)) {
+        LOG_WARN("agent.register.encode_fail", logger::kv("conn", conn.value()));
+        return false;
+    }
     sender_.send(conn, std::move(buf));
     return true;
 }

@@ -62,7 +62,7 @@ port::CommandId CommandService::dispatch(
     port::CommandBuffer retained;
     if (max_attempts_ > 1) {
         retained = sender_.make_command_buffer(); // 보관본은 헤더 미기록 상태로 동결된다.
-        bool const copied = retained->write(payload->readable());
+        bool const copied = retained->try_append(payload->data_span());
         assert(copied); // 동일 용량 + 동일 headroom이라 항상 들어간다.
         (void)copied;
     }
@@ -199,7 +199,7 @@ void CommandService::resend(
 
     assert(slot->retained); // backoff 진입은 max_attempts > 1에서만이라 보관본 존재
     auto copy = sender_.make_command_buffer(); // 보관본은 불변. 헤더는 사본이 받는다
-    bool const copied = copy->write(slot->retained->readable());
+    bool const copied = copy->try_append(slot->retained->data_span());
     assert(copied);
     (void)copied;
     if (!sender_.try_send(device, slot->id, slot->type, std::move(copy))) {

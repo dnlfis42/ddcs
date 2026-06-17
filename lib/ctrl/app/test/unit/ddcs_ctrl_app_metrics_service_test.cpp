@@ -72,7 +72,7 @@ public:
 
 private:
     ObjectPool<LinearBuffer> pool_{
-        ddcs::common::make_object_pool<LinearBuffer>(0, 8, std::size_t{64})
+        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{64})
     };
 };
 
@@ -110,7 +110,7 @@ struct Fixture {
 
     CommandId send(ddcs::ctrl::domain::DeviceId device) {
         auto buf = commands.make_command_buffer();
-        EXPECT_TRUE(buf->write(as_bytes("p")));
+        EXPECT_TRUE(buf->try_append(as_bytes("p")));
         return commands.dispatch(device, 0x01, std::move(buf), clock.now());
     }
 };

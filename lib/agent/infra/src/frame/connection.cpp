@@ -64,7 +64,7 @@ void Connection::reset() noexcept {
 // ET: 더 읽을 게 없을 때(EAGAIN)까지 소진. 전이는 하지 않고 결과만 보고.
 Connection::IoResult Connection::receive() {
     for (;;) {
-        auto dst = rx_buffer_.writable();
+        auto dst = rx_buffer_.writable_span();
         if (dst.empty()) {
             return IoResult::full;
         }
@@ -75,7 +75,9 @@ Connection::IoResult Connection::receive() {
         } while (n < 0 && errno == EINTR);
 
         if (n > 0) {
-            rx_buffer_.commit(static_cast<std::size_t>(n));
+            if (!rx_buffer_.try_commit(static_cast<std::size_t>(n))) {
+                return IoResult::error;
+            }
             continue;
         }
         if (n == 0) {
@@ -94,7 +96,7 @@ Connection::IoResult Connection::receive() {
 Connection::IoResult Connection::transmit() {
     while (!tx_queue_.empty()) {
         auto& buffer = *tx_queue_.front();
-        auto data = buffer.readable();
+        auto data = buffer.data_span();
         if (data.empty()) {
             tx_queue_.pop();
             continue;
@@ -106,7 +108,9 @@ Connection::IoResult Connection::transmit() {
         } while (n < 0 && errno == EINTR);
 
         if (n > 0) {
-            buffer.consume(static_cast<std::size_t>(n));
+            if (!buffer.try_consume(static_cast<std::size_t>(n))) {
+                return IoResult::error;
+            }
             if (buffer.size() == 0) {
                 tx_queue_.pop();
             }

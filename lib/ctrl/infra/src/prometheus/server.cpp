@@ -56,7 +56,7 @@ Server::Server(
       source_{source},
       listen_port_{listen_port},
       backlog_{backlog},
-      pool_{common::make_object_pool<Connection>(0, pool_chunk)} {}
+      pool_{common::ObjectPool<Connection>::create<pool_chunk>()} {}
 
 Server::~Server() {
     close();

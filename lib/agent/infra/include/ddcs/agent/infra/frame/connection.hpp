@@ -83,13 +83,13 @@ public:
         return rx_buffer_.size();
     }
     bool rx_peek(std::span<std::byte> dst) const noexcept {
-        return rx_buffer_.peek(dst);
+        return rx_buffer_.try_peek(dst);
     }
     bool rx_read(std::span<std::byte> dst) noexcept {
-        return rx_buffer_.read(dst);
+        return rx_buffer_.try_read(dst);
     }
     bool rx_consume(std::size_t n) noexcept {
-        return rx_buffer_.consume(n);
+        return rx_buffer_.try_consume(n);
     }
 
     bool tx_empty() const noexcept {
