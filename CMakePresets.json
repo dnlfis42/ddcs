@@ -9,14 +9,24 @@
     {
       "name": "debug",
       "binaryDir": "${sourceDir}/build/debug",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "coverage",
+      "binaryDir": "${sourceDir}/build/coverage",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "DDCS_ENABLE_COVERAGE": true
+      }
     },
     {
       "name": "asan",
       "binaryDir": "${sourceDir}/build/asan",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "DDCS_ENABLE_ASAN": "ON"
+        "DDCS_ENABLE_ASAN": true
       }
     },
     {
@@ -24,7 +34,15 @@
       "binaryDir": "${sourceDir}/build/release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "DDCS_WARNING_AS_ERROR": "ON"
+        "DDCS_WARNING_AS_ERROR": true
+      }
+    },
+    {
+      "name": "benchmark",
+      "binaryDir": "${sourceDir}/build/benchmark",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "DDCS_ENABLE_BENCHMARK": true
       }
     }
   ],
@@ -32,23 +50,38 @@
     {
       "name": "debug",
       "configurePreset": "debug",
-      "jobs": 0
+      "jobs": 4
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage",
+      "jobs": 4
     },
     {
       "name": "asan",
       "configurePreset": "asan",
-      "jobs": 0
+      "jobs": 4
     },
     {
       "name": "release",
       "configurePreset": "release",
-      "jobs": 0
+      "jobs": 4
+    },
+    {
+      "name": "benchmark",
+      "configurePreset": "benchmark",
+      "jobs": 4
     }
   ],
   "testPresets": [
     {
       "name": "debug",
       "configurePreset": "debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage",
       "output": { "outputOnFailure": true }
     },
     {
@@ -72,6 +105,14 @@
       ]
     },
     {
+      "name": "coverage",
+      "steps": [
+        { "type": "configure", "name": "coverage" },
+        { "type": "build", "name": "coverage" },
+        { "type": "test", "name": "coverage" }
+      ]
+    },
+    {
       "name": "asan",
       "steps": [
         { "type": "configure", "name": "asan" },
@@ -85,6 +126,13 @@
         { "type": "configure", "name": "release" },
         { "type": "build", "name": "release" },
         { "type": "test", "name": "release" }
+      ]
+    },
+    {
+      "name": "benchmark",
+      "steps": [
+        { "type": "configure", "name": "benchmark" },
+        { "type": "build", "name": "benchmark" }
       ]
     }
   ]
