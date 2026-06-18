@@ -3,21 +3,28 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace ddcs::device {
 
-bool encode(const SetMode& cmd, common::LinearBuffer& out) noexcept {
-    std::byte const mode_b{static_cast<std::uint8_t>(cmd.mode)};
-    return out.try_append({&mode_b, 1});
+std::optional<std::size_t> encode_set_mode(std::span<std::byte> out, Mode mode) noexcept {
+    if (out.empty()) {
+        return std::nullopt;
+    }
+    out[0] = std::byte{static_cast<std::uint8_t>(mode)};
+    return 1;
 }
 
-bool decode(std::span<std::byte const> in, SetMode& out) noexcept {
+std::optional<SetMode> decode_set_mode(std::span<std::byte const> in) noexcept {
     if (in.size() != 1) {
-        return false;
+        return std::nullopt;
     }
-    out.mode = static_cast<device::Mode>(static_cast<std::uint8_t>(in[0]));
-    return true;
+    auto const mode = decode_mode(static_cast<std::uint8_t>(in[0]));
+    if (!mode) {
+        return std::nullopt;
+    }
+    return SetMode{.mode = *mode};
 }
 
 } // namespace ddcs::device

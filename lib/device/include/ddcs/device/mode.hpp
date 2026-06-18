@@ -23,18 +23,29 @@ constexpr std::string_view to_string(Mode m) noexcept {
     case Mode::performance:
         return "performance";
     }
-    return "safe"; // 유효 enum에는 도달하지 않음
+    return {}; // 어휘 밖 값(버그/손상)은 빈 문자열로 노출
 }
 
-constexpr std::optional<Mode> from_string(std::string_view s) noexcept {
-    if (s == "safe") {
+constexpr std::optional<Mode> parse_mode(std::string_view text) noexcept {
+    if (text == "safe") {
         return Mode::safe;
     }
-    if (s == "normal") {
+    if (text == "normal") {
         return Mode::normal;
     }
-    if (s == "performance") {
+    if (text == "performance") {
         return Mode::performance;
+    }
+    return std::nullopt;
+}
+
+// wire byte를 mode 어휘로 검증해 해석한다. 어휘 밖 값은 nullopt.
+constexpr std::optional<Mode> decode_mode(std::uint8_t wire) noexcept {
+    switch (static_cast<Mode>(wire)) {
+    case Mode::safe:
+    case Mode::normal:
+    case Mode::performance:
+        return static_cast<Mode>(wire);
     }
     return std::nullopt;
 }

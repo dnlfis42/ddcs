@@ -42,9 +42,8 @@ constexpr std::uint8_t outcome_failed{1};
 //  payload(acmp `[type][body]`)를 통째로 보관한다(infra가 frame header를 덧씌우기 전 상태).
 class MockOutbound : public Outbound {
 public:
-    ObjectPool<LinearBuffer> pool{
-        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{1024})
-    };
+    ObjectPool<LinearBuffer> pool{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{1024
+    })};
 
     std::vector<std::string> sends; // 각 원소가 acmp payload(`[type][body]`)
     std::vector<std::pair<TimerId, std::chrono::nanoseconds>> timers;
@@ -116,7 +115,11 @@ payload_command(std::uint64_t id, std::uint8_t command_type, std::span<std::byte
 PoolHandle<LinearBuffer> setmode_command(std::uint64_t id, Mode mode) {
     static auto cmd_pool = ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{64});
     auto cmd_buf = cmd_pool.acquire();
-    EXPECT_TRUE(ddcs::device::encode(ddcs::device::SetMode{.mode = mode}, *cmd_buf));
+    auto const w = ddcs::device::encode_set_mode(cmd_buf->tailroom_span(), mode);
+    EXPECT_TRUE(w.has_value());
+    if (w) {
+        EXPECT_TRUE(cmd_buf->try_commit(*w));
+    }
     return payload_command(
         id, static_cast<std::uint8_t>(ddcs::device::CommandType::set_mode), cmd_buf->data_span()
     );

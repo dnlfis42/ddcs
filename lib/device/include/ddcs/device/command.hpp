@@ -1,16 +1,17 @@
 #pragma once
 
-#include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/device/mode.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace ddcs::device {
 
 // Agent와 Controller가 공유하는 device command 어휘
 enum class CommandType : std::uint8_t {
+    invalid = 0x00,
     set_mode = 0x01,
 };
 
@@ -20,14 +21,10 @@ struct SetMode {
     bool operator==(SetMode const&) const = default;
 };
 
-template <typename T>
-inline constexpr CommandType type_of = T::__type_specialization_missing;
-
-template <>
-inline constexpr CommandType type_of<SetMode> = CommandType::set_mode;
-
-// CAUTION: encode/decode는 Command envelope가 아니라 device command payload만 다룬다.
-bool encode(SetMode const&, common::LinearBuffer&) noexcept;
-bool decode(std::span<std::byte const>, SetMode&) noexcept;
+// NOTE: encode_set_mode/decode_set_mode는 Command envelope가 아니라
+// device command payload만 다룬다.
+[[nodiscard]] std::optional<std::size_t>
+encode_set_mode(std::span<std::byte> out, Mode mode) noexcept;
+[[nodiscard]] std::optional<SetMode> decode_set_mode(std::span<std::byte const> in) noexcept;
 
 } // namespace ddcs::device

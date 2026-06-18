@@ -38,8 +38,8 @@ std::optional<domain::GroupPolicy> parse_policy(json::Value const& root) {
             ok = false;
             return;
         }
-        auto const bm = ddcs::device::from_string(*bs);
-        auto const im = ddcs::device::from_string(*is);
+        auto const bm = ddcs::device::parse_mode(*bs);
+        auto const im = ddcs::device::parse_mode(*is);
         if (!bm || !im) {
             ok = false;
             return;
@@ -116,13 +116,14 @@ void PolicyService::command_group(
     });
     for (auto const id : targets_) {
         auto buf = commands_.make_command_buffer();
-        if (!cmd::encode(cmd::SetMode{.mode = mode}, *buf)) {
+        auto const written = cmd::encode_set_mode(buf->tailroom_span(), mode);
+        if (!written || !buf->try_commit(*written)) {
             LOG_ERROR("policy.encode_fail", logger::kv("device", id.to_string())); // 버그 신호
             continue;
         }
         // 미연결 등 송신 실패는 dispatch가 invalid 반환 + WARN. 다음 전환/재평가가 자연 보상.
         commands_.dispatch(
-            id, static_cast<std::uint8_t>(cmd::type_of<cmd::SetMode>), std::move(buf), now
+            id, static_cast<std::uint8_t>(cmd::CommandType::set_mode), std::move(buf), now
         );
     }
 }

@@ -198,9 +198,8 @@ void SessionService::handle_command(std::span<std::byte const> body) {
     std::uint8_t code = outcome_success;
     std::string reason; // 로컬 로그 전용. wire에는 code만 나간다.
     if (static_cast<device::CommandType>(cmd->command_type) == device::CommandType::set_mode) {
-        device::SetMode set_mode{};
-        if (device::decode(cmd->payload, set_mode)) {
-            if (!device_.apply(set_mode)) {
+        if (auto const set_mode = device::decode_set_mode(cmd->payload)) {
+            if (!device_.apply(*set_mode)) {
                 code = outcome_failed;
                 reason = "apply_failed";
             }

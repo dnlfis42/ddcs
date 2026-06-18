@@ -85,10 +85,13 @@ public:
     bool try_send(
         DeviceId device, CommandId command_id, std::uint8_t command_type, CommandBuffer message
     ) override {
-        cmd::SetMode set_mode{};
-        EXPECT_TRUE(cmd::decode(message->data_span(), set_mode));
+        auto const set_mode = cmd::decode_set_mode(message->data_span());
+        EXPECT_TRUE(set_mode.has_value());
         sent.push_back(Sent{
-            .device = device, .command_id = command_id, .type = command_type, .mode = set_mode.mode
+            .device = device,
+            .command_id = command_id,
+            .type = command_type,
+            .mode = set_mode.value_or(cmd::SetMode{}).mode,
         });
         return true;
     }
