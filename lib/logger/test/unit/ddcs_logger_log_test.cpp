@@ -175,7 +175,7 @@ TEST_F(LogTest, EmitsValidJsonParseableByJsonLib) {
     LOG_INFO("evt", kv("peer", "1.2.3.4:5"), kv("id", 42), kv("ok", true), kv("s", tricky));
 
     ASSERT_EQ(sink.lines.size(), 1u);
-    auto const parsed = ddcs::json::Value::parse(sink.lines.front());
+    auto const parsed = ddcs::json::parse(sink.lines.front());
     ASSERT_TRUE(parsed.has_value());
     ASSERT_TRUE(parsed->is_object());
     EXPECT_EQ(parsed->find("level")->as_string(), std::optional<std::string_view>{"INFO"});

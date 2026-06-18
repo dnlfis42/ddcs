@@ -87,21 +87,15 @@ public:
     ) override {
         cmd::SetMode set_mode{};
         EXPECT_TRUE(cmd::decode(message->data_span(), set_mode));
-        sent.push_back(
-            Sent{
-                .device = device,
-                .command_id = command_id,
-                .type = command_type,
-                .mode = set_mode.mode
-            }
-        );
+        sent.push_back(Sent{
+            .device = device, .command_id = command_id, .type = command_type, .mode = set_mode.mode
+        });
         return true;
     }
 
 private:
-    ObjectPool<LinearBuffer> pool_{
-        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128})
-    };
+    ObjectPool<LinearBuffer> pool_{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128
+    })};
 };
 
 // 재진입 회귀용 대역. for_each_active의 순회 창(iterating)을 노출한다.
@@ -145,9 +139,8 @@ public:
 
 private:
     WindowedDeviceRoster& roster_;
-    ObjectPool<LinearBuffer> pool_{
-        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128})
-    };
+    ObjectPool<LinearBuffer> pool_{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128
+    })};
 };
 
 struct PolicyFixture {
@@ -284,10 +277,8 @@ TEST(PolicyServiceTest, SkipsGroupWithoutActiveDevices) {
 }
 
 TEST(PolicyServiceTest, ParsePolicyBuildsGroupPolicy) {
-    auto const j = json::Value::parse(
-        R"({"groups":{"sensors":{"high_load":80,"low_load":20,)"
-        R"("busy_mode":"safe","idle_mode":"normal"}}})"
-    );
+    auto const j = json::parse(R"({"groups":{"sensors":{"high_load":80,"low_load":20,)"
+                               R"("busy_mode":"safe","idle_mode":"normal"}}})");
     ASSERT_TRUE(j.has_value());
 
     auto const p = parse_policy(*j);
@@ -304,29 +295,21 @@ TEST(PolicyServiceTest, ParsePolicyBuildsGroupPolicy) {
 }
 
 TEST(PolicyServiceTest, ParsePolicyRejectsInvalidInput) {
-    EXPECT_FALSE(parse_policy(*json::Value::parse(R"({"x":1})")).has_value()); // groups 없음
+    EXPECT_FALSE(parse_policy(*json::parse(R"({"x":1})")).has_value()); // groups 없음
     // 필드 누락
-    EXPECT_FALSE(
-        parse_policy(*json::Value::parse(R"({"groups":{"s":{"high_load":80}}})")).has_value()
-    );
+    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":80}}})")).has_value());
 
     // 미지 mode
-    EXPECT_FALSE(parse_policy(*json::Value::parse(
-                                  R"({"groups":{"s":{"high_load":80,"low_load":20,)"
-                                  R"("busy_mode":"warp","idle_mode":"normal"}}})"
-                              ))
+    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":80,"low_load":20,)"
+                                           R"("busy_mode":"warp","idle_mode":"normal"}}})"))
                      .has_value());
     // 임계 역전 시 발진
-    EXPECT_FALSE(parse_policy(*json::Value::parse(
-                                  R"({"groups":{"s":{"high_load":20,"low_load":80,)"
-                                  R"("busy_mode":"safe","idle_mode":"normal"}}})"
-                              ))
+    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":20,"low_load":80,)"
+                                           R"("busy_mode":"safe","idle_mode":"normal"}}})"))
                      .has_value());
     // 밴드 없음
-    EXPECT_FALSE(parse_policy(*json::Value::parse(
-                                  R"({"groups":{"s":{"high_load":50,"low_load":50,)"
-                                  R"("busy_mode":"safe","idle_mode":"normal"}}})"
-                              ))
+    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":50,"low_load":50,)"
+                                           R"("busy_mode":"safe","idle_mode":"normal"}}})"))
                      .has_value());
 }
 

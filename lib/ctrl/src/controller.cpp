@@ -185,7 +185,7 @@ void Controller::Impl::load_policy() {
         return;
     }
     std::string const text{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
-    auto const json = json::Value::parse(text);
+    auto const json = json::parse(text);
     if (!json) {
         LOG_WARN("policy.load.parse_fail", logger::kv("path", path.string()));
         return;
