@@ -41,7 +41,7 @@ public:
     [[nodiscard]] bool is_object() const noexcept;
 
     [[nodiscard]] std::optional<bool> as_bool() const noexcept;
-    [[nodiscard]] std::optional<std::int64_t> as_int() const noexcept;
+    [[nodiscard]] std::optional<std::int64_t> as_int64() const noexcept;
     [[nodiscard]] std::optional<double> as_double() const noexcept;
     [[nodiscard]] std::optional<std::string_view> as_string() const noexcept;
 
@@ -54,13 +54,12 @@ public:
     // array 끝에 원소를 추가한다. null이면 array로 승격한다. array/null이 아니면 false.
     [[nodiscard]] bool try_push_back(Value value);
 
-    // try_push_back과 같지만 체이닝용이다. 대상은 array 또는 null이어야 한다.
+    // try_push_back과 같지만 체이닝용이다. array/null이 아니면 throw.
     Value& push_back(Value value);
 
     // object 멤버를 조회한다. object가 아니거나 키가 없으면 nullptr를 반환한다.
     [[nodiscard]] Value const* find(std::string_view key) const noexcept;
 
-    // object에 key가 있는지 확인한다.
     [[nodiscard]] bool contains(std::string_view key) const noexcept;
 
     // object 멤버를 삽입 순서대로 순회한다. object가 아니면 아무 일도 하지 않는다.
@@ -77,7 +76,7 @@ public:
     // null을 object로 승격하고, 기존 키는 위치를 유지한 채 갱신한다. object/null이 아니면 false.
     [[nodiscard]] bool try_set(std::string key, Value value);
 
-    // try_set과 같지만 체이닝용이다. 대상은 object 또는 null이어야 한다.
+    // try_set과 같지만 체이닝용이다. object/null이 아니면 throw.
     Value& set(std::string key, Value value);
 
     // 현재 값을 불필요한 공백 없이 compact JSON text로 직렬화해 반환한다.

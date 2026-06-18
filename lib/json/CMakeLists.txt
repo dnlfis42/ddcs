@@ -3,8 +3,11 @@ add_library(ddcs::json ALIAS ddcs_json)
 
 target_sources(
     ddcs_json
-    PRIVATE src/value.cpp
-    PUBLIC FILE_SET HEADERS BASE_DIRS include FILES include/ddcs/json/value.hpp
+    PRIVATE src/parser.cpp src/value.cpp src/writer.cpp
+    PUBLIC
+        FILE_SET HEADERS
+            BASE_DIRS include
+            FILES include/ddcs/json/value.hpp include/ddcs/json/writer.hpp
 )
 target_link_libraries(
     ddcs_json
