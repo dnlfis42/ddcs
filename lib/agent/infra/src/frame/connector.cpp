@@ -267,21 +267,21 @@ void Connector::framing() {
 
         wire_frame::HeaderBytes hb{};
         connection_.rx_peek({hb.data(), hb.size()});
-        auto const parsed_header = wire_frame::parse(hb);
-        if (!parsed_header) {
+        auto const parsed_length = wire_frame::decode(hb);
+        if (!parsed_length) {
             LOG_WARN("agent_transport.bad_magic");
             disconnect_and_reconnect();
             return;
         }
 
-        auto const header = *parsed_header;
-        if (header.payload_length > payload_capacity) {
+        std::uint16_t const payload_length = *parsed_length;
+        if (payload_length > payload_capacity) {
             LOG_WARN("agent_transport.frame_too_long");
             disconnect_and_reconnect();
             return;
         }
 
-        std::size_t const total = wire_frame::header_size + header.payload_length;
+        std::size_t const total = wire_frame::header_size + payload_length;
         if (connection_.rx_size() < total) {
             return; // 부분 프레임
         }
@@ -291,10 +291,10 @@ void Connector::framing() {
             return;
         }
         auto payload = payload_pool_.acquire();
-        if (header.payload_length > 0) {
+        if (payload_length > 0) {
             auto const w = payload->tailroom_span();
-            if (!connection_.rx_read({w.data(), header.payload_length}) ||
-                !payload->try_commit(header.payload_length)) {
+            if (!connection_.rx_read({w.data(), payload_length}) ||
+                !payload->try_commit(payload_length)) {
                 disconnect_and_reconnect();
                 return;
             }

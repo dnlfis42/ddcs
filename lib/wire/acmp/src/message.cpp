@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -18,7 +19,7 @@ namespace ddcs::wire::acmp {
 namespace {
 
 template <std::unsigned_integral T>
-[[nodiscard]] bool extract_le(std::span<std::byte const>& in, T& value) noexcept {
+[[nodiscard]] bool try_extract_le(std::span<std::byte const>& in, T& value) noexcept {
     if (in.size() < sizeof(T)) {
         return false;
     }
@@ -30,9 +31,9 @@ template <std::unsigned_integral T>
     return true;
 }
 
-[[nodiscard]] bool extract_f64(std::span<std::byte const>& in, double& value) noexcept {
+[[nodiscard]] bool try_extract_f64(std::span<std::byte const>& in, double& value) noexcept {
     std::uint64_t bits{};
-    if (!extract_le(in, bits)) {
+    if (!try_extract_le(in, bits)) {
         return false;
     }
 
@@ -41,9 +42,9 @@ template <std::unsigned_integral T>
 }
 
 [[nodiscard]] bool
-extract_string(std::span<std::byte const>& in, std::string_view& value) noexcept {
+try_extract_string(std::span<std::byte const>& in, std::string_view& value) noexcept {
     std::uint16_t length{};
-    if (!extract_le(in, length)) {
+    if (!try_extract_le(in, length)) {
         return false;
     }
     if (in.size() < length) {
@@ -57,9 +58,9 @@ extract_string(std::span<std::byte const>& in, std::string_view& value) noexcept
     return true;
 }
 
-[[nodiscard]] bool extract_type(std::span<std::byte const>& in, MessageType& value) noexcept {
+[[nodiscard]] bool try_extract_type(std::span<std::byte const>& in, MessageType& value) noexcept {
     std::uint8_t raw{};
-    if (!extract_le(in, raw)) {
+    if (!try_extract_le(in, raw)) {
         return false;
     }
 
@@ -67,7 +68,7 @@ extract_string(std::span<std::byte const>& in, std::string_view& value) noexcept
     return true;
 }
 
-[[nodiscard]] bool extract_uuid(std::span<std::byte const>& in, common::Uuid& value) noexcept {
+[[nodiscard]] bool try_extract_uuid(std::span<std::byte const>& in, common::Uuid& value) noexcept {
     std::array<std::byte, 16> bytes{};
     if (in.size() < bytes.size()) {
         return false;
@@ -80,7 +81,7 @@ extract_string(std::span<std::byte const>& in, std::string_view& value) noexcept
 }
 
 template <std::unsigned_integral T>
-[[nodiscard]] bool append_le(T value, std::span<std::byte>& out) noexcept {
+[[nodiscard]] bool try_append_le(std::span<std::byte>& out, T value) noexcept {
     if (out.size() < sizeof(T)) {
         return false;
     }
@@ -91,16 +92,16 @@ template <std::unsigned_integral T>
     return true;
 }
 
-[[nodiscard]] bool append_f64(double value, std::span<std::byte>& out) noexcept {
-    return append_le(std::bit_cast<std::uint64_t>(value), out);
+[[nodiscard]] bool try_append_f64(std::span<std::byte>& out, double value) noexcept {
+    return try_append_le(out, std::bit_cast<std::uint64_t>(value));
 }
 
 // string field wire 형식: [len(u16le)][UTF-8 bytes]
-[[nodiscard]] bool append_string(std::string_view value, std::span<std::byte>& out) noexcept {
-    if (value.size() > max_string_field_size) {
+[[nodiscard]] bool try_append_string(std::span<std::byte>& out, std::string_view value) noexcept {
+    if (value.size() > std::numeric_limits<std::uint16_t>::max()) {
         return false;
     }
-    if (!append_le(static_cast<std::uint16_t>(value.size()), out)) {
+    if (!try_append_le(out, static_cast<std::uint16_t>(value.size()))) {
         return false;
     }
     if (value.empty()) {
@@ -115,11 +116,11 @@ template <std::unsigned_integral T>
     return true;
 }
 
-[[nodiscard]] bool append_type(MessageType value, std::span<std::byte>& out) noexcept {
-    return append_le(static_cast<std::uint8_t>(value), out);
+[[nodiscard]] bool try_append_type(std::span<std::byte>& out, MessageType value) noexcept {
+    return try_append_le(out, static_cast<std::uint8_t>(value));
 }
 
-[[nodiscard]] bool append_uuid(common::Uuid const& value, std::span<std::byte>& out) noexcept {
+[[nodiscard]] bool try_append_uuid(std::span<std::byte>& out, common::Uuid const& value) noexcept {
     auto const& bytes = value.bytes();
     if (out.size() < bytes.size()) {
         return false;
@@ -132,9 +133,9 @@ template <std::unsigned_integral T>
 
 } // namespace
 
-MessageType peek_type(std::span<std::byte const> in) noexcept {
+MessageType message_type(std::span<std::byte const> in) noexcept {
     MessageType type{MessageType::invalid};
-    if (!extract_type(in, type)) {
+    if (!try_extract_type(in, type)) {
         return MessageType::invalid;
     }
     return type;
@@ -142,26 +143,27 @@ MessageType peek_type(std::span<std::byte const> in) noexcept {
 
 // RegisterRequest body: [id: uuid(16)][group: str]
 std::optional<std::size_t> encode_register_request(
-    common::Uuid const& id, std::string_view group, std::span<std::byte> out
+    std::span<std::byte> out, common::Uuid const& id, std::string_view group
 ) noexcept {
     std::span<std::byte> cur = out;
-    if (!append_type(MessageType::register_request, cur)) {
+    if (!try_append_type(cur, MessageType::register_request)) {
         return std::nullopt;
     }
-    if (!append_uuid(id, cur)) {
+    if (!try_append_uuid(cur, id)) {
         return std::nullopt;
     }
-    if (!append_string(group, cur)) {
+    if (!try_append_string(cur, group)) {
         return std::nullopt;
     }
     return out.size() - cur.size();
 }
+
 std::optional<RegisterRequest> decode_register_request(std::span<std::byte const> in) noexcept {
     RegisterRequest out{};
-    if (!extract_uuid(in, out.id)) {
+    if (!try_extract_uuid(in, out.id)) {
         return std::nullopt;
     }
-    if (!extract_string(in, out.group)) {
+    if (!try_extract_string(in, out.group)) {
         return std::nullopt;
     }
     if (!in.empty()) {
@@ -172,35 +174,37 @@ std::optional<RegisterRequest> decode_register_request(std::span<std::byte const
 
 // RegisterOutcome body: [code(u8)]
 std::optional<std::size_t>
-encode_register_outcome(std::uint8_t code, std::span<std::byte> out) noexcept {
+encode_register_outcome(std::span<std::byte> out, RegisterOutcome::Code code) noexcept {
     std::span<std::byte> cur = out;
-    if (!append_type(MessageType::register_outcome, cur)) {
+    if (!try_append_type(cur, MessageType::register_outcome)) {
         return std::nullopt;
     }
-    if (!append_le(code, cur)) {
+    if (!try_append_le(cur, static_cast<std::uint8_t>(code))) {
         return std::nullopt;
     }
     return out.size() - cur.size();
 }
+
 std::optional<RegisterOutcome> decode_register_outcome(std::span<std::byte const> in) noexcept {
-    RegisterOutcome out{};
-    if (!extract_le(in, out.code)) {
+    std::uint8_t code{};
+    if (!try_extract_le(in, code)) {
         return std::nullopt;
     }
     if (!in.empty()) {
         return std::nullopt;
     }
-    return out;
+    return RegisterOutcome{.code = static_cast<RegisterOutcome::Code>(code)};
 }
 
 // RegisterAck body: empty
 std::optional<std::size_t> encode_register_ack(std::span<std::byte> out) noexcept {
     std::span<std::byte> cur = out;
-    if (!append_type(MessageType::register_ack, cur)) {
+    if (!try_append_type(cur, MessageType::register_ack)) {
         return std::nullopt;
     }
     return out.size() - cur.size();
 }
+
 std::optional<RegisterAck> decode_register_ack(std::span<std::byte const> in) noexcept {
     if (!in.empty()) {
         return std::nullopt;
@@ -211,11 +215,12 @@ std::optional<RegisterAck> decode_register_ack(std::span<std::byte const> in) no
 // Heartbeat body: empty
 std::optional<std::size_t> encode_heartbeat(std::span<std::byte> out) noexcept {
     std::span<std::byte> cur = out;
-    if (!append_type(MessageType::heartbeat, cur)) {
+    if (!try_append_type(cur, MessageType::heartbeat)) {
         return std::nullopt;
     }
     return out.size() - cur.size();
 }
+
 std::optional<Heartbeat> decode_heartbeat(std::span<std::byte const> in) noexcept {
     if (!in.empty()) {
         return std::nullopt;
@@ -225,31 +230,32 @@ std::optional<Heartbeat> decode_heartbeat(std::span<std::byte const> in) noexcep
 
 // Status body: [mode(u8)][load(f64le)][temp(f64le)]
 std::optional<std::size_t>
-encode_status(std::uint8_t mode, double load, double temp, std::span<std::byte> out) noexcept {
+encode_status(std::span<std::byte> out, std::uint8_t mode, double load, double temp) noexcept {
     std::span<std::byte> cur = out;
-    if (!append_type(MessageType::status, cur)) {
+    if (!try_append_type(cur, MessageType::status)) {
         return std::nullopt;
     }
-    if (!append_le(mode, cur)) {
+    if (!try_append_le(cur, mode)) {
         return std::nullopt;
     }
-    if (!append_f64(load, cur)) {
+    if (!try_append_f64(cur, load)) {
         return std::nullopt;
     }
-    if (!append_f64(temp, cur)) {
+    if (!try_append_f64(cur, temp)) {
         return std::nullopt;
     }
     return out.size() - cur.size();
 }
+
 std::optional<Status> decode_status(std::span<std::byte const> in) noexcept {
     Status out{};
-    if (!extract_le(in, out.mode)) {
+    if (!try_extract_le(in, out.mode)) {
         return std::nullopt;
     }
-    if (!extract_f64(in, out.load)) {
+    if (!try_extract_f64(in, out.load)) {
         return std::nullopt;
     }
-    if (!extract_f64(in, out.temp)) {
+    if (!try_extract_f64(in, out.temp)) {
         return std::nullopt;
     }
     if (!in.empty()) {
@@ -261,26 +267,27 @@ std::optional<Status> decode_status(std::span<std::byte const> in) noexcept {
 // CommandRequest body: [command_id(u64le)][command_type(u8)][payload(rest)]
 // payload는 호출측이 out 뒤에 직접 append한다. 여기선 header까지만 쓴다.
 std::optional<std::size_t> encode_command_request_header(
-    std::uint64_t command_id, std::uint8_t command_type, std::span<std::byte> out
+    std::span<std::byte> out, std::uint64_t command_id, std::uint8_t command_type
 ) noexcept {
     std::span<std::byte> cur = out;
-    if (!append_type(MessageType::command_request, cur)) {
+    if (!try_append_type(cur, MessageType::command_request)) {
         return std::nullopt;
     }
-    if (!append_le(command_id, cur)) {
+    if (!try_append_le(cur, command_id)) {
         return std::nullopt;
     }
-    if (!append_le(command_type, cur)) {
+    if (!try_append_le(cur, command_type)) {
         return std::nullopt;
     }
     return out.size() - cur.size();
 }
+
 std::optional<CommandRequest> decode_command_request(std::span<std::byte const> in) noexcept {
     CommandRequest out{};
-    if (!extract_le(in, out.command_id)) {
+    if (!try_extract_le(in, out.command_id)) {
         return std::nullopt;
     }
-    if (!extract_le(in, out.command_type)) {
+    if (!try_extract_le(in, out.command_type)) {
         return std::nullopt;
     }
 
@@ -291,19 +298,20 @@ std::optional<CommandRequest> decode_command_request(std::span<std::byte const> 
 
 // CommandAck body: [command_id(u64le)]
 std::optional<std::size_t>
-encode_command_ack(std::uint64_t command_id, std::span<std::byte> out) noexcept {
+encode_command_ack(std::span<std::byte> out, std::uint64_t command_id) noexcept {
     std::span<std::byte> cur = out;
-    if (!append_type(MessageType::command_ack, cur)) {
+    if (!try_append_type(cur, MessageType::command_ack)) {
         return std::nullopt;
     }
-    if (!append_le(command_id, cur)) {
+    if (!try_append_le(cur, command_id)) {
         return std::nullopt;
     }
     return out.size() - cur.size();
 }
+
 std::optional<CommandAck> decode_command_ack(std::span<std::byte const> in) noexcept {
     CommandAck out{};
-    if (!extract_le(in, out.command_id)) {
+    if (!try_extract_le(in, out.command_id)) {
         return std::nullopt;
     }
     if (!in.empty()) {
@@ -314,31 +322,34 @@ std::optional<CommandAck> decode_command_ack(std::span<std::byte const> in) noex
 
 // CommandOutcome body: [command_id(u64le)][code(u8)]
 std::optional<std::size_t> encode_command_outcome(
-    std::uint64_t command_id, std::uint8_t code, std::span<std::byte> out
+    std::span<std::byte> out, std::uint64_t command_id, CommandOutcome::Code code
 ) noexcept {
     std::span<std::byte> cur = out;
-    if (!append_type(MessageType::command_outcome, cur)) {
+    if (!try_append_type(cur, MessageType::command_outcome)) {
         return std::nullopt;
     }
-    if (!append_le(command_id, cur)) {
+    if (!try_append_le(cur, command_id)) {
         return std::nullopt;
     }
-    if (!append_le(code, cur)) {
+    if (!try_append_le(cur, static_cast<std::uint8_t>(code))) {
         return std::nullopt;
     }
     return out.size() - cur.size();
 }
+
 std::optional<CommandOutcome> decode_command_outcome(std::span<std::byte const> in) noexcept {
     CommandOutcome out{};
-    if (!extract_le(in, out.command_id)) {
+    if (!try_extract_le(in, out.command_id)) {
         return std::nullopt;
     }
-    if (!extract_le(in, out.code)) {
+    std::uint8_t code{};
+    if (!try_extract_le(in, code)) {
         return std::nullopt;
     }
     if (!in.empty()) {
         return std::nullopt;
     }
+    out.code = static_cast<CommandOutcome::Code>(code);
     return out;
 }
 

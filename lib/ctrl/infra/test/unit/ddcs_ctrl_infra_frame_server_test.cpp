@@ -254,9 +254,9 @@ TEST(FrameServerTest, SendFramesPayloadOnWire) {
     );
     frame::HeaderBytes hb{};
     std::memcpy(hb.data(), got.data(), frame::header_size);
-    auto const header = frame::parse(hb);
-    ASSERT_TRUE(header);
-    EXPECT_EQ(header->payload_length, std::uint16_t{3});
+    auto const payload_length = frame::decode(hb);
+    ASSERT_TRUE(payload_length);
+    EXPECT_EQ(*payload_length, std::uint16_t{3});
     EXPECT_EQ(std::memcmp(got.data() + frame::header_size, payload.data(), 3), 0);
 }
 

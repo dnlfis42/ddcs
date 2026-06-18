@@ -35,9 +35,6 @@ using ddcs::common::PoolHandle;
 using ddcs::common::Uuid;
 using ddcs::device::Mode;
 
-constexpr std::uint8_t outcome_success{0};
-constexpr std::uint8_t outcome_failed{1};
-
 // 송신 기록 대역.
 //  payload(acmp `[type][body]`)를 통째로 보관한다(infra가 frame header를 덧씌우기 전 상태).
 class MockOutbound : public Outbound {
@@ -80,9 +77,9 @@ ObjectPool<LinearBuffer>& build_pool() {
 }
 
 // 수신 payload(acmp `[type][body]`) 빌더.
-PoolHandle<LinearBuffer> payload_register_outcome(std::uint8_t code) {
+PoolHandle<LinearBuffer> payload_register_outcome(acmp::RegisterOutcome::Code code) {
     auto buf = build_pool().acquire();
-    auto const w = acmp::encode_register_outcome(code, buf->tailroom_span());
+    auto const w = acmp::encode_register_outcome(buf->tailroom_span(), code);
     EXPECT_TRUE(w.has_value());
     if (w) {
         EXPECT_TRUE(buf->try_commit(*w));
@@ -102,7 +99,7 @@ PoolHandle<LinearBuffer> payload_heartbeat() {
 PoolHandle<LinearBuffer>
 payload_command(std::uint64_t id, std::uint8_t command_type, std::span<std::byte const> cmd) {
     auto buf = build_pool().acquire();
-    auto const w = acmp::encode_command_request_header(id, command_type, buf->tailroom_span());
+    auto const w = acmp::encode_command_request_header(buf->tailroom_span(), id, command_type);
     EXPECT_TRUE(w.has_value());
     if (w) {
         EXPECT_TRUE(buf->try_commit(*w));
@@ -126,7 +123,7 @@ PoolHandle<LinearBuffer> setmode_command(std::uint64_t id, Mode mode) {
 }
 
 acmp::MessageType sent_type(std::string const& s) {
-    return acmp::peek_type({reinterpret_cast<std::byte const*>(s.data()), s.size()});
+    return acmp::message_type({reinterpret_cast<std::byte const*>(s.data()), s.size()});
 }
 std::span<std::byte const> sent_body(std::string const& s) {
     std::span<std::byte const> const bytes{reinterpret_cast<std::byte const*>(s.data()), s.size()};
@@ -164,7 +161,7 @@ int count_timer(MockOutbound const& o, TimerId id) {
 // connect 후 register 3-way 성공으로 active 진입 후 outbound 기록을 비운다.
 void activate(SessionService& svc, MockOutbound& out) {
     svc.on_connected();
-    svc.on_recv(payload_register_outcome(outcome_success));
+    svc.on_recv(payload_register_outcome(acmp::RegisterOutcome::Code::success));
     out.sends.clear();
     out.timers.clear();
     out.cancels.clear();
@@ -210,7 +207,7 @@ TEST(AgentSessionServiceTest, RegisterOutcomeSuccessSendsAckAndEntersActive) {
     SessionService svc{make_uuid(1), device, out};
     svc.on_connected();
 
-    svc.on_recv(payload_register_outcome(outcome_success));
+    svc.on_recv(payload_register_outcome(acmp::RegisterOutcome::Code::success));
 
     EXPECT_EQ(svc.state(), SessionService::State::active);
     EXPECT_TRUE(has_cancel(out, TimerId::register_timeout));
@@ -226,7 +223,7 @@ TEST(AgentSessionServiceTest, RegisterOutcomeFailedCloses) {
     SessionService svc{make_uuid(1), device, out};
     svc.on_connected();
 
-    svc.on_recv(payload_register_outcome(outcome_failed));
+    svc.on_recv(payload_register_outcome(acmp::RegisterOutcome::Code::failed));
 
     EXPECT_NE(svc.state(), SessionService::State::active);
     EXPECT_EQ(out.closes, 1);
@@ -273,7 +270,7 @@ TEST(AgentSessionServiceTest, EnterActiveArmsHeartbeatAndStatusTimers) {
     SessionService svc{make_uuid(1), device, out};
     svc.on_connected();
 
-    svc.on_recv(payload_register_outcome(outcome_success));
+    svc.on_recv(payload_register_outcome(acmp::RegisterOutcome::Code::success));
 
     EXPECT_TRUE(has_timer(out, TimerId::heartbeat));
     EXPECT_TRUE(has_timer(out, TimerId::status));
@@ -345,7 +342,7 @@ TEST(AgentSessionServiceTest, CommandAppliesToDeviceAndAcksThenOutcomes) {
     auto const outcome = acmp::decode_command_outcome(sent_body(out.sends[1]));
     ASSERT_TRUE(outcome.has_value());
     EXPECT_EQ(outcome->command_id, 1u);
-    EXPECT_EQ(outcome->code, outcome_success);
+    EXPECT_EQ(outcome->code, acmp::CommandOutcome::Code::success);
 }
 
 TEST(AgentSessionServiceTest, DuplicateCommandResendsWithoutReapplying) {
@@ -379,7 +376,7 @@ TEST(AgentSessionServiceTest, UnknownCommandTypeOutcomesFailed) {
     ASSERT_EQ(out.sends.size(), 2u);
     auto const outcome = acmp::decode_command_outcome(sent_body(out.sends[1]));
     ASSERT_TRUE(outcome.has_value());
-    EXPECT_EQ(outcome->code, outcome_failed);
+    EXPECT_EQ(outcome->code, acmp::CommandOutcome::Code::failed);
 }
 
 TEST(AgentSessionServiceTest, UnexpectedTypeWhileActiveCloses) {

@@ -3,7 +3,9 @@
 #include "ddcs/common/endian.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <optional>
 
 namespace ddcs::wire::frame {
 
@@ -23,23 +25,16 @@ HeaderBytes encode(std::uint16_t payload_length) noexcept {
     return bytes;
 }
 
-Header decode(HeaderBytes const& bytes) noexcept {
+std::optional<std::uint16_t> decode(HeaderBytes const& bytes) noexcept {
     std::uint16_t magic_raw{};
     std::uint16_t length_raw{};
     std::memcpy(&magic_raw, bytes.data() + magic_offset, sizeof(magic_raw));
     std::memcpy(&length_raw, bytes.data() + payload_length_offset, sizeof(length_raw));
-    return Header{
-        common::from_be(magic_raw),
-        common::from_be(length_raw),
-    };
-}
 
-std::optional<Header> parse(HeaderBytes const& bytes) noexcept {
-    Header const header = decode(bytes);
-    if (header.magic != magic_value) {
+    if (common::from_be(magic_raw) != magic_value) {
         return std::nullopt;
     }
-    return header;
+    return common::from_be(length_raw);
 }
 
 } // namespace ddcs::wire::frame

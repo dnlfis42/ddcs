@@ -388,17 +388,18 @@ public:
 
             wire::frame::HeaderBytes header_bytes{};
             conn->rx_peek(header_bytes);
-            auto const header = wire::frame::parse(header_bytes);
-            if (!header) {
+            auto const decoded = wire::frame::decode(header_bytes);
+            if (!decoded) {
                 begin_reap(*conn, port::DisconnectReason::protocol_error);
                 return;
             }
+            std::uint16_t const payload_length = *decoded;
 
-            if (header->payload_length > payload_capacity) {
+            if (payload_length > payload_capacity) {
                 begin_reap(*conn, port::DisconnectReason::protocol_error); // 용량 초과 (손상/악성)
                 return;
             }
-            std::size_t const total = wire::frame::header_size + header->payload_length;
+            std::size_t const total = wire::frame::header_size + payload_length;
             if (conn->rx_size() < total) {
                 return; // 부분 frame이라 더 기다림
             }
@@ -408,10 +409,10 @@ public:
                 return;
             }
             auto message = message_pool.acquire();
-            if (header->payload_length > 0) {
+            if (payload_length > 0) {
                 auto const dst = message->tailroom_span();
-                if (!conn->rx_read(dst.first(header->payload_length)) ||
-                    !message->try_commit(header->payload_length)) {
+                if (!conn->rx_read(dst.first(payload_length)) ||
+                    !message->try_commit(payload_length)) {
                     begin_reap(*conn, port::DisconnectReason::protocol_error);
                     return;
                 }

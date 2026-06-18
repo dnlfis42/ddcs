@@ -17,11 +17,10 @@ target_link_libraries(
     ddcs_agent_app
     PRIVATE
         ddcs::build_options
-        ddcs::wire::acmp
         ddcs::logger
         ddcs::json
         ddcs::device
-    PUBLIC ddcs::cxx_standard ddcs::common ddcs::agent::domain
+    PUBLIC ddcs::cxx_standard ddcs::common ddcs::agent::domain ddcs::wire::acmp
 )
 
 add_subdirectory(test/unit)

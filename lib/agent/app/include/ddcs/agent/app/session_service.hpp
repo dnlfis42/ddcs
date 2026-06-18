@@ -6,6 +6,7 @@
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
 #include "ddcs/common/uuid.hpp"
+#include "ddcs/wire/acmp/message.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -64,7 +65,7 @@ private:
     void send_heartbeat();
     void send_status();
     void send_command_ack(std::uint64_t command_id);
-    void send_command_outcome(std::uint64_t command_id, std::uint8_t code);
+    void send_command_outcome(std::uint64_t command_id, wire::acmp::CommandOutcome::Code code);
     void enter_active();
     void handle_register_outcome(std::span<std::byte const> body);
     void handle_command(std::span<std::byte const> body);
@@ -79,7 +80,7 @@ private:
     // 명령 dedup: 같은 command_id 재수신 시 apply 없이 이전 ACK+Outcome 재송신
     // 0 = 아직 처리한 명령 없음 (controller는 1부터 발급)
     std::uint64_t last_command_id_{0};
-    std::uint8_t last_command_code_{0};
+    wire::acmp::CommandOutcome::Code last_command_code_{};
 };
 
 } // namespace ddcs::agent::app

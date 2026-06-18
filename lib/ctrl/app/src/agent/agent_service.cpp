@@ -11,14 +11,6 @@
 
 namespace ddcs::ctrl::app::agent {
 
-namespace {
-
-// RegisterOutcome/CommandOutcome의 code 약속: 0 = success, 그 외 = failed
-constexpr std::uint8_t outcome_success{0};
-constexpr std::uint8_t outcome_failed{1};
-
-} // namespace
-
 AgentService::AgentService(
     AgentRegistry& agents, port::MessageSender& sender, port::Disconnector& disconnector,
     common::Clock& clock, device::RegisterService& register_service,
@@ -65,7 +57,7 @@ void AgentService::on_message(port::ConnectionId conn, port::MessageBuffer paylo
         kick(conn, "empty payload"); // acmp 메시지는 최소 type 1바이트
         return;
     }
-    acmp::MessageType const type = acmp::peek_type(bytes);
+    acmp::MessageType const type = acmp::message_type(bytes);
     auto const body = bytes.subspan(1);
 
     switch (agent->state()) {
@@ -201,7 +193,7 @@ void AgentService::handle_active_message(
         agent.update_seen(now);
         command_service_.settle(
             agent.device(), device::port::CommandId{outcome->command_id},
-            outcome->code == outcome_success, {}, now
+            outcome->code == acmp::CommandOutcome::Code::success, {}, now
         );
         return;
     }
@@ -214,7 +206,8 @@ void AgentService::handle_active_message(
 bool AgentService::send_register_outcome(port::ConnectionId conn, bool success) {
     auto buf = sender_.make_message_buffer();
     auto const written = acmp::encode_register_outcome(
-        success ? outcome_success : outcome_failed, buf->tailroom_span()
+        buf->tailroom_span(),
+        success ? acmp::RegisterOutcome::Code::success : acmp::RegisterOutcome::Code::failed
     );
     if (!written) {
         LOG_WARN("agent.register.encode_fail", logger::kv("conn", conn.value()));

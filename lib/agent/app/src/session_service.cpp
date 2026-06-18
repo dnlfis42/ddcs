@@ -17,11 +17,6 @@ namespace acmp = ddcs::wire::acmp;
 
 namespace {
 
-// RegisterOutcome/CommandOutcome의 code 약속:
-// 0 = success, 그 외 = failed
-constexpr std::uint8_t outcome_success{0};
-constexpr std::uint8_t outcome_failed{1};
-
 // encoder(span을 받아 쓴 바이트 수 반환)로 payload_buffer를 채워 commit 후 송신한다.
 // 버퍼 부족이면 close
 template <typename Encode>
@@ -65,7 +60,7 @@ void SessionService::on_connected() {
 void SessionService::on_recv(common::PoolHandle<common::LinearBuffer> payload) {
     // payload = acmp `[type][body]`. type를 떼고 body만 핸들러로 넘긴다.
     auto const bytes = payload->data_span();
-    acmp::MessageType const type = acmp::peek_type(bytes);
+    acmp::MessageType const type = acmp::message_type(bytes);
     auto const body = bytes.empty() ? bytes : bytes.subspan(1);
 
     switch (state_) {
@@ -131,7 +126,7 @@ void SessionService::handle_register_outcome(std::span<std::byte const> body) {
         outbound_.close();
         return;
     }
-    if (outcome->code != outcome_success) {
+    if (outcome->code != acmp::RegisterOutcome::Code::success) {
         outbound_.close(); // 거부면 backoff 후 재시도
         return;
     }
@@ -149,7 +144,7 @@ void SessionService::enter_active() {
 
 void SessionService::send_register_request() {
     emit(outbound_, [this](std::span<std::byte> out) {
-        return acmp::encode_register_request(agent_uuid_, cfg_.group, out);
+        return acmp::encode_register_request(out, agent_uuid_, cfg_.group);
     });
 }
 
@@ -171,7 +166,7 @@ void SessionService::send_status() {
     );
     emit(outbound_, [&state](std::span<std::byte> out) {
         return acmp::encode_status(
-            static_cast<std::uint8_t>(state.mode), state.load, state.temp, out
+            out, static_cast<std::uint8_t>(state.mode), state.load, state.temp
         );
     });
     outbound_.schedule_timer(TimerId::status, cfg_.status_update);
@@ -195,20 +190,20 @@ void SessionService::handle_command(std::span<std::byte const> body) {
 
     send_command_ack(cmd->command_id); // decode 성공 후, apply 전 ACK
 
-    std::uint8_t code = outcome_success;
+    acmp::CommandOutcome::Code code = acmp::CommandOutcome::Code::success;
     std::string reason; // 로컬 로그 전용. wire에는 code만 나간다.
     if (static_cast<device::CommandType>(cmd->command_type) == device::CommandType::set_mode) {
         if (auto const set_mode = device::decode_set_mode(cmd->payload)) {
             if (!device_.apply(*set_mode)) {
-                code = outcome_failed;
+                code = acmp::CommandOutcome::Code::failed;
                 reason = "apply_failed";
             }
         } else {
-            code = outcome_failed;
+            code = acmp::CommandOutcome::Code::failed;
             reason = "payload_decode_failed";
         }
     } else {
-        code = outcome_failed;
+        code = acmp::CommandOutcome::Code::failed;
         reason = "unknown_command_type";
     }
 
@@ -218,19 +213,22 @@ void SessionService::handle_command(std::span<std::byte const> body) {
     last_command_code_ = code;
     LOG_INFO(
         "agent.session.cmd.applied", ddcs::logger::kv("command_id", cmd->command_id),
-        ddcs::logger::kv("ok", code == outcome_success), ddcs::logger::kv("reason", reason)
+        ddcs::logger::kv("ok", code == acmp::CommandOutcome::Code::success),
+        ddcs::logger::kv("reason", reason)
     );
 }
 
 void SessionService::send_command_ack(std::uint64_t command_id) {
     emit(outbound_, [command_id](std::span<std::byte> out) {
-        return acmp::encode_command_ack(command_id, out);
+        return acmp::encode_command_ack(out, command_id);
     });
 }
 
-void SessionService::send_command_outcome(std::uint64_t command_id, std::uint8_t code) {
+void SessionService::send_command_outcome(
+    std::uint64_t command_id, acmp::CommandOutcome::Code code
+) {
     emit(outbound_, [command_id, code](std::span<std::byte> out) {
-        return acmp::encode_command_outcome(command_id, code, out);
+        return acmp::encode_command_outcome(out, command_id, code);
     });
 }
 

@@ -72,22 +72,20 @@ public:
         //  // [type][command_id][command_type][payload]
         auto const bytes = message->data_span();
         ASSERT_FALSE(bytes.empty());
-        EXPECT_EQ(acmp::peek_type(bytes), acmp::MessageType::command_request);
+        EXPECT_EQ(acmp::message_type(bytes), acmp::MessageType::command_request);
         auto const cmd = acmp::decode_command_request(bytes.subspan(1));
         ASSERT_TRUE(cmd.has_value());
         std::string payload_copy{
             reinterpret_cast<char const*>(cmd->payload.data()), cmd->payload.size()
         };
         std::array<std::byte, frame::header_size> const frame_stub{}; // frame 헤더 자리 검증
-        sent.push_back(
-            Sent{
-                .conn = conn,
-                .command_id = cmd->command_id,
-                .type = cmd->command_type,
-                .payload = std::move(payload_copy),
-                .frame_headroom_ok = message->try_prepend(frame_stub),
-            }
-        );
+        sent.push_back(Sent{
+            .conn = conn,
+            .command_id = cmd->command_id,
+            .type = cmd->command_type,
+            .payload = std::move(payload_copy),
+            .frame_headroom_ok = message->try_prepend(frame_stub),
+        });
     }
 
 private:

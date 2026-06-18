@@ -53,10 +53,6 @@ using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::domain::DeviceRegistry;
 using namespace std::chrono_literals;
 
-// RegisterOutcome code 약속: 0 = success, 그 외 = failed (AgentService와 동일)
-constexpr std::uint8_t outcome_success{0};
-constexpr std::uint8_t outcome_failed{1};
-
 Uuid make_uuid(std::uint8_t seed) {
     std::array<std::byte, 16> bytes{};
     bytes[0] = std::byte{seed};
@@ -87,18 +83,15 @@ public:
 
     void send(ConnectionId conn, MessageBuffer message) override {
         auto const readable = message->data_span();
-        sent.push_back(
-            Sent{
-                .conn = conn,
-                .payload = std::vector<std::byte>{readable.begin(), readable.end()},
-            }
-        );
+        sent.push_back(Sent{
+            .conn = conn,
+            .payload = std::vector<std::byte>{readable.begin(), readable.end()},
+        });
     }
 
 private:
-    ObjectPool<LinearBuffer> pool_{
-        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256})
-    };
+    ObjectPool<LinearBuffer> pool_{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256
+    })};
 };
 
 // infra처럼 disconnect가 동기로 on_disconnected를 되부르는 대역
@@ -139,7 +132,7 @@ struct ServiceFixture {
     // 타입별 acmp payload(`[type][body]`) 생성
     MessageBuffer payload_register_request(Uuid const& id, std::string_view group) {
         auto buf = body_pool.acquire();
-        auto const w = acmp::encode_register_request(id, group, buf->tailroom_span());
+        auto const w = acmp::encode_register_request(buf->tailroom_span(), id, group);
         EXPECT_TRUE(w.has_value());
         if (w) {
             EXPECT_TRUE(buf->try_commit(*w));
@@ -166,7 +159,7 @@ struct ServiceFixture {
     }
     MessageBuffer payload_status(std::uint8_t mode, double load, double temp) {
         auto buf = body_pool.acquire();
-        auto const w = acmp::encode_status(mode, load, temp, buf->tailroom_span());
+        auto const w = acmp::encode_status(buf->tailroom_span(), mode, load, temp);
         EXPECT_TRUE(w.has_value());
         if (w) {
             EXPECT_TRUE(buf->try_commit(*w));
@@ -175,16 +168,17 @@ struct ServiceFixture {
     }
     MessageBuffer payload_command_ack(std::uint64_t command_id) {
         auto buf = body_pool.acquire();
-        auto const w = acmp::encode_command_ack(command_id, buf->tailroom_span());
+        auto const w = acmp::encode_command_ack(buf->tailroom_span(), command_id);
         EXPECT_TRUE(w.has_value());
         if (w) {
             EXPECT_TRUE(buf->try_commit(*w));
         }
         return buf;
     }
-    MessageBuffer payload_command_outcome(std::uint64_t command_id, std::uint8_t code) {
+    MessageBuffer
+    payload_command_outcome(std::uint64_t command_id, acmp::CommandOutcome::Code code) {
         auto buf = body_pool.acquire();
-        auto const w = acmp::encode_command_outcome(command_id, code, buf->tailroom_span());
+        auto const w = acmp::encode_command_outcome(buf->tailroom_span(), command_id, code);
         EXPECT_TRUE(w.has_value());
         if (w) {
             EXPECT_TRUE(buf->try_commit(*w));
@@ -218,14 +212,14 @@ struct ServiceFixture {
     }
 
     // 마지막으로 송신된 RegisterOutcome의 code.
-    std::uint8_t last_outcome_code() {
+    acmp::RegisterOutcome::Code last_outcome_code() {
         EXPECT_FALSE(outbox.sent.empty());
         auto const& p = outbox.sent.back().payload;
         std::span<std::byte const> const bytes{p.data(), p.size()};
-        EXPECT_EQ(acmp::peek_type(bytes), acmp::MessageType::register_outcome);
+        EXPECT_EQ(acmp::message_type(bytes), acmp::MessageType::register_outcome);
         auto const outcome = acmp::decode_register_outcome(bytes.subspan(1));
         EXPECT_TRUE(outcome.has_value());
-        return outcome ? outcome->code : 0xFF;
+        return outcome ? outcome->code : acmp::RegisterOutcome::Code::failed;
     }
 };
 
@@ -261,7 +255,7 @@ TEST(AgentServiceTest, RegisterRequestBindsAndSendsSuccessOutcome) {
     ASSERT_NE(agent, nullptr);
     EXPECT_EQ(agent->state(), Agent::State::confirming); // active는 RegisterAck 이후
     EXPECT_EQ(agent->device(), DeviceId{make_uuid(0xAA)});
-    EXPECT_EQ(f.last_outcome_code(), outcome_success);
+    EXPECT_EQ(f.last_outcome_code(), acmp::RegisterOutcome::Code::success);
     ASSERT_NE(f.devices.find(DeviceId{make_uuid(0xAA)}), nullptr); // 트윈 생성
     EXPECT_EQ(f.devices.find(DeviceId{make_uuid(0xAA)})->group, "sensors");
 }
@@ -298,7 +292,7 @@ TEST(AgentServiceTest, NilUuidRegisterSendsFailedOutcomeAndDisconnects) {
 
     f.deliver(ConnectionId{1}, f.payload_register_request(Uuid{}, "g"));
 
-    EXPECT_EQ(f.last_outcome_code(), outcome_failed);
+    EXPECT_EQ(f.last_outcome_code(), acmp::RegisterOutcome::Code::failed);
     ASSERT_EQ(f.disconnector.disconnected.size(), 1u); // 등록 실패 시 판정 송신 후 종료
     EXPECT_EQ(f.agents.size(), 0u);
 }
@@ -317,7 +311,7 @@ TEST(AgentServiceTest, ReregistrationKicksOldConnection) {
     ASSERT_NE(fresh, nullptr);
     EXPECT_EQ(fresh->conn(), ConnectionId{2});
     EXPECT_EQ(fresh->state(), Agent::State::confirming);
-    EXPECT_EQ(f.last_outcome_code(), outcome_success);
+    EXPECT_EQ(f.last_outcome_code(), acmp::RegisterOutcome::Code::success);
 }
 
 TEST(AgentServiceTest, NonRegisterMessageDuringHandshakingKicks) {
@@ -389,7 +383,10 @@ TEST(AgentServiceTest, CommandAckAndOutcomeSettlePending) {
     EXPECT_EQ(f.commands.pending_count(), 1u); // ack은 연장만
 
     f.clock.advance(1s);
-    f.deliver(ConnectionId{1}, f.payload_command_outcome(command_id.value(), outcome_success));
+    f.deliver(
+        ConnectionId{1},
+        f.payload_command_outcome(command_id.value(), acmp::CommandOutcome::Code::success)
+    );
 
     EXPECT_EQ(f.commands.pending_count(), 0u);
     EXPECT_EQ(f.commands.completed_total(), 1u);
