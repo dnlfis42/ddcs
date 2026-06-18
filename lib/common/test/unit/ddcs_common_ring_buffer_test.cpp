@@ -45,6 +45,7 @@ slice(std::array<std::byte, N> const& bytes, std::size_t offset, std::size_t n) 
 
 void expect_bytes_eq(std::span<std::byte const> actual, std::span<std::byte const> expected) {
     ASSERT_EQ(actual.size(), expected.size());
+
     for (std::size_t i = 0; i < expected.size(); ++i) {
         EXPECT_EQ(actual[i], expected[i]);
     }
@@ -155,6 +156,7 @@ TEST(RingBufferTest, ReturnsContiguousReadableSpanAfterWrap) {
         std::byte{0xa1}, std::byte{0xa2}, std::byte{0xa3},
         std::byte{0xa4}, std::byte{0xa5}, std::byte{0xa6},
     };
+
     ASSERT_TRUE(rb.try_write(payload));
 
     EXPECT_EQ(rb.size(), payload.size());
@@ -164,6 +166,7 @@ TEST(RingBufferTest, ReturnsContiguousReadableSpanAfterWrap) {
 TEST(RingBufferTest, PeeksWithoutConsumingData) {
     RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
+
     ASSERT_TRUE(rb.try_write(head(pattern, 3)));
 
     std::array<std::byte, 3> peeked1{};
@@ -179,6 +182,7 @@ TEST(RingBufferTest, PeeksWithoutConsumingData) {
 TEST(RingBufferTest, ReadsDataAndConsumesIt) {
     RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
+
     ASSERT_TRUE(rb.try_write(head(pattern, 4)));
 
     std::array<std::byte, 3> dst{};
@@ -193,6 +197,7 @@ TEST(RingBufferTest, ReadsDataAndConsumesIt) {
 TEST(RingBufferTest, RejectsReadWhenDataIsInsufficient) {
     RingBuffer<test_capacity> rb;
     std::array<std::byte, 1> one{std::byte{0xab}};
+
     ASSERT_TRUE(rb.try_write(one));
 
     std::array<std::byte, 2> dst{};
@@ -205,6 +210,7 @@ TEST(RingBufferTest, RejectsReadWhenDataIsInsufficient) {
 TEST(RingBufferTest, ConsumesDataWithoutCopying) {
     RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
+
     ASSERT_TRUE(rb.try_write(head(pattern, 4)));
 
     ASSERT_TRUE(rb.try_consume(2));
@@ -217,6 +223,7 @@ TEST(RingBufferTest, ConsumesDataWithoutCopying) {
 TEST(RingBufferTest, RejectsConsumeWhenDataIsInsufficient) {
     RingBuffer<test_capacity> rb;
     std::array<std::byte, 2> two{};
+
     ASSERT_TRUE(rb.try_write(two));
 
     EXPECT_FALSE(rb.try_consume(3));
@@ -266,6 +273,7 @@ TEST(RingBufferTest, CommitsBytesWrittenAtWrapBoundary) {
     RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
     std::array<std::byte, 5> drained{};
+
     ASSERT_TRUE(rb.try_write(head(pattern, 5)));
     ASSERT_TRUE(rb.try_read(drained));
 
@@ -294,6 +302,7 @@ TEST(RingBufferTest, RejectsCommitWhenWritableSpaceIsInsufficient) {
 TEST(RingBufferTest, ClearsBufferState) {
     RingBuffer<test_capacity> rb;
     std::array<std::byte, 3> three{};
+
     ASSERT_TRUE(rb.try_write(three));
     ASSERT_TRUE(rb.try_consume(1));
 
@@ -308,6 +317,7 @@ TEST(RingBufferTest, ClearsBufferState) {
 TEST(RingBufferTest, ResetsBufferState) {
     RingBuffer<test_capacity> rb;
     std::array<std::byte, 3> three{};
+
     ASSERT_TRUE(rb.try_write(three));
 
     rb.reset();
@@ -322,6 +332,7 @@ TEST(RingBufferTest, RoundTripsBytesAcrossWrapBoundary) {
     RingBuffer<test_capacity> rb;
     auto pattern = make_pattern();
     std::array<std::byte, 5> drained{};
+
     ASSERT_TRUE(rb.try_write(head(pattern, 5)));
     ASSERT_TRUE(rb.try_read(drained));
 
@@ -329,10 +340,12 @@ TEST(RingBufferTest, RoundTripsBytesAcrossWrapBoundary) {
         std::byte{0xa1}, std::byte{0xa2}, std::byte{0xa3},
         std::byte{0xa4}, std::byte{0xa5}, std::byte{0xa6},
     };
+
     ASSERT_TRUE(rb.try_write(payload));
 
     std::array<std::byte, 6> dst{};
     ASSERT_TRUE(rb.try_read(dst));
+
     expect_bytes_eq(std::span<std::byte const>{dst}, std::span<std::byte const>{payload});
     EXPECT_TRUE(rb.empty());
 }
@@ -347,6 +360,7 @@ TEST(RingBufferTest, PreservesContentsAcrossRepeatedWraps) {
 
     for (int i = 0; i < 100; ++i) {
         ASSERT_TRUE(rb.try_write(chunk));
+
         std::array<std::byte, 3> dst{};
         ASSERT_TRUE(rb.try_read(dst));
         expect_bytes_eq(std::span<std::byte const>{dst}, std::span<std::byte const>{chunk});

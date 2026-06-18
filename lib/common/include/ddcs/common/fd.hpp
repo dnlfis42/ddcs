@@ -55,6 +55,7 @@ public:
         if (fd_ == fd) {
             return;
         }
+
         close();
         fd_ = fd;
     }

@@ -32,9 +32,11 @@ static_assert(clear_makes_uuid_invalid());
 
 TEST(UuidTest, StartsInvalid) {
     Uuid u;
+
     for (auto b : u.bytes()) {
         EXPECT_EQ(b, std::byte{0});
     }
+
     EXPECT_EQ(u.to_string(), "00000000-0000-0000-0000-000000000000");
     EXPECT_FALSE(u.valid());
 }
@@ -58,6 +60,7 @@ TEST(UuidTest, FormatsBytesAsCanonicalString) {
         std::byte{0x55}, std::byte{0x44}, std::byte{0x00}, std::byte{0x00},
     };
     Uuid const u{bytes};
+
     EXPECT_TRUE(u.valid());
     EXPECT_EQ(u.to_string(), "550e8400-e29b-41d4-a716-446655440000");
 }
@@ -92,6 +95,7 @@ TEST(UuidTest, HashesEqualValuesEqually) {
     std::unordered_map<Uuid, int> m;
     m[u1] = 1;
     m[u3] = 2;
+
     EXPECT_EQ(m.size(), 2u);
     EXPECT_EQ(m[u1], 1);
     EXPECT_EQ(m[u3], 2);

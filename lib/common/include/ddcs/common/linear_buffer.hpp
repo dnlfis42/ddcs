@@ -69,6 +69,17 @@ public:
         return true;
     }
 
+    // 앞쪽 data 영역의 n 바이트를 소비한다.
+    [[nodiscard]] bool try_consume(std::size_t n) noexcept {
+        if (size() < n) {
+            return false;
+        }
+
+        data_offset_ += n;
+        assert_invariant();
+        return true;
+    }
+
     [[nodiscard]] bool try_append(std::span<std::byte const> src) noexcept {
         if (tailroom_size() < src.size()) {
             return false;
@@ -82,6 +93,18 @@ public:
         return true;
     }
 
+    // 뒤쪽 여유 공간의 n 바이트를 data 영역으로 확정한다.
+    [[nodiscard]] bool try_commit(std::size_t n) noexcept {
+        if (tailroom_size() < n) {
+            return false;
+        }
+
+        tail_offset_ += n;
+        assert_invariant();
+        return true;
+    }
+
+    // 앞쪽 여유 공간에 src를 복사해 data 영역 앞에 붙인다.
     [[nodiscard]] bool try_prepend(std::span<std::byte const> src) noexcept {
         if (headroom_size() < src.size()) {
             return false;
@@ -92,28 +115,6 @@ public:
             assert_invariant();
             std::memcpy(storage_.get() + data_offset_, src.data(), src.size());
         }
-        return true;
-    }
-
-    // 앞쪽 data 영역의 n 바이트를 소비한다.
-    [[nodiscard]] bool try_consume(std::size_t n) noexcept {
-        if (size() < n) {
-            return false;
-        }
-
-        data_offset_ += n;
-        assert_invariant();
-        return true;
-    }
-
-    // 뒤쪽 여유 공간의 n 바이트를 data 영역으로 확정한다.
-    [[nodiscard]] bool try_commit(std::size_t n) noexcept {
-        if (tailroom_size() < n) {
-            return false;
-        }
-
-        tail_offset_ += n;
-        assert_invariant();
         return true;
     }
 
@@ -160,12 +161,12 @@ private:
     }
 
     // Layout:
-    // [0, data_offset_)            : headroom
-    // [data_offset_, tail_offset_) : data
-    // [tail_offset_, capacity_)    : tailroom
+    //   [0, data_offset_)            : headroom
+    //   [data_offset_, tail_offset_) : data
+    //   [tail_offset_, capacity_)    : tailroom
     //
     // Invariant:
-    // data_offset_ <= tail_offset_ <= capacity_
+    //   data_offset_ <= tail_offset_ <= capacity_
     void assert_invariant() const noexcept {
         assert(data_offset_ <= tail_offset_);
         assert(tail_offset_ <= capacity_);

@@ -25,14 +25,12 @@ public:
         return bytes_ != invalid;
     }
 
-    constexpr void clear() noexcept {
-        bytes_ = invalid;
-    }
-
+    // Canonical UUID 문자열(8-4-4-4-12 소문자 hex)로 변환한다.
     [[nodiscard]] std::string to_string() const {
         constexpr char hex[] = "0123456789abcdef";
         std::string out(36, '-');
         std::size_t pos = 0;
+
         for (std::size_t i = 0; i < 16; ++i) {
             if (i == 4 || i == 6 || i == 8 || i == 10) {
                 ++pos;
@@ -42,6 +40,10 @@ public:
             out[pos++] = hex[b & 0x0F];
         }
         return out;
+    }
+
+    constexpr void clear() noexcept {
+        bytes_ = invalid;
     }
 
     constexpr bool operator==(Uuid const&) const noexcept = default;

@@ -32,6 +32,7 @@ slice(std::array<std::byte, N> const& a, std::size_t offset, std::size_t n) {
 
 void expect_bytes_eq(std::span<std::byte const> actual, std::span<std::byte const> expected) {
     ASSERT_EQ(actual.size(), expected.size());
+
     for (std::size_t i = 0; i < expected.size(); ++i) {
         EXPECT_EQ(actual[i], expected[i]);
     }
@@ -87,6 +88,7 @@ TEST(LinearBufferTest, ReturnsCurrentTailroomSpan) {
 TEST(LinearBufferTest, PeeksWithoutConsumingData) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
+
     ASSERT_TRUE(lb.try_append(head(pattern, 3)));
 
     std::array<std::byte, 3> peeked1{};
@@ -103,6 +105,7 @@ TEST(LinearBufferTest, PeeksWithoutConsumingData) {
 TEST(LinearBufferTest, ExtractsDataAndConsumesIt) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
+
     ASSERT_TRUE(lb.try_append(head(pattern, 4)));
 
     std::array<std::byte, 3> dst{};
@@ -117,6 +120,7 @@ TEST(LinearBufferTest, ExtractsDataAndConsumesIt) {
 TEST(LinearBufferTest, RejectsExtractWhenDataIsInsufficient) {
     LinearBuffer lb{test_capacity};
     std::array<std::byte, 1> one{std::byte{0xab}};
+
     ASSERT_TRUE(lb.try_append(one));
 
     std::array<std::byte, 2> dst{};
@@ -130,6 +134,7 @@ TEST(LinearBufferTest, RejectsExtractWhenDataIsInsufficient) {
 TEST(LinearBufferTest, ConsumesDataWithoutCopying) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
+
     ASSERT_TRUE(lb.try_append(head(pattern, 4)));
 
     ASSERT_TRUE(lb.try_consume(2));
@@ -143,6 +148,7 @@ TEST(LinearBufferTest, ConsumesDataWithoutCopying) {
 TEST(LinearBufferTest, RejectsConsumeWhenDataIsInsufficient) {
     LinearBuffer lb{test_capacity};
     std::array<std::byte, 2> two{};
+
     ASSERT_TRUE(lb.try_append(two));
 
     EXPECT_FALSE(lb.try_consume(3));
@@ -202,6 +208,7 @@ TEST(LinearBufferTest, RejectsCommitWhenTailroomIsInsufficient) {
 
 TEST(LinearBufferTest, PrependsDataIntoHeadroom) {
     LinearBuffer lb{test_capacity};
+
     ASSERT_TRUE(lb.try_grow_headroom(2));
 
     std::array<std::byte, 3> body{std::byte{0xaa}, std::byte{0xbb}, std::byte{0xcc}};
@@ -221,6 +228,7 @@ TEST(LinearBufferTest, PrependsDataIntoHeadroom) {
 TEST(LinearBufferTest, RejectsPrependWhenHeadroomIsInsufficient) {
     LinearBuffer lb{test_capacity};
     std::array<std::byte, 3> body{std::byte{0xaa}, std::byte{0xbb}, std::byte{0xcc}};
+
     ASSERT_TRUE(lb.try_append(body));
 
     std::array<std::byte, 2> header{};
@@ -233,6 +241,7 @@ TEST(LinearBufferTest, RejectsPrependWhenHeadroomIsInsufficient) {
 
 TEST(LinearBufferTest, SetsHeadroomWhenEmpty) {
     LinearBuffer lb{test_capacity};
+
     ASSERT_TRUE(lb.try_grow_headroom(2));
 
     ASSERT_TRUE(lb.try_set_headroom(5));
@@ -257,14 +266,17 @@ TEST(LinearBufferTest, GrowsHeadroomWhenEmpty) {
 
 TEST(LinearBufferTest, StacksHeadroomWhileEmpty) {
     LinearBuffer lb{32};
+
     ASSERT_TRUE(lb.try_grow_headroom(5));
     ASSERT_TRUE(lb.try_grow_headroom(9));
+
     EXPECT_EQ(lb.headroom_size(), 14u);
     EXPECT_EQ(lb.tailroom_size(), 32u - 14u);
 
     std::array<std::byte, 2> const payload{std::byte{0xaa}, std::byte{0xbb}};
     std::array<std::byte, 9> const inner{};
     std::array<std::byte, 5> const outer{};
+
     ASSERT_TRUE(lb.try_append(payload));
     ASSERT_TRUE(lb.try_prepend(inner));
     ASSERT_TRUE(lb.try_prepend(outer));
@@ -277,6 +289,7 @@ TEST(LinearBufferTest, StacksHeadroomWhileEmpty) {
 TEST(LinearBufferTest, RejectsHeadroomChangeWhenNotEmpty) {
     LinearBuffer lb{test_capacity};
     std::array<std::byte, 1> one{std::byte{0xff}};
+
     ASSERT_TRUE(lb.try_append(one));
 
     EXPECT_FALSE(lb.try_set_headroom(4));
@@ -301,6 +314,7 @@ TEST(LinearBufferTest, RejectsHeadroomBeyondCapacity) {
 TEST(LinearBufferTest, ClearsBufferState) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
+
     ASSERT_TRUE(lb.try_grow_headroom(2));
     ASSERT_TRUE(lb.try_append(head(pattern, 3)));
     ASSERT_TRUE(lb.try_consume(1));
@@ -316,6 +330,7 @@ TEST(LinearBufferTest, ClearsBufferState) {
 TEST(LinearBufferTest, ResetsBufferState) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
+
     ASSERT_TRUE(lb.try_set_headroom(4));
     ASSERT_TRUE(lb.try_append(head(pattern, 2)));
 

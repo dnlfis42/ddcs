@@ -92,6 +92,7 @@ TEST(ObjectPoolTest, ReserveZeroDoesNothing) {
 
 TEST(ObjectPoolTest, ReserveRoundsCapacityUpToChunkSize) {
     auto pool = ObjectPool<Item>::create<4>();
+
     pool.reserve(5);
 
     EXPECT_EQ(pool.chunk_size(), 4u);
@@ -102,12 +103,14 @@ TEST(ObjectPoolTest, ReserveRoundsCapacityUpToChunkSize) {
 
 TEST(ObjectPoolTest, ReserveDoesNothingWhenCapacityAlreadySatisfiesMinimum) {
     auto pool = ObjectPool<Item>::create<4>();
+
     pool.reserve(5);
 
     auto handle = pool.acquire();
     ASSERT_NE(handle.get(), nullptr);
 
     pool.reserve(4);
+
     EXPECT_EQ(pool.capacity(), 8u);
     EXPECT_EQ(pool.available_count(), 7u);
     EXPECT_EQ(pool.acquired_count(), 1u);
@@ -115,12 +118,14 @@ TEST(ObjectPoolTest, ReserveDoesNothingWhenCapacityAlreadySatisfiesMinimum) {
 
 TEST(ObjectPoolTest, ReserveCanAddChunksWhileObjectsAreAcquired) {
     auto pool = ObjectPool<Item>::create<4>();
+
     pool.reserve(4);
 
     auto handle = pool.acquire();
     ASSERT_NE(handle.get(), nullptr);
 
     pool.reserve(9);
+
     EXPECT_EQ(pool.capacity(), 12u);
     EXPECT_EQ(pool.available_count(), 11u);
     EXPECT_EQ(pool.acquired_count(), 1u);
@@ -154,11 +159,13 @@ TEST(ObjectPoolTest, AddsChunkWhenFreeListIsEmpty) {
     for (std::size_t i = 0; i < 4; ++i) {
         handles[i] = pool.acquire();
     }
+
     EXPECT_EQ(pool.capacity(), 4u);
     EXPECT_EQ(pool.available_count(), 0u);
     EXPECT_EQ(pool.acquired_count(), 4u);
 
     handles[4] = pool.acquire();
+
     EXPECT_EQ(pool.capacity(), 8u);
     EXPECT_EQ(pool.available_count(), 3u);
     EXPECT_EQ(pool.acquired_count(), 5u);

@@ -21,9 +21,9 @@ namespace detail::ring_buffer {
 template <std::size_t N>
 concept valid_capacity = (N > 0) && ((N & (N - 1)) == 0);
 
-// PERF:
-// 복사 크기가 상수 전파되면 큰 인라인 memcpy 시퀀스가 생성될 수 있다.
-// noinline은 함수 인라인을 막고, GCC noclone은 상수 전파 클론 생성을 막는다.
+// PERF: 복사 크기가 상수 전파되면 큰 인라인 memcpy 시퀀스가 생성될 수 있다.
+// - noinline : 함수 인라인을 막는다.
+// - noclone  : 상수 전파 클론 생성을 막는다.
 DDCS_RING_BUFFER_COPY_ATTR inline void
 copy_bytes(void* dst, void const* src, std::size_t n) noexcept {
     std::memcpy(dst, src, n);
@@ -81,6 +81,7 @@ public:
 
         std::size_t const idx = read_index();
         std::size_t const first = std::min(dst.size(), N - idx);
+
         if (first > 0) {
             detail::ring_buffer::copy_bytes(dst.data(), storage_.get() + idx, first);
 
@@ -89,6 +90,7 @@ public:
                 detail::ring_buffer::copy_bytes(dst.data() + first, storage_.get(), second);
             }
         }
+
         return true;
     }
 
@@ -101,6 +103,15 @@ public:
         return true;
     }
 
+    [[nodiscard]] bool try_consume(std::size_t n) noexcept {
+        if (size() < n) {
+            return false;
+        }
+
+        read_seq_ += n;
+        return true;
+    }
+
     [[nodiscard]] bool try_write(std::span<std::byte const> src) noexcept {
         if (writable_size() < src.size()) {
             return false;
@@ -108,6 +119,7 @@ public:
 
         std::size_t const idx = write_index();
         std::size_t const first = std::min(src.size(), N - idx);
+
         if (first > 0) {
             detail::ring_buffer::copy_bytes(storage_.get() + idx, src.data(), first);
 
@@ -118,15 +130,7 @@ public:
 
             write_seq_ += src.size();
         }
-        return true;
-    }
 
-    [[nodiscard]] bool try_consume(std::size_t n) noexcept {
-        if (size() < n) {
-            return false;
-        }
-
-        read_seq_ += n;
         return true;
     }
 
