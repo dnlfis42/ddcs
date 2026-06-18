@@ -9,6 +9,10 @@ target_sources(
             BASE_DIRS include
             FILES include/ddcs/wire/acmp/message.hpp
 )
-target_link_libraries(ddcs_wire_acmp PRIVATE compile_option PUBLIC ddcs::common)
+target_link_libraries(
+    ddcs_wire_acmp
+    PRIVATE ddcs::build_options
+    PUBLIC ddcs::cxx_standard ddcs::common
+)
 
 add_subdirectory(test/unit)

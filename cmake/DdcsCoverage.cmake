@@ -1,5 +1,7 @@
 include_guard(GLOBAL)
 
+include(DdcsBuildOptions)
+
 if(NOT DDCS_ENABLE_COVERAGE)
     return()
 endif()
@@ -19,10 +21,6 @@ if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     message(FATAL_ERROR "DDCS_ENABLE_COVERAGE requires GCC/gcov")
 endif()
 
-if(NOT TARGET compile_option)
-    add_library(compile_option INTERFACE)
-endif()
+target_compile_options(ddcs_build_options INTERFACE -O0 -g --coverage)
 
-target_compile_options(compile_option INTERFACE -O0 -g --coverage)
-
-target_link_options(compile_option INTERFACE --coverage)
+target_link_options(ddcs_build_options INTERFACE --coverage)

@@ -6,6 +6,7 @@ add_subdirectory(infra)
 # 공개 facade 타깃
 add_library(ddcs_agent STATIC)
 add_library(ddcs::agent ALIAS ddcs_agent)
+
 target_sources(
     ddcs_agent
     PRIVATE src/agent.cpp
@@ -13,8 +14,13 @@ target_sources(
 )
 target_link_libraries(
     ddcs_agent
-    PRIVATE compile_option ddcs::io ddcs::agent::infra
-    PUBLIC ddcs::common ddcs::logger ddcs::agent::domain ddcs::agent::app
+    PRIVATE ddcs::build_options ddcs::io ddcs::agent::infra
+    PUBLIC
+        ddcs::cxx_standard
+        ddcs::agent::app
+        ddcs::agent::domain
+        ddcs::logger
+        ddcs::common
 )
 
 add_subdirectory(test/unit)

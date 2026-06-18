@@ -6,6 +6,10 @@ target_sources(
     PRIVATE src/value.cpp
     PUBLIC FILE_SET HEADERS BASE_DIRS include FILES include/ddcs/json/value.hpp
 )
-target_link_libraries(ddcs_json PRIVATE compile_option)
+target_link_libraries(
+    ddcs_json
+    PRIVATE ddcs::build_options
+    PUBLIC ddcs::cxx_standard
+)
 
 add_subdirectory(test/unit)

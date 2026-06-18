@@ -23,8 +23,8 @@ target_sources(
 )
 target_link_libraries(
     ddcs_ctrl_infra
-    PRIVATE compile_option ddcs::logger ddcs::wire::frame
-    PUBLIC ddcs::common ddcs::ctrl::app ddcs::io
+    PRIVATE ddcs::build_options ddcs::wire::frame ddcs::logger
+    PUBLIC ddcs::cxx_standard ddcs::ctrl::app ddcs::io ddcs::common
 )
 
 add_subdirectory(test/unit)

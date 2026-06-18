@@ -6,6 +6,7 @@ add_subdirectory(infra)
 # 공개 facade 타깃
 add_library(ddcs_ctrl STATIC)
 add_library(ddcs::ctrl ALIAS ddcs_ctrl)
+
 target_sources(
     ddcs_ctrl
     PRIVATE src/controller.cpp
@@ -17,13 +18,13 @@ target_sources(
 target_link_libraries(
     ddcs_ctrl
     PRIVATE
-        compile_option
+        ddcs::build_options
+        ddcs::ctrl::infra
         ddcs::ctrl::app
         ddcs::ctrl::domain
-        ddcs::ctrl::infra
         ddcs::io
         ddcs::json
-    PUBLIC ddcs::common ddcs::device ddcs::logger
+    PUBLIC ddcs::cxx_standard ddcs::logger ddcs::device ddcs::common
 )
 
 add_subdirectory(test/unit)

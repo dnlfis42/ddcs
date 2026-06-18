@@ -1,6 +1,5 @@
-add_executable(ddcs_wire_acmp_message_test ddcs_wire_acmp_message_test.cpp)
-target_link_libraries(
+ddcs_add_unit_test(
     ddcs_wire_acmp_message_test
-    PRIVATE compile_option ddcs::wire::acmp GTest::gtest_main
+    SOURCES ddcs_wire_acmp_message_test.cpp
+    LIBRARIES ddcs::wire::acmp
 )
-add_test(NAME ddcs_wire_acmp_message_test COMMAND ddcs_wire_acmp_message_test)

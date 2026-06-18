@@ -1,25 +1,11 @@
-add_executable(
+ddcs_add_unit_test(
     ddcs_agent_domain_dummy_device_test
-    ddcs_agent_domain_dummy_device_test.cpp
-)
-target_link_libraries(
-    ddcs_agent_domain_dummy_device_test
-    PRIVATE compile_option ddcs::agent::domain ddcs::device GTest::gtest_main
-)
-add_test(
-    NAME ddcs_agent_domain_dummy_device_test
-    COMMAND ddcs_agent_domain_dummy_device_test
+    SOURCES ddcs_agent_domain_dummy_device_test.cpp
+    LIBRARIES ddcs::agent::domain ddcs::device
 )
 
-add_executable(
+ddcs_add_unit_test(
     ddcs_agent_domain_simulated_device_test
-    ddcs_agent_domain_simulated_device_test.cpp
-)
-target_link_libraries(
-    ddcs_agent_domain_simulated_device_test
-    PRIVATE compile_option ddcs::agent::domain ddcs::device GTest::gtest_main
-)
-add_test(
-    NAME ddcs_agent_domain_simulated_device_test
-    COMMAND ddcs_agent_domain_simulated_device_test
+    SOURCES ddcs_agent_domain_simulated_device_test.cpp
+    LIBRARIES ddcs::agent::domain ddcs::device
 )

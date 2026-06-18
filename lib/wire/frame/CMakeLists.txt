@@ -9,6 +9,10 @@ target_sources(
             BASE_DIRS include
             FILES include/ddcs/wire/frame/frame.hpp
 )
-target_link_libraries(ddcs_wire_frame PRIVATE compile_option ddcs::common)
+target_link_libraries(
+    ddcs_wire_frame
+    PRIVATE ddcs::build_options ddcs::common
+    PUBLIC ddcs::cxx_standard
+)
 
 add_subdirectory(test/unit)

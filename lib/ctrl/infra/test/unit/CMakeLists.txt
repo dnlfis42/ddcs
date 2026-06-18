@@ -1,30 +1,14 @@
-add_executable(
+ddcs_add_unit_test(
     ddcs_ctrl_infra_frame_server_test
-    ddcs_ctrl_infra_frame_server_test.cpp
-)
-target_link_libraries(
-    ddcs_ctrl_infra_frame_server_test
-    PRIVATE
-        compile_option
+    SOURCES ddcs_ctrl_infra_frame_server_test.cpp
+    LIBRARIES
         ddcs::ctrl::infra
-        ddcs::wire::frame
         ddcs::io
-        GTest::gtest_main
-)
-add_test(
-    NAME ddcs_ctrl_infra_frame_server_test
-    COMMAND ddcs_ctrl_infra_frame_server_test
+        ddcs::wire::frame
 )
 
-add_executable(
+ddcs_add_unit_test(
     ddcs_ctrl_infra_prometheus_server_test
-    ddcs_ctrl_infra_prometheus_server_test.cpp
-)
-target_link_libraries(
-    ddcs_ctrl_infra_prometheus_server_test
-    PRIVATE compile_option ddcs::ctrl::infra ddcs::io GTest::gtest_main
-)
-add_test(
-    NAME ddcs_ctrl_infra_prometheus_server_test
-    COMMAND ddcs_ctrl_infra_prometheus_server_test
+    SOURCES ddcs_ctrl_infra_prometheus_server_test.cpp
+    LIBRARIES ddcs::ctrl::infra ddcs::io
 )

@@ -6,6 +6,10 @@ target_sources(
     PRIVATE src/log.cpp
     PUBLIC FILE_SET HEADERS BASE_DIRS include FILES include/ddcs/logger/log.hpp
 )
-target_link_libraries(ddcs_logger PRIVATE compile_option)
+target_link_libraries(
+    ddcs_logger
+    PRIVATE ddcs::build_options
+    PUBLIC ddcs::cxx_standard
+)
 
 add_subdirectory(test/unit)

@@ -1,35 +1,32 @@
 include_guard(GLOBAL)
 
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
-    set_property(
-        CACHE CMAKE_BUILD_TYPE
-        PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo" "MinSizeRel"
-    )
+if(NOT TARGET ddcs_cxx_standard)
+    add_library(ddcs_cxx_standard INTERFACE)
+    add_library(ddcs::cxx_standard ALIAS ddcs_cxx_standard)
 endif()
 
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_COLOR_DIAGNOSTICS ON)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-option(DDCS_WARNING_AS_ERROR "Treat warnings as errors" OFF)
-option(DDCS_ENABLE_ASAN "Enable ASan + UBSan" OFF)
-option(DDCS_ENABLE_TSAN "Enable TSan" OFF)
-option(DDCS_ENABLE_COVERAGE "Enable gcov coverage instrumentation" OFF)
-option(DDCS_ENABLE_BENCHMARK "Build benchmarks" OFF)
-
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-
-if(CMAKE_CONFIGURATION_TYPES)
-    message(STATUS "[ddcs] Build types: ${CMAKE_CONFIGURATION_TYPES}")
-else()
-    message(STATUS "[ddcs] Build type: ${CMAKE_BUILD_TYPE}")
+if(NOT TARGET ddcs_warning_options)
+    add_library(ddcs_warning_options INTERFACE)
+    add_library(ddcs::warning_options ALIAS ddcs_warning_options)
 endif()
 
-message(STATUS "[ddcs] Warning as error: ${DDCS_WARNING_AS_ERROR}")
-message(STATUS "[ddcs] Address Sanitizer: ${DDCS_ENABLE_ASAN}")
-message(STATUS "[ddcs] Thread Sanitizer: ${DDCS_ENABLE_TSAN}")
-message(STATUS "[ddcs] Coverage: ${DDCS_ENABLE_COVERAGE}")
-message(STATUS "[ddcs] Benchmark: ${DDCS_ENABLE_BENCHMARK}")
+if(NOT TARGET ddcs_build_options)
+    add_library(ddcs_build_options INTERFACE)
+    add_library(ddcs::build_options ALIAS ddcs_build_options)
+endif()
+
+target_compile_features(ddcs_cxx_standard INTERFACE cxx_std_20)
+
+target_compile_options(
+    ddcs_warning_options
+    INTERFACE
+        "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-Wall;-Wextra;-Wpedantic;-Wshadow;-Wconversion;-Wsign-conversion>"
+        "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/W4;/permissive->"
+        "$<$<AND:$<BOOL:${DDCS_WARNING_AS_ERROR}>,$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>>:-Werror>"
+        "$<$<AND:$<BOOL:${DDCS_WARNING_AS_ERROR}>,$<COMPILE_LANG_AND_ID:CXX,MSVC>>:/WX>"
+)
+
+target_link_libraries(
+    ddcs_build_options
+    INTERFACE ddcs::cxx_standard ddcs::warning_options
+)

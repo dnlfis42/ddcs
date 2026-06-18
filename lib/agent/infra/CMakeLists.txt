@@ -17,8 +17,8 @@ target_sources(
 )
 target_link_libraries(
     ddcs_agent_infra
-    PRIVATE compile_option ddcs::logger ddcs::wire::frame
-    PUBLIC ddcs::common ddcs::io ddcs::agent::app
+    PRIVATE ddcs::build_options ddcs::wire::frame ddcs::logger
+    PUBLIC ddcs::cxx_standard ddcs::agent::app ddcs::io ddcs::common
 )
 
 add_subdirectory(test/unit)

@@ -20,6 +20,10 @@ target_sources(
                 include/ddcs/io/detail/timer_queue.hpp
                 include/ddcs/io/detail/timer_registration_table.hpp
 )
-target_link_libraries(ddcs_io PRIVATE compile_option PUBLIC ddcs::common)
+target_link_libraries(
+    ddcs_io
+    PRIVATE ddcs::build_options
+    PUBLIC ddcs::cxx_standard ddcs::common
+)
 
 add_subdirectory(test/unit)

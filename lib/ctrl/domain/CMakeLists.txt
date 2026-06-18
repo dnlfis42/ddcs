@@ -15,8 +15,8 @@ target_sources(
 )
 target_link_libraries(
     ddcs_ctrl_domain
-    PRIVATE compile_option
-    PUBLIC ddcs::common ddcs::device
+    PRIVATE ddcs::build_options
+    PUBLIC ddcs::cxx_standard ddcs::device ddcs::common
 )
 
 add_subdirectory(test/unit)

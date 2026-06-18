@@ -12,6 +12,10 @@ target_sources(
                 include/ddcs/device/mode.hpp
                 include/ddcs/device/status.hpp
 )
-target_link_libraries(ddcs_device PRIVATE compile_option PUBLIC ddcs::common)
+target_link_libraries(
+    ddcs_device
+    PRIVATE ddcs::build_options
+    PUBLIC ddcs::cxx_standard ddcs::common
+)
 
 add_subdirectory(test/unit)

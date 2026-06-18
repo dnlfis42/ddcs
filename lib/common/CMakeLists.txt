@@ -17,6 +17,6 @@ target_sources(
                 include/ddcs/common/throw_errno.hpp
                 include/ddcs/common/uuid.hpp
 )
-target_link_libraries(ddcs_common INTERFACE compile_option)
+target_link_libraries(ddcs_common INTERFACE ddcs::cxx_standard)
 
 add_subdirectory(test/unit)

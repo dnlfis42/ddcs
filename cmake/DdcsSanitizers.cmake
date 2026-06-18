@@ -1,5 +1,7 @@
 include_guard(GLOBAL)
 
+include(DdcsBuildOptions)
+
 if(DDCS_ENABLE_ASAN AND DDCS_ENABLE_TSAN)
     message(
         FATAL_ERROR
@@ -14,19 +16,15 @@ if(
     message(FATAL_ERROR "DDCS sanitizers require GCC, Clang, or AppleClang")
 endif()
 
-if(NOT TARGET compile_option)
-    add_library(compile_option INTERFACE)
-endif()
-
 target_compile_options(
-    compile_option
+    ddcs_build_options
     INTERFACE
         "$<$<BOOL:${DDCS_ENABLE_ASAN}>:-fsanitize=address;-fsanitize=undefined;-fno-omit-frame-pointer>"
         "$<$<BOOL:${DDCS_ENABLE_TSAN}>:-fsanitize=thread;-fno-omit-frame-pointer>"
 )
 
 target_link_options(
-    compile_option
+    ddcs_build_options
     INTERFACE
         "$<$<BOOL:${DDCS_ENABLE_ASAN}>:-fsanitize=address;-fsanitize=undefined>"
         "$<$<BOOL:${DDCS_ENABLE_TSAN}>:-fsanitize=thread>"

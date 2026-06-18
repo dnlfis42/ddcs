@@ -44,15 +44,14 @@ target_sources(
 )
 target_link_libraries(
     ddcs_ctrl_app
-    PRIVATE
-        compile_option
-        ddcs::logger
+    PRIVATE ddcs::build_options ddcs::logger
     PUBLIC
-        ddcs::common
+        ddcs::cxx_standard
         ddcs::ctrl::domain
-        ddcs::device
-        ddcs::json
         ddcs::wire::acmp
+        ddcs::json
+        ddcs::device
+        ddcs::common
 )
 
 add_subdirectory(test/unit)

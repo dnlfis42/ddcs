@@ -1,6 +1,5 @@
-add_executable(ddcs_json_value_test ddcs_json_value_test.cpp)
-target_link_libraries(
+ddcs_add_unit_test(
     ddcs_json_value_test
-    PRIVATE compile_option ddcs::json GTest::gtest_main
+    SOURCES ddcs_json_value_test.cpp
+    LIBRARIES ddcs::json
 )
-add_test(NAME ddcs_json_value_test COMMAND ddcs_json_value_test)
