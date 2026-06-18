@@ -1,13 +1,13 @@
 #include "ddcs/logger/log.hpp"
 
-#include <algorithm>
+#include "ddcs/json/writer.hpp"
+
 #include <array>
 #include <cctype>
 #include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
-#include <cstring>
 #include <ctime>
 #include <string>
 #include <string_view>
@@ -15,20 +15,6 @@
 namespace ddcs::logger {
 
 namespace {
-
-constexpr std::string_view level_name(Level lvl) noexcept {
-    switch (lvl) {
-    case Level::Debug:
-        return "DEBUG";
-    case Level::Info:
-        return "INFO";
-    case Level::Warn:
-        return "WARN";
-    case Level::Error:
-        return "ERROR";
-    }
-    return "UNKNOWN";
-}
 
 // 파일 경로에서 basename(마지막 '/' 이후) 추출. 컴파일타임 const char* 입력
 constexpr std::string_view basename_of(char const* path) noexcept {
@@ -41,7 +27,7 @@ constexpr std::string_view basename_of(char const* path) noexcept {
 }
 
 // ISO8601 UTC + ms 정밀도. e.g. "2026-05-28T12:34:56.789Z"
-void append_iso8601(std::string& buf) {
+void append_iso8601_utc(std::string& out) {
     auto const now = std::chrono::system_clock::now();
     auto const sec = std::chrono::time_point_cast<std::chrono::seconds>(now);
     auto const ms =
@@ -58,80 +44,22 @@ void append_iso8601(std::string& buf) {
         tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, static_cast<int>(ms)
     );
     if (n > 0) {
-        buf.append(tmp.data(), static_cast<std::size_t>(n));
-    }
-}
-
-// JSON 문자열 escape가 필요한 byte 인지
-constexpr bool needs_escape(unsigned char c) noexcept {
-    return c == '"' || c == '\\' || c < 0x20;
-}
-
-void append_json_escaped(std::string& buf, std::string_view s) {
-    // fast path: escape 대상 없으면 한 번에 memcpy
-    auto const first = std::find_if(s.begin(), s.end(), [](char c) {
-        return needs_escape(static_cast<unsigned char>(c));
-    });
-
-    if (first == s.end()) {
-        buf.append(s.data(), s.size());
-        return;
-    }
-
-    // 일치 전까지는 통째로 복사
-    buf.append(s.data(), static_cast<std::size_t>(first - s.begin()));
-    for (auto it = first; it != s.end(); ++it) {
-        unsigned char const c = static_cast<unsigned char>(*it);
-        switch (c) {
-        case '"':
-            buf.append("\\\"", 2);
-            break;
-        case '\\':
-            buf.append("\\\\", 2);
-            break;
-        case '\n':
-            buf.append("\\n", 2);
-            break;
-        case '\r':
-            buf.append("\\r", 2);
-            break;
-        case '\t':
-            buf.append("\\t", 2);
-            break;
-        case '\b':
-            buf.append("\\b", 2);
-            break;
-        case '\f':
-            buf.append("\\f", 2);
-            break;
-        default:
-            if (c < 0x20) {
-                std::array<char, 8> tmp{};
-                int const n =
-                    std::snprintf(tmp.data(), tmp.size(), "\\u%04x", static_cast<unsigned>(c));
-                if (n > 0) {
-                    buf.append(tmp.data(), static_cast<std::size_t>(n));
-                }
-            } else {
-                buf.push_back(static_cast<char>(c));
-            }
-            break;
-        }
+        out.append(tmp.data(), static_cast<std::size_t>(n));
     }
 }
 
 template <typename T>
-void append_int(std::string& buf, T v) {
+void append_decimal(std::string& out, T value) {
     std::array<char, 32> tmp{};
-    auto const r = std::to_chars(tmp.data(), tmp.data() + tmp.size(), v);
-    if (r.ec == std::errc{}) {
-        buf.append(tmp.data(), static_cast<std::size_t>(r.ptr - tmp.data()));
+    auto const result = std::to_chars(tmp.data(), tmp.data() + tmp.size(), value);
+    if (result.ec == std::errc{}) {
+        out.append(tmp.data(), static_cast<std::size_t>(result.ptr - tmp.data()));
     }
 }
 
 } // namespace
 
-Level level_from_string(std::string_view name, Level fallback) noexcept {
+std::optional<Level> parse_level(std::string_view text) noexcept {
     auto const ieq = [](std::string_view a, std::string_view lower) noexcept {
         if (a.size() != lower.size()) {
             return false;
@@ -146,89 +74,25 @@ Level level_from_string(std::string_view name, Level fallback) noexcept {
         return true;
     };
 
-    if (ieq(name, "debug")) {
+    if (ieq(text, "debug")) {
         return Level::Debug;
     }
-    if (ieq(name, "info")) {
+    if (ieq(text, "info")) {
         return Level::Info;
     }
-    if (ieq(name, "warn") || ieq(name, "warning")) {
+    if (ieq(text, "warn") || ieq(text, "warning")) {
         return Level::Warn;
     }
-    if (ieq(name, "error")) {
+    if (ieq(text, "error")) {
         return Level::Error;
     }
-    return fallback;
+    return std::nullopt;
 }
-
-namespace detail {
-
-void append_value(std::string& buf, std::string_view v) {
-    buf.push_back('"');
-    append_json_escaped(buf, v);
-    buf.push_back('"');
-}
-
-void append_value(std::string& buf, bool v) {
-    buf.append(v ? "true" : "false");
-}
-
-void append_value(std::string& buf, std::nullptr_t) {
-    buf.append("null", 4);
-}
-
-void append_value(std::string& buf, double v) {
-    std::array<char, 32> tmp{};
-    auto const r = std::to_chars(tmp.data(), tmp.data() + tmp.size(), v);
-    if (r.ec == std::errc{}) {
-        buf.append(tmp.data(), static_cast<std::size_t>(r.ptr - tmp.data()));
-    } else {
-        buf.append("null", 4); // NaN/Inf 등은 JSON 표준에 없으므로 null
-    }
-}
-
-void append_value(std::string& buf, std::int64_t v) {
-    append_int(buf, v);
-}
-
-void append_value(std::string& buf, std::uint64_t v) {
-    append_int(buf, v);
-}
-
-void build_header(
-    std::string& buf, Level lvl, std::source_location const& loc, std::string_view msg
-) {
-    buf.append("{\"ts\":\"", 7);
-    append_iso8601(buf);
-    buf.append("\",\"level\":\"", 11);
-    buf.append(level_name(lvl));
-    buf.append("\",\"file\":\"", 10);
-    append_json_escaped(buf, basename_of(loc.file_name()));
-    buf.append("\",\"line\":", 9);
-    append_int(buf, static_cast<std::uint32_t>(loc.line()));
-    buf.append(",\"msg\":\"", 8);
-    append_json_escaped(buf, msg);
-    buf.push_back('"');
-}
-
-void finish_line(std::string& buf) {
-    buf.push_back('}');
-}
-
-std::string& thread_buffer() noexcept {
-    thread_local std::string buf;
-    if (buf.capacity() < 256) {
-        buf.reserve(256);
-    }
-    return buf;
-}
-
-} // namespace detail
 
 void StdoutSink::write(std::string_view line) noexcept {
     std::fwrite(line.data(), 1, line.size(), stdout);
     std::fputc('\n', stdout);
-    // 컨테이너 stdout은 fully-buffered 라 명시 flush 필요. 가시성 우선
+    // 컨테이너 stdout은 fully-buffered라 명시 flush 필요. 가시성 우선
     std::fflush(stdout);
 }
 
@@ -239,6 +103,66 @@ void StdoutSink::flush() noexcept {
 Logger& Logger::instance() noexcept {
     static Logger inst;
     return inst;
+}
+
+std::string& Logger::line_buffer() noexcept {
+    thread_local std::string buffer;
+    if (buffer.capacity() < 256) {
+        buffer.reserve(256);
+    }
+    return buffer;
+}
+
+void Logger::append_timestamp_field(std::string& out) {
+    out += "\"ts\":\"";
+    append_iso8601_utc(out);
+    out.push_back('"');
+}
+
+void Logger::append_level_field(std::string& out, Level level) {
+    out += ",\"level\":";
+    json::append_string_literal(out, to_string(level));
+}
+
+void Logger::append_event_field(std::string& out, std::string_view event) {
+    out += ",\"event\":";
+    json::append_string_literal(out, event);
+}
+
+void Logger::append_callsite_fields(std::string& out, std::source_location const& location) {
+    out += ",\"file\":";
+    json::append_string_literal(out, basename_of(location.file_name()));
+    out += ",\"line\":";
+    append_decimal(out, static_cast<std::uint32_t>(location.line()));
+}
+
+void Logger::append_field_key(std::string& out, std::string_view key) {
+    json::append_string_literal(out, key);
+}
+
+void Logger::append_null(std::string& out) {
+    json::append_null(out);
+}
+
+void Logger::append_bool(std::string& out, bool value) {
+    json::append_bool(out, value);
+}
+
+void Logger::append_number(std::string& out, std::int64_t value) {
+    json::append_number(out, value);
+}
+
+// json::append_number는 int64만 받아 u64 max에서 overflow. uint64는 직접 십진 출력
+void Logger::append_number(std::string& out, std::uint64_t value) {
+    append_decimal(out, value);
+}
+
+void Logger::append_number(std::string& out, double value) {
+    json::append_number(out, value);
+}
+
+void Logger::append_string_literal(std::string& out, std::string_view value) {
+    json::append_string_literal(out, value);
 }
 
 } // namespace ddcs::logger

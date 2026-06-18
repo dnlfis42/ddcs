@@ -9,8 +9,10 @@ int main() {
     cfg.metrics_port = 9090;
     char const* policy_path = std::getenv("DDCS_POLICY_PATH");
     cfg.policy_path = policy_path != nullptr ? policy_path : "config/policy.json";
-    if (char const* lvl = std::getenv("DDCS_LOG_LEVEL")) {
-        cfg.log_level = ddcs::logger::level_from_string(lvl, cfg.log_level);
+    if (char const* level_text = std::getenv("DDCS_LOG_LEVEL")) {
+        if (auto const level = ddcs::logger::parse_level(level_text)) {
+            cfg.log_level = *level;
+        }
     }
 
     ddcs::ctrl::Controller controller{std::move(cfg)};

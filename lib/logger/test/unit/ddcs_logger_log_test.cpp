@@ -2,14 +2,14 @@
 
 #include "ddcs/json/value.hpp"
 
-#include <gtest/gtest.h>
-
+#include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <cstdint>
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -34,7 +34,7 @@ protected:
     CaptureSink sink;
 };
 
-// 헤더에 ts/level/file/line/msg가 포함되는지
+// 헤더에 ts/level/event/file/line이 포함되는지
 TEST_F(LogTest, EmitsRequiredHeaderFields) {
     LOG_INFO("hello");
     ASSERT_EQ(sink.lines.size(), 1u);
@@ -43,7 +43,7 @@ TEST_F(LogTest, EmitsRequiredHeaderFields) {
     EXPECT_NE(l.find("\"level\":\"INFO\""), std::string::npos);
     EXPECT_NE(l.find("\"file\":\""), std::string::npos);
     EXPECT_NE(l.find("\"line\":"), std::string::npos);
-    EXPECT_NE(l.find("\"msg\":\"hello\""), std::string::npos);
+    EXPECT_NE(l.find("\"event\":\"hello\""), std::string::npos);
     EXPECT_EQ(l.back(), '}');
 }
 
@@ -122,11 +122,25 @@ TEST_F(LogTest, JsonEscapesLowControl) {
     EXPECT_NE(sink.lines.front().find("\"s\":\"\\u0001\""), std::string::npos);
 }
 
-// msg도 escape
-TEST_F(LogTest, MsgEscaped) {
+// JSON escape: key도 문자열 literal로 escape
+TEST_F(LogTest, JsonEscapesFieldKey) {
+    using ddcs::logger::kv;
+    LOG_INFO("evt", kv("a\"b", 7));
+
+    ASSERT_EQ(sink.lines.size(), 1u);
+    EXPECT_NE(sink.lines.front().find("\"a\\\"b\":7"), std::string::npos);
+
+    auto const parsed = ddcs::json::parse(sink.lines.front());
+    ASSERT_TRUE(parsed.has_value()) << "JSON parse must succeed for logger output";
+    ASSERT_NE(parsed->find("a\"b"), nullptr);
+    EXPECT_EQ(parsed->find("a\"b")->as_int64(), std::optional<std::int64_t>{7});
+}
+
+// event도 escape
+TEST_F(LogTest, EventEscaped) {
     LOG_INFO("a\"b");
     ASSERT_EQ(sink.lines.size(), 1u);
-    EXPECT_NE(sink.lines.front().find("\"msg\":\"a\\\"b\""), std::string::npos);
+    EXPECT_NE(sink.lines.front().find("\"event\":\"a\\\"b\""), std::string::npos);
 }
 
 // source_location: 한 줄 위/아래 라인 번호가 다르게 캡처되는지
@@ -157,6 +171,28 @@ TEST_F(LogTest, FileFieldIsBasename) {
     EXPECT_NE(l.find("\"file\":\"ddcs_logger_log_test.cpp\""), std::string::npos);
 }
 
+// 사람이 읽는 주요 정보(event, kv)를 먼저 두고 source 위치는 마지막 metadata로 둔다.
+TEST_F(LogTest, SourceLocationFieldsAreLast) {
+    using ddcs::logger::kv;
+    LOG_INFO("evt", kv("conn", 7));
+
+    ASSERT_EQ(sink.lines.size(), 1u);
+    auto const& l = sink.lines.front();
+    auto const event_pos = l.find("\"event\":\"evt\"");
+    auto const conn_pos = l.find("\"conn\":7");
+    auto const file_pos = l.find("\"file\":\"ddcs_logger_log_test.cpp\"");
+    auto const line_pos = l.find("\"line\":");
+
+    ASSERT_NE(event_pos, std::string::npos);
+    ASSERT_NE(conn_pos, std::string::npos);
+    ASSERT_NE(file_pos, std::string::npos);
+    ASSERT_NE(line_pos, std::string::npos);
+    EXPECT_LT(event_pos, conn_pos);
+    EXPECT_LT(conn_pos, file_pos);
+    EXPECT_LT(file_pos, line_pos);
+    EXPECT_EQ(l.back(), '}');
+}
+
 // enum kv: underlying integer로 직렬화
 TEST_F(LogTest, KvEnum) {
     using ddcs::logger::kv;
@@ -166,7 +202,22 @@ TEST_F(LogTest, KvEnum) {
     EXPECT_NE(sink.lines.front().find("\"e\":7"), std::string::npos);
 }
 
-// 로거 출력이 substring이 아니라 *유효한 JSON* 인지. ddcs::json 파서로 교차검증 (escape 라운드트립)
+// JSON number: NaN/Inf는 표준 JSON 값이 아니므로 null
+TEST_F(LogTest, KvNonFiniteDoubleAsNull) {
+    using ddcs::logger::kv;
+    LOG_INFO(
+        "evt", kv("inf", std::numeric_limits<double>::infinity()),
+        kv("ninf", -std::numeric_limits<double>::infinity()),
+        kv("nan", std::numeric_limits<double>::quiet_NaN())
+    );
+
+    ASSERT_EQ(sink.lines.size(), 1u);
+    EXPECT_NE(sink.lines.front().find("\"inf\":null"), std::string::npos);
+    EXPECT_NE(sink.lines.front().find("\"ninf\":null"), std::string::npos);
+    EXPECT_NE(sink.lines.front().find("\"nan\":null"), std::string::npos);
+}
+
+// 로거 출력이 substring이 아니라 유효한 JSON인지. ddcs::json 파서로 교차검증 (escape 라운드트립)
 TEST_F(LogTest, EmitsValidJsonParseableByJsonLib) {
     using ddcs::logger::kv;
     std::string tricky = "q\"b\\s\nt";
@@ -176,34 +227,33 @@ TEST_F(LogTest, EmitsValidJsonParseableByJsonLib) {
 
     ASSERT_EQ(sink.lines.size(), 1u);
     auto const parsed = ddcs::json::parse(sink.lines.front());
-    ASSERT_TRUE(parsed.has_value());
+    ASSERT_TRUE(parsed.has_value()) << "JSON parse must succeed for logger output";
     ASSERT_TRUE(parsed->is_object());
     EXPECT_EQ(parsed->find("level")->as_string(), std::optional<std::string_view>{"INFO"});
-    EXPECT_EQ(parsed->find("msg")->as_string(), std::optional<std::string_view>{"evt"});
-    EXPECT_EQ(parsed->find("id")->as_int(), std::optional<std::int64_t>{42});
+    EXPECT_EQ(parsed->find("event")->as_string(), std::optional<std::string_view>{"evt"});
+    EXPECT_EQ(parsed->find("id")->as_int64(), std::optional<std::int64_t>{42});
     EXPECT_EQ(parsed->find("ok")->as_bool(), std::optional<bool>{true});
     EXPECT_EQ(parsed->find("peer")->as_string(), std::optional<std::string_view>{"1.2.3.4:5"});
     // escape 후 parse로 원문 복원
     EXPECT_EQ(parsed->find("s")->as_string(), std::optional<std::string_view>{tricky});
 }
 
-// level_from_string: 대소문자 무시 매칭 + 미매칭 fallback
-TEST(LogLevelFromStringTest, ParsesKnownLevels) {
+// parse_level: 대소문자 무시 매칭 + alias 허용
+TEST(LogParseLevelTest, ParsesKnownLevels) {
     using ddcs::logger::Level;
-    using ddcs::logger::level_from_string;
-    EXPECT_EQ(level_from_string("debug", Level::Info), Level::Debug);
-    EXPECT_EQ(level_from_string("INFO", Level::Error), Level::Info);
-    EXPECT_EQ(level_from_string("Warn", Level::Info), Level::Warn);
-    EXPECT_EQ(level_from_string("warning", Level::Info), Level::Warn);
-    EXPECT_EQ(level_from_string("ERROR", Level::Info), Level::Error);
+    using ddcs::logger::parse_level;
+    EXPECT_EQ(parse_level("debug"), std::optional<Level>{Level::Debug});
+    EXPECT_EQ(parse_level("INFO"), std::optional<Level>{Level::Info});
+    EXPECT_EQ(parse_level("Warn"), std::optional<Level>{Level::Warn});
+    EXPECT_EQ(parse_level("warning"), std::optional<Level>{Level::Warn});
+    EXPECT_EQ(parse_level("ERROR"), std::optional<Level>{Level::Error});
 }
 
-TEST(LogLevelFromStringTest, FallsBackOnUnknown) {
-    using ddcs::logger::Level;
-    using ddcs::logger::level_from_string;
-    EXPECT_EQ(level_from_string("", Level::Warn), Level::Warn);
-    EXPECT_EQ(level_from_string("verbose", Level::Info), Level::Info);
-    EXPECT_EQ(level_from_string("inf", Level::Error), Level::Error); // 부분일치 불가
+TEST(LogParseLevelTest, ReturnsNulloptOnUnknown) {
+    using ddcs::logger::parse_level;
+    EXPECT_EQ(parse_level(""), std::nullopt);
+    EXPECT_EQ(parse_level("verbose"), std::nullopt);
+    EXPECT_EQ(parse_level("inf"), std::nullopt); // 부분일치 불가
 }
 
 // sink 없음. crash 없이 무시

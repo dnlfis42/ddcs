@@ -8,7 +8,7 @@ target_sources(
 )
 target_link_libraries(
     ddcs_logger
-    PRIVATE ddcs::build_options
+    PRIVATE ddcs::build_options ddcs::json
     PUBLIC ddcs::cxx_standard
 )
 

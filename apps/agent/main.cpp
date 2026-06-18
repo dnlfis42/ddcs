@@ -131,8 +131,10 @@ int main() {
     cfg.agent_uuid_is_ephemeral = uuid.ephemeral;
     cfg.session.group = get_env_or("DDCS_AGENT_GROUP", "edge");
     cfg.device = std::make_unique<ddcs::agent::domain::SimulatedDevice>();
-    if (char const* lvl = std::getenv("DDCS_LOG_LEVEL")) {
-        cfg.log_level = ddcs::logger::level_from_string(lvl, cfg.log_level);
+    if (char const* level_text = std::getenv("DDCS_LOG_LEVEL")) {
+        if (auto const level = ddcs::logger::parse_level(level_text)) {
+            cfg.log_level = *level;
+        }
     }
 
     ddcs::agent::Agent agent{std::move(cfg)};
