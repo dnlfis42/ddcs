@@ -12,7 +12,7 @@ concept byteswappable_unsigned =
     std::unsigned_integral<T> && !std::same_as<T, bool> &&
     (sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8);
 
-}
+} // namespace detail::endian
 
 template <detail::endian::byteswappable_unsigned T>
 [[nodiscard]] constexpr T byteswap(T v) noexcept {

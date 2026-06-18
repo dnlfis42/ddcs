@@ -66,17 +66,15 @@ public:
         Slot* slot_ = nullptr;
     };
 
+    // handle 소멸 시 객체는 reset() 후 pool로 반환된다.
     using Handle = std::unique_ptr<T, Deleter>;
 
     template <std::size_t ChunkSize = 64, typename... Args>
         requires(ChunkSize > 0) && detail::object_pool::pool_constructible_from<T, Args...>
     [[nodiscard]] static ObjectPool create(Args&&... args) {
-        return ObjectPool{
-            ChunkSize, // 청크 당 슬롯 개수
-            [... captured_args = std::forward<Args>(args)](void* storage) {
-                std::construct_at(static_cast<T*>(storage), captured_args...);
-            }
-        };
+        return ObjectPool{ChunkSize, [... captured_args = std::forward<Args>(args)](void* storage) {
+                              std::construct_at(static_cast<T*>(storage), captured_args...);
+                          }};
     }
 
     ~ObjectPool() {
@@ -114,6 +112,7 @@ public:
         }
     }
 
+    // CAUTION: 발급한 handle보다 pool이 먼저 소멸하면 std::terminate된다.
     [[nodiscard]] Handle acquire() {
         if (available_head_ == nullptr) [[unlikely]] {
             add_chunk();
@@ -189,7 +188,7 @@ private:
 
     void ensure_all_objects_released() const noexcept {
         if (available_count_ != capacity_) {
-            assert(false && "ObjectPool destroyed while objects are still alive");
+            assert(false && "ObjectPool destroyed while handles are still alive");
             std::terminate();
         }
     }

@@ -18,6 +18,7 @@ namespace ddcs::common {
 
 namespace detail::ring_buffer {
 
+// 2의 거듭제곱 용량만 허용한다. index를 seq & (N - 1) 마스크로 계산하기 때문이다.
 template <std::size_t N>
 concept valid_capacity = (N > 0) && ((N & (N - 1)) == 0);
 

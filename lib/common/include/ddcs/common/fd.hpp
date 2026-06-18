@@ -4,7 +4,7 @@
 
 namespace ddcs::common {
 
-// POSIX fd 래퍼
+// POSIX fd의 RAII 소유자. 소멸 시 close한다.
 class Fd {
 public:
     static constexpr int invalid = -1;
@@ -52,6 +52,7 @@ public:
     }
 
     void reset(int fd = invalid) noexcept {
+        // 같은 fd로 reset하면 self-close를 피해 그대로 둔다.
         if (fd_ == fd) {
             return;
         }
