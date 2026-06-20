@@ -14,24 +14,24 @@ using ddcs::common::PoolHandle;
 using ddcs::common::detail::object_pool::resettable;
 
 struct Item {
-    int value{0};
-    int reset_count{0};
-
     void reset() noexcept {
         value = 0;
         ++reset_count;
     }
+
+    int value = 0;
+    int reset_count = 0;
 };
 
 struct ConstructedItem {
     explicit ConstructedItem(int value_in) noexcept
-        : value{value_in} {}
-
-    int value;
+        : value(value_in) {}
 
     void reset() noexcept {
         value = 0;
     }
+
+    int value;
 };
 
 struct ThrowingResetItem {

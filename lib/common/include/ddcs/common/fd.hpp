@@ -4,7 +4,8 @@
 
 namespace ddcs::common {
 
-// POSIX fd의 RAII 소유자. 소멸 시 close한다.
+// POSIX fd의 RAII 소유자
+//   소멸 시 close한다.
 class Fd {
 public:
     static constexpr int invalid = -1;
