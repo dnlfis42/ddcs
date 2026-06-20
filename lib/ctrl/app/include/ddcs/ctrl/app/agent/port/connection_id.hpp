@@ -1,11 +1,11 @@
 #pragma once
 
-#include "ddcs/common/strong_value.hpp"
+#include "ddcs/common/strong_id.hpp"
 
 #include <cstdint>
 
 namespace ddcs::ctrl::app::agent::port {
 
-using ConnectionId = common::StrongValue<struct ConnectionIdTag, std::uint64_t>;
+using ConnectionId = common::StrongId<struct ConnectionIdTag, std::uint64_t>;
 
 } // namespace ddcs::ctrl::app::agent::port

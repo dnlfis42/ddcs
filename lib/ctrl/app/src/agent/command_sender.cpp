@@ -45,10 +45,10 @@ bool CommandSender::try_send(
     // (복사 없는 조립 경로)
     std::array<std::byte, acmp::command_request_header_size> header{};
     auto const written =
-        acmp::encode_command_request_header(header, command_id.value(), command_type);
+        acmp::encode_command_request_header(header, command_id.get(), command_type);
     if (!written || !message->try_prepend(header)) {
         // headroom 계약 위반. make_command_buffer를 거치지 않은 buffer가 들어온 버그 신호
-        LOG_ERROR("command.send.encode_fail", logger::kv("command", command_id.value()));
+        LOG_ERROR("command.send.encode_fail", logger::kv("command", command_id.get()));
         return false;
     }
     sender_.send(target->conn(), std::move(message));

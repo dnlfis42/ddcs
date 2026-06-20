@@ -21,7 +21,7 @@ void LivenessMonitor::sweep(common::Clock::time_point now) {
     });
 
     for (auto const conn : stale_) {
-        LOG_WARN("agent.liveness_timeout", logger::kv("conn", conn.value()));
+        LOG_WARN("agent.liveness_timeout", logger::kv("conn", conn.get()));
         disconnector_.disconnect(conn);
         ++evicted_total_;
     }

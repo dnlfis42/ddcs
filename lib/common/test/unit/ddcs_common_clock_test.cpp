@@ -4,13 +4,13 @@
 
 #include <gtest/gtest.h>
 
-namespace ddcs::common {
-
 namespace {
 
 using namespace std::chrono_literals;
 
-} // namespace
+using ddcs::common::Clock;
+using ddcs::common::ManualClock;
+using ddcs::common::SteadyClock;
 
 TEST(SteadyClockTest, ReturnsMonotonicTime) {
     SteadyClock clock;
@@ -58,4 +58,4 @@ TEST(ClockTest, InterfaceReflectsManualClockState) {
     EXPECT_EQ(clock.now(), Clock::time_point{} + std::chrono::duration_cast<Clock::duration>(2s));
 }
 
-} // namespace ddcs::common
+} // namespace

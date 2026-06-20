@@ -6,9 +6,9 @@
 
 #include <gtest/gtest.h>
 
-namespace ddcs::common {
-
 namespace {
+
+using ddcs::common::LinearBuffer;
 
 constexpr std::size_t test_capacity = 16;
 
@@ -37,8 +37,6 @@ void expect_bytes_eq(std::span<std::byte const> actual, std::span<std::byte cons
         EXPECT_EQ(actual[i], expected[i]);
     }
 }
-
-} // namespace
 
 TEST(LinearBufferTest, StartsEmpty) {
     LinearBuffer lb{test_capacity};
@@ -342,4 +340,4 @@ TEST(LinearBufferTest, ResetsBufferState) {
     EXPECT_EQ(lb.tailroom_size(), test_capacity);
 }
 
-} // namespace ddcs::common
+} // namespace

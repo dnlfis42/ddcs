@@ -6,9 +6,9 @@
 
 #include <gtest/gtest.h>
 
-namespace ddcs::common {
-
 namespace {
+
+using ddcs::common::RingBuffer;
 
 template <std::size_t... Values>
 consteval bool all_valid_capacities() {
@@ -50,8 +50,6 @@ void expect_bytes_eq(std::span<std::byte const> actual, std::span<std::byte cons
         EXPECT_EQ(actual[i], expected[i]);
     }
 }
-
-} // namespace
 
 TEST(RingBufferTest, StartsEmpty) {
     RingBuffer<test_capacity> rb;
@@ -369,4 +367,4 @@ TEST(RingBufferTest, PreservesContentsAcrossRepeatedWraps) {
     EXPECT_TRUE(rb.empty());
 }
 
-} // namespace ddcs::common
+} // namespace

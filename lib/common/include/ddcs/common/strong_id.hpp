@@ -8,15 +8,15 @@ namespace ddcs::common {
 
 template <typename Tag, typename T>
     requires std::default_initializable<T> && std::equality_comparable<T>
-class StrongValue {
+class StrongId {
 public:
     static constexpr T invalid{};
 
-    constexpr StrongValue() = default;
-    constexpr explicit StrongValue(T value) noexcept
+    constexpr StrongId() = default;
+    constexpr explicit StrongId(T value) noexcept
         : value_(value) {}
 
-    [[nodiscard]] constexpr T value() const noexcept {
+    [[nodiscard]] constexpr T get() const noexcept {
         return value_;
     }
 
@@ -28,7 +28,11 @@ public:
         value_ = invalid;
     }
 
-    constexpr bool operator==(StrongValue const&) const = default;
+    constexpr void reset() noexcept {
+        clear();
+    }
+
+    constexpr bool operator==(StrongId const&) const = default;
 
 private:
     T value_ = invalid;
@@ -37,8 +41,8 @@ private:
 } // namespace ddcs::common
 
 template <typename Tag, typename T>
-struct std::hash<ddcs::common::StrongValue<Tag, T>> {
-    std::size_t operator()(ddcs::common::StrongValue<Tag, T> const& value) const noexcept {
-        return std::hash<T>{}(value.value());
+struct std::hash<ddcs::common::StrongId<Tag, T>> {
+    std::size_t operator()(ddcs::common::StrongId<Tag, T> const& value) const noexcept {
+        return std::hash<T>{}(value.get());
     }
 };

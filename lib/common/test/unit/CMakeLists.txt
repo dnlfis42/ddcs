@@ -35,8 +35,8 @@ ddcs_add_unit_test(
 )
 
 ddcs_add_unit_test(
-    ddcs_common_strong_value_test
-    SOURCES ddcs_common_strong_value_test.cpp
+    ddcs_common_strong_id_test
+    SOURCES ddcs_common_strong_id_test.cpp
     LIBRARIES ddcs::common
 )
 

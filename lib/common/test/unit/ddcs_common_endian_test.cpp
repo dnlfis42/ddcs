@@ -5,7 +5,13 @@
 
 #include <gtest/gtest.h>
 
-namespace ddcs::common {
+namespace {
+
+using ddcs::common::byteswap;
+using ddcs::common::from_be;
+using ddcs::common::from_le;
+using ddcs::common::to_be;
+using ddcs::common::to_le;
 
 TEST(EndianTest, ByteswapPreservesSingleByteValue) {
     EXPECT_EQ(byteswap(std::uint8_t{0x12}), std::uint8_t{0x12});
@@ -49,4 +55,4 @@ TEST(EndianTest, ConvertsFromLittleEndianRepresentation) {
     EXPECT_EQ(from_le(to_le(value)), value);
 }
 
-} // namespace ddcs::common
+} // namespace

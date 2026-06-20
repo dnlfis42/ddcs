@@ -26,11 +26,11 @@ private:
     }
 
     [[nodiscard]] static constexpr std::uint32_t unpack_index(TimerId id) noexcept {
-        return static_cast<std::uint32_t>(id.value());
+        return static_cast<std::uint32_t>(id.get());
     }
 
     [[nodiscard]] static constexpr std::uint32_t unpack_generation(TimerId id) noexcept {
-        return static_cast<std::uint32_t>(id.value() >> 32);
+        return static_cast<std::uint32_t>(id.get() >> 32);
     }
 
     [[nodiscard]] static constexpr std::uint32_t

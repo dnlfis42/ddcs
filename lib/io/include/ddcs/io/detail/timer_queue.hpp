@@ -26,7 +26,7 @@ private:
             if (lhs.deadline != rhs.deadline) {
                 return lhs.deadline > rhs.deadline;
             }
-            return lhs.id.value() > rhs.id.value();
+            return lhs.id.get() > rhs.id.get();
         }
     };
 

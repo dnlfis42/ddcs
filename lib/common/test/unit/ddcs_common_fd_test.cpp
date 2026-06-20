@@ -10,9 +10,9 @@
 
 #include <gtest/gtest.h>
 
-namespace ddcs::common {
-
 namespace {
+
+using ddcs::common::Fd;
 
 static_assert(!std::is_copy_constructible_v<Fd>);
 static_assert(!std::is_copy_assignable_v<Fd>);
@@ -38,8 +38,6 @@ bool is_closed(int fd) noexcept {
 void close_raw(int fd) noexcept {
     (void)::close(fd);
 }
-
-} // namespace
 
 TEST(FdTest, StartsInvalidByDefault) {
     Fd fd;
@@ -172,4 +170,4 @@ TEST(FdTest, PreservesDescriptorOnSelfMoveAssignment) {
     EXPECT_TRUE(is_open(raw));
 }
 
-} // namespace ddcs::common
+} // namespace

@@ -52,7 +52,7 @@ port::CommandId CommandService::dispatch(
     if (old_slot != device_commands.slots.end()) {
         ++superseded_total_;
         LOG_INFO(
-            "command.superseded", logger::kv("command", old_slot->id.value()),
+            "command.superseded", logger::kv("command", old_slot->id.get()),
             logger::kv("device", device.to_string())
         );
         device_commands.slots.erase(old_slot);
@@ -89,7 +89,7 @@ port::CommandId CommandService::dispatch(
 
     LOG_INFO(
         "command.dispatch", logger::kv("device", device.to_string()),
-        logger::kv("command", command_id.value())
+        logger::kv("command", command_id.get())
     );
     return command_id;
 }
@@ -100,14 +100,14 @@ void CommandService::acknowledge(
     Slot* const slot = find_slot(device, command_id);
     if (slot == nullptr) {
         ++stale_total_;
-        LOG_DEBUG("command.stale", logger::kv("command", command_id.value()));
+        LOG_DEBUG("command.stale", logger::kv("command", command_id.get()));
         return;
     }
 
     slot->acked = true;
     slot->phase = Phase::in_flight;
     slot->next_at = after(now, command_timeout_); // 작동 확인 후 outcome까지 연장
-    LOG_INFO("command.ack", logger::kv("command", command_id.value()));
+    LOG_INFO("command.ack", logger::kv("command", command_id.get()));
 }
 
 void CommandService::settle(
@@ -117,13 +117,13 @@ void CommandService::settle(
     Slot* const slot = find_slot(device, command_id);
     if (slot == nullptr) {
         ++stale_total_;
-        LOG_DEBUG("command.stale", logger::kv("command", command_id.value()));
+        LOG_DEBUG("command.stale", logger::kv("command", command_id.get()));
         return;
     }
 
     if (!success) {
         LOG_WARN(
-            "command.nack", logger::kv("command", command_id.value()), logger::kv("reason", reason)
+            "command.nack", logger::kv("command", command_id.get()), logger::kv("reason", reason)
         );
         fail_attempt(device, command_id, now); // NACK 시 재시도 또는 포기
         return;
@@ -134,7 +134,7 @@ void CommandService::settle(
         std::chrono::duration_cast<std::chrono::milliseconds>(rtt).count()
     );
     ++completed_total_;
-    LOG_INFO("command.outcome", logger::kv("command", command_id.value()));
+    LOG_INFO("command.outcome", logger::kv("command", command_id.get()));
     close_slot(device, command_id); // 성공 확정 시 미결 종료
 }
 
@@ -157,7 +157,7 @@ void CommandService::sweep(common::Clock::time_point now) {
         if (slot->phase == Phase::in_flight) {
             ++timed_out_total_;
             LOG_WARN(
-                "command.timeout", logger::kv("command", command_id.value()),
+                "command.timeout", logger::kv("command", command_id.get()),
                 logger::kv("device", device.to_string())
             );
             fail_attempt(device, command_id, now);
@@ -178,7 +178,7 @@ void CommandService::fail_attempt(
     if (slot->attempts >= max_attempts_) {
         ++gave_up_total_;
         LOG_WARN(
-            "command.gave_up", logger::kv("command", command_id.value()),
+            "command.gave_up", logger::kv("command", command_id.get()),
             logger::kv("device", device.to_string()), logger::kv("attempts", slot->attempts)
         );
         close_slot(device, command_id);
@@ -205,7 +205,7 @@ void CommandService::resend(
     if (!sender_.try_send(device, slot->id, slot->type, std::move(copy))) {
         ++gave_up_total_;
         LOG_WARN(
-            "command.gave_up", logger::kv("command", command_id.value()),
+            "command.gave_up", logger::kv("command", command_id.get()),
             logger::kv("device", device.to_string()), logger::kv("reason", "send_fail")
         );
         close_slot(device, command_id);
@@ -218,7 +218,7 @@ void CommandService::resend(
     slot->phase = Phase::in_flight;
     slot->next_at = after(now, command_timeout_);
     LOG_INFO(
-        "command.retry", logger::kv("command", command_id.value()),
+        "command.retry", logger::kv("command", command_id.get()),
         logger::kv("device", device.to_string()), logger::kv("attempt", slot->attempts)
     );
 }

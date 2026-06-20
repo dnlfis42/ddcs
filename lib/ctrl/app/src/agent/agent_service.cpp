@@ -27,16 +27,16 @@ AgentService::AgentService(
 void AgentService::on_connected(port::ConnectionId conn) {
     if (!agents_.add(conn, clock_.now())) {
         // infra 유일성 위반. 버그 신호
-        LOG_WARN("agent.connect.duplicate", logger::kv("conn", conn.value()));
+        LOG_WARN("agent.connect.duplicate", logger::kv("conn", conn.get()));
         return;
     }
-    LOG_INFO("agent.connected", logger::kv("conn", conn.value()));
+    LOG_INFO("agent.connected", logger::kv("conn", conn.get()));
 }
 
 void AgentService::on_disconnected(port::ConnectionId conn, port::DisconnectReason reason) {
     if (agents_.erase(conn)) {
         LOG_INFO(
-            "agent.disconnected", logger::kv("conn", conn.value()),
+            "agent.disconnected", logger::kv("conn", conn.get()),
             logger::kv("reason", static_cast<std::uint64_t>(reason))
         );
     }
@@ -47,7 +47,7 @@ void AgentService::on_message(port::ConnectionId conn, port::MessageBuffer paylo
     Agent* const agent = agents_.find(conn);
     if (agent == nullptr) {
         // 종료 직후 잔여. 무해
-        LOG_WARN("agent.message.unknown_conn", logger::kv("conn", conn.value()));
+        LOG_WARN("agent.message.unknown_conn", logger::kv("conn", conn.get()));
         return;
     }
 
@@ -89,14 +89,14 @@ void AgentService::handle_register_request(
 ) {
     auto const request = acmp::decode_register_request(body);
     if (!request) {
-        LOG_WARN("agent.register.decode_fail", logger::kv("conn", conn.value()));
+        LOG_WARN("agent.register.decode_fail", logger::kv("conn", conn.get()));
         disconnector_.disconnect(conn); // 식별 불가라 응답 없이 종료
         return;
     }
     domain::DeviceId const device = register_service_.enroll(request->id, request->group);
     if (!device.valid()) {
         LOG_WARN(
-            "agent.register.reject", logger::kv("conn", conn.value()),
+            "agent.register.reject", logger::kv("conn", conn.get()),
             logger::kv("why", "invalid identity")
         );
         send_register_outcome(conn, false);
@@ -106,7 +106,7 @@ void AgentService::handle_register_request(
     // kick-old(new-wins): 점유된 device는 옛 연결을 먼저 비운다.
     if (Agent const* const old = agents_.find(device); old != nullptr) {
         LOG_INFO(
-            "agent.kick_old", logger::kv("old_conn", old->conn().value()),
+            "agent.kick_old", logger::kv("old_conn", old->conn().get()),
             logger::kv("device", device.to_string())
         );
         // CAUTION: 동기로 on_disconnected가 불리고 erase가 되돌아온다
@@ -115,7 +115,7 @@ void AgentService::handle_register_request(
     if (!agents_.bind(conn, device, now)) {
         // 방어
         LOG_WARN(
-            "agent.register.reject", logger::kv("conn", conn.value()),
+            "agent.register.reject", logger::kv("conn", conn.get()),
             logger::kv("why", "bind rejected")
         );
         send_register_outcome(conn, false);
@@ -127,8 +127,7 @@ void AgentService::handle_register_request(
         return;
     }
     LOG_INFO(
-        "agent.registered", logger::kv("conn", conn.value()),
-        logger::kv("device", device.to_string())
+        "agent.registered", logger::kv("conn", conn.get()), logger::kv("device", device.to_string())
     );
 }
 
@@ -144,7 +143,7 @@ void AgentService::handle_register_ack(
         return;
     }
     LOG_INFO(
-        "agent.confirmed", logger::kv("conn", agent.conn().value()),
+        "agent.confirmed", logger::kv("conn", agent.conn().get()),
         logger::kv("device", agent.device().to_string())
     );
 }
@@ -210,11 +209,11 @@ bool AgentService::send_register_outcome(port::ConnectionId conn, bool success) 
         success ? acmp::RegisterOutcome::Code::success : acmp::RegisterOutcome::Code::failed
     );
     if (!written) {
-        LOG_WARN("agent.register.encode_fail", logger::kv("conn", conn.value()));
+        LOG_WARN("agent.register.encode_fail", logger::kv("conn", conn.get()));
         return false;
     }
     if (!buf->try_commit(*written)) {
-        LOG_WARN("agent.register.encode_fail", logger::kv("conn", conn.value()));
+        LOG_WARN("agent.register.encode_fail", logger::kv("conn", conn.get()));
         return false;
     }
     sender_.send(conn, std::move(buf));
@@ -222,7 +221,7 @@ bool AgentService::send_register_outcome(port::ConnectionId conn, bool success) 
 }
 
 void AgentService::kick(port::ConnectionId conn, std::string_view why) {
-    LOG_WARN("agent.violation", logger::kv("conn", conn.value()), logger::kv("why", why));
+    LOG_WARN("agent.violation", logger::kv("conn", conn.get()), logger::kv("why", why));
     disconnector_.disconnect(conn); // CAUTION: 동기로 on_disconnected가 불리고 erase가 되돌아온다
 }
 

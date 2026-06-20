@@ -23,7 +23,7 @@ void HandshakeMonitor::sweep(common::Clock::time_point now) {
     });
 
     for (auto const conn : stale_) {
-        LOG_WARN("agent.handshake_timeout", logger::kv("conn", conn.value()));
+        LOG_WARN("agent.handshake_timeout", logger::kv("conn", conn.get()));
         disconnector_.disconnect(conn);
         ++expired_total_;
     }

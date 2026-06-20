@@ -379,13 +379,13 @@ TEST(AgentServiceTest, CommandAckAndOutcomeSettlePending) {
     auto const command_id = f.commands.dispatch(device, 0x01, std::move(payload), f.clock.now());
     ASSERT_TRUE(command_id.valid());
 
-    f.deliver(ConnectionId{1}, f.payload_command_ack(command_id.value()));
+    f.deliver(ConnectionId{1}, f.payload_command_ack(command_id.get()));
     EXPECT_EQ(f.commands.pending_count(), 1u); // ack은 연장만
 
     f.clock.advance(1s);
     f.deliver(
         ConnectionId{1},
-        f.payload_command_outcome(command_id.value(), acmp::CommandOutcome::Code::success)
+        f.payload_command_outcome(command_id.get(), acmp::CommandOutcome::Code::success)
     );
 
     EXPECT_EQ(f.commands.pending_count(), 0u);

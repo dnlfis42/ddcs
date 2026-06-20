@@ -1,11 +1,11 @@
 #pragma once
 
-#include "ddcs/common/strong_value.hpp"
+#include "ddcs/common/strong_id.hpp"
 
 #include <cstdint>
 
 namespace ddcs::io {
 
-using TimerId = common::StrongValue<struct TimerIdTag, std::uint64_t>;
+using TimerId = common::StrongId<struct TimerIdTag, std::uint64_t>;
 
 } // namespace ddcs::io

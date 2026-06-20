@@ -13,7 +13,7 @@ target_sources(
                 include/ddcs/common/linear_buffer.hpp
                 include/ddcs/common/object_pool.hpp
                 include/ddcs/common/ring_buffer.hpp
-                include/ddcs/common/strong_value.hpp
+                include/ddcs/common/strong_id.hpp
                 include/ddcs/common/throw_errno.hpp
                 include/ddcs/common/uuid.hpp
 )

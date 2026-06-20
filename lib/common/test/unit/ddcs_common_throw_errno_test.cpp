@@ -6,7 +6,9 @@
 
 #include <gtest/gtest.h>
 
-namespace ddcs::common {
+namespace {
+
+using ddcs::common::throw_errno;
 
 TEST(ThrowErrnoTest, ThrowsSystemErrorWithErrnoAndContext) {
     try {
@@ -21,4 +23,4 @@ TEST(ThrowErrnoTest, ThrowsSystemErrorWithErrnoAndContext) {
     FAIL() << "throw_errno did not throw std::system_error";
 }
 
-} // namespace ddcs::common
+} // namespace

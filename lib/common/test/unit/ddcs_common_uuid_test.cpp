@@ -7,13 +7,13 @@
 
 #include <gtest/gtest.h>
 
-namespace ddcs::common {
-
 namespace {
+
+using ddcs::common::Uuid;
 
 static_assert(std::is_trivially_copyable_v<Uuid>);
 static_assert(sizeof(Uuid) == 16);
-static_assert(Uuid{}.bytes() == Uuid::invalid);
+static_assert(Uuid{}.bytes() == Uuid::nil);
 static_assert(!Uuid{}.valid());
 static_assert(Uuid{} == Uuid{});
 
@@ -23,12 +23,10 @@ consteval bool clear_makes_uuid_invalid() {
 
     Uuid uuid{bytes};
     uuid.clear();
-    return uuid.bytes() == Uuid::invalid && !uuid.valid();
+    return uuid.bytes() == Uuid::nil && !uuid.valid();
 }
 
 static_assert(clear_makes_uuid_invalid());
-
-} // namespace
 
 TEST(UuidTest, StartsInvalid) {
     Uuid u;
@@ -48,7 +46,18 @@ TEST(UuidTest, ClearsValueToInvalid) {
 
     uuid.clear();
 
-    EXPECT_EQ(uuid.bytes(), Uuid::invalid);
+    EXPECT_EQ(uuid.bytes(), Uuid::nil);
+    EXPECT_FALSE(uuid.valid());
+}
+
+TEST(UuidTest, ResetsValueToInvalid) {
+    std::array<std::byte, 16> bytes{};
+    bytes[0] = std::byte{0x01};
+    Uuid uuid{bytes};
+
+    uuid.reset();
+
+    EXPECT_EQ(uuid.bytes(), Uuid::nil);
     EXPECT_FALSE(uuid.valid());
 }
 
@@ -101,4 +110,4 @@ TEST(UuidTest, HashesEqualValuesEqually) {
     EXPECT_EQ(m[u3], 2);
 }
 
-} // namespace ddcs::common
+} // namespace

@@ -7,9 +7,11 @@
 
 #include <gtest/gtest.h>
 
-namespace ddcs::common {
-
 namespace {
+
+using ddcs::common::ObjectPool;
+using ddcs::common::PoolHandle;
+using ddcs::common::detail::object_pool::resettable;
 
 struct Item {
     int value{0};
@@ -52,15 +54,13 @@ static_assert(!std::is_move_assignable_v<ObjectPool<Item>>);
 
 static_assert(std::is_same_v<PoolHandle<Item>, ObjectPool<Item>::Handle>);
 
-static_assert(detail::object_pool::resettable<Item>);
-static_assert(!detail::object_pool::resettable<ThrowingResetItem>);
-static_assert(!detail::object_pool::resettable<NonVoidResetItem>);
+static_assert(resettable<Item>);
+static_assert(!resettable<ThrowingResetItem>);
+static_assert(!resettable<NonVoidResetItem>);
 
 static_assert(!valid_item_pool_chunk_size<0>);
 static_assert(valid_item_pool_chunk_size<1>);
 static_assert(valid_item_pool_chunk_size<64>);
-
-} // namespace
 
 TEST(ObjectPoolTest, UsesDefaultChunkSize) {
     auto pool = ObjectPool<Item>::create();
@@ -230,4 +230,4 @@ TEST(ObjectPoolTest, TransfersHandleOwnershipOnMoveConstruction) {
     EXPECT_TRUE(static_cast<bool>(second));
 }
 
-} // namespace ddcs::common
+} // namespace

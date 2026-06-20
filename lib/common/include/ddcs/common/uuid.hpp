@@ -11,7 +11,7 @@ namespace ddcs::common {
 
 class Uuid {
 public:
-    static constexpr std::array<std::byte, 16> invalid{};
+    static constexpr std::array<std::byte, 16> nil{};
 
     constexpr Uuid() noexcept = default;
     constexpr explicit Uuid(std::array<std::byte, 16> const& bytes) noexcept
@@ -22,7 +22,11 @@ public:
     }
 
     [[nodiscard]] constexpr bool valid() const noexcept {
-        return bytes_ != invalid;
+        return bytes_ != nil;
+    }
+
+    [[nodiscard]] constexpr bool is_nil() const noexcept {
+        return bytes_ == nil;
     }
 
     // Canonical UUID 문자열(8-4-4-4-12 소문자 hex)로 변환한다.
@@ -43,14 +47,18 @@ public:
     }
 
     constexpr void clear() noexcept {
-        bytes_ = invalid;
+        bytes_ = nil;
+    }
+
+    constexpr void reset() noexcept {
+        clear();
     }
 
     constexpr bool operator==(Uuid const&) const noexcept = default;
     constexpr auto operator<=>(Uuid const&) const noexcept = default;
 
 private:
-    std::array<std::byte, 16> bytes_ = invalid;
+    std::array<std::byte, 16> bytes_ = nil;
 };
 
 } // namespace ddcs::common
