@@ -6,7 +6,11 @@
 
 #include <gtest/gtest.h>
 
-namespace ddcs::wire::frame {
+namespace {
+
+using ddcs::wire::frame::decode;
+using ddcs::wire::frame::encode;
+using ddcs::wire::frame::HeaderBytes;
 
 TEST(FrameTest, RoundTripsTypicalHeader) {
     EXPECT_EQ(decode(encode(1024)), std::optional<std::uint16_t>{1024});
@@ -37,4 +41,4 @@ TEST(FrameTest, RejectsInvalidMagic) {
     EXPECT_FALSE(decode(bytes).has_value());
 }
 
-} // namespace ddcs::wire::frame
+} // namespace

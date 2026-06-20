@@ -11,21 +11,39 @@
 
 #include <gtest/gtest.h>
 
-namespace ddcs::wire::acmp {
-
 namespace {
 
 constexpr std::size_t buf_capacity = 256;
 
-common::Uuid make_uuid() {
+using ddcs::common::Uuid;
+using ddcs::wire::acmp::CommandOutcome;
+using ddcs::wire::acmp::decode_command_ack;
+using ddcs::wire::acmp::decode_command_outcome;
+using ddcs::wire::acmp::decode_command_request;
+using ddcs::wire::acmp::decode_heartbeat;
+using ddcs::wire::acmp::decode_register_ack;
+using ddcs::wire::acmp::decode_register_outcome;
+using ddcs::wire::acmp::decode_register_request;
+using ddcs::wire::acmp::decode_status;
+using ddcs::wire::acmp::encode_command_ack;
+using ddcs::wire::acmp::encode_command_outcome;
+using ddcs::wire::acmp::encode_command_request_header;
+using ddcs::wire::acmp::encode_heartbeat;
+using ddcs::wire::acmp::encode_register_ack;
+using ddcs::wire::acmp::encode_register_outcome;
+using ddcs::wire::acmp::encode_register_request;
+using ddcs::wire::acmp::encode_status;
+using ddcs::wire::acmp::message_type;
+using ddcs::wire::acmp::MessageType;
+using ddcs::wire::acmp::RegisterOutcome;
+
+Uuid make_uuid() {
     std::array<std::byte, 16> bytes{};
     for (std::size_t i = 0; i < bytes.size(); ++i) {
         bytes[i] = static_cast<std::byte>(i + 1);
     }
-    return common::Uuid{bytes};
+    return Uuid{bytes};
 }
-
-} // namespace
 
 TEST(AcmpMessageTest, RoundTripsRegisterRequest) {
     std::array<std::byte, buf_capacity> storage{};
@@ -198,4 +216,4 @@ TEST(AcmpMessageTest, RejectsTruncatedBody) {
     EXPECT_FALSE(decode_command_ack(raw).has_value());
 }
 
-} // namespace ddcs::wire::acmp
+} // namespace
