@@ -32,7 +32,9 @@ constexpr std::string_view to_string(Level level) noexcept {
     return "UNKNOWN";
 }
 
-// 대소문자 무시 매칭. "warning"은 Warn alias. 알 수 없는 이름이면 nullopt
+// 대소문자를 무시하고 매칭한다.
+// "warning"은 Warn의 alias
+// 알 수 없는 이름이면 nullopt
 std::optional<Level> parse_level(std::string_view text) noexcept;
 
 template <typename T>
@@ -131,8 +133,8 @@ private:
     static void append_number(std::string& out, double value);
     static void append_string_literal(std::string& out, std::string_view value);
 
-    Level threshold_{Level::Info};
-    Sink* sink_{nullptr};
+    Level threshold_ = Level::Info;
+    Sink* sink_ = nullptr;
 };
 
 template <typename T>
@@ -175,7 +177,7 @@ void Logger::append_field_value(std::string& out, T const& value) {
 
 } // namespace ddcs::logger
 
-// 매크로: level guard early exit로 disabled 레벨에서 args 평가 안 함
+// disabled 레벨에서는 args를 평가하지 않는다.
 #define DDCS_LOG_IMPL(_level, _event, ...)                                                         \
     do {                                                                                           \
         auto& _ddcs_logger = ::ddcs::logger::Logger::instance();                                   \

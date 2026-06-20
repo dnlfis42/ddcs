@@ -16,17 +16,19 @@ namespace ddcs::logger {
 
 namespace {
 
-// 파일 경로에서 basename(마지막 '/' 이후) 추출. 컴파일타임 const char* 입력
+// 파일 경로에서 basename(마지막 '/' 이후)을 추출한다.
 constexpr std::string_view basename_of(char const* path) noexcept {
     if (path == nullptr) {
         return {};
     }
+
     std::string_view sv{path};
     auto pos = sv.find_last_of('/');
     return pos == std::string_view::npos ? sv : sv.substr(pos + 1);
 }
 
-// ISO8601 UTC + ms 정밀도. e.g. "2026-05-28T12:34:56.789Z"
+// ISO8601 UTC + ms 정밀도
+// e.g. "2026-05-28T12:34:56.789Z"
 void append_iso8601_utc(std::string& out) {
     auto const now = std::chrono::system_clock::now();
     auto const sec = std::chrono::time_point_cast<std::chrono::seconds>(now);
@@ -92,7 +94,8 @@ std::optional<Level> parse_level(std::string_view text) noexcept {
 void StdoutSink::write(std::string_view line) noexcept {
     std::fwrite(line.data(), 1, line.size(), stdout);
     std::fputc('\n', stdout);
-    // 컨테이너 stdout은 fully-buffered라 명시 flush 필요. 가시성 우선
+    // 컨테이너 stdout은 fully-buffered라 명시 flush가 필요하다.
+    // 처리량보다 가시성을 우선한다.
     std::fflush(stdout);
 }
 
@@ -152,7 +155,8 @@ void Logger::append_number(std::string& out, std::int64_t value) {
     json::append_number(out, value);
 }
 
-// json::append_number는 int64만 받아 u64 max에서 overflow. uint64는 직접 십진 출력
+// json::append_number는 int64만 받아 u64 max에서 overflow한다.
+// uint64는 직접 십진수로 출력한다.
 void Logger::append_number(std::string& out, std::uint64_t value) {
     append_decimal(out, value);
 }
