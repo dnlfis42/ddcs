@@ -9,13 +9,14 @@
 
 #include <gtest/gtest.h>
 
-namespace ddcs::device {
-
 namespace {
 
-constexpr std::size_t buffer_capacity{64};
+using ddcs::device::CommandType;
+using ddcs::device::decode_set_mode;
+using ddcs::device::encode_set_mode;
+using ddcs::device::Mode;
 
-} // namespace
+constexpr std::size_t buffer_capacity{64};
 
 TEST(CommandCodecTest, RoundTripsSetMode) {
     std::array<std::byte, buffer_capacity> buf{};
@@ -55,4 +56,4 @@ TEST(CommandCodecTest, MapsCommandTypeToWireValues) {
     EXPECT_EQ(static_cast<std::uint8_t>(CommandType::set_mode), 0x01);
 }
 
-} // namespace ddcs::device
+} // namespace
