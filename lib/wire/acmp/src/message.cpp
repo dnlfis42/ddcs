@@ -141,7 +141,7 @@ MessageType message_type(std::span<std::byte const> in) noexcept {
     return type;
 }
 
-// RegisterRequest body: [id: uuid(16)][group: str]
+// RegisterRequest body: [uuid(16)][group(str)]
 std::optional<std::size_t> encode_register_request(
     std::span<std::byte> out, common::Uuid const& uuid, std::string_view group
 ) noexcept {

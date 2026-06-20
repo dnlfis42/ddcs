@@ -62,7 +62,7 @@ struct CommandOutcome {
     Code code;
 };
 
-// 프레임 payload 선두의 message type을 읽는다(검증/소비 없음). 빈 span이면 invalid.
+// 프레임 payload 선두의 message type을 읽는다(검증/소비 없음). 빈 span이면 invalid 반환
 [[nodiscard]] MessageType message_type(std::span<std::byte const> in) noexcept;
 
 // encode_<X>: out에 [type][body]를 forward로 쓰고 쓴 바이트 수 반환. 공간 부족이면 nullopt
@@ -90,7 +90,7 @@ decode_register_ack(std::span<std::byte const> in) noexcept;
 encode_status(std::span<std::byte> out, std::uint8_t mode, double load, double temp) noexcept;
 [[nodiscard]] std::optional<Status> decode_status(std::span<std::byte const> in) noexcept;
 
-// command_request header wire size: [type][command_id(u64 le)][command_type(u8)]
+// command_request header wire size: [type][command_id(u64le)][command_type(u8)]
 // 송신 경로가 payload 앞에 이 header를 제자리 prepend할 headroom으로 쓴다.
 inline constexpr std::size_t command_request_header_size{
     sizeof(MessageType) + sizeof(std::uint64_t) + sizeof(std::uint8_t)

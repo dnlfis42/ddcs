@@ -11,8 +11,8 @@ namespace ddcs::wire::frame {
 
 namespace {
 
-constexpr std::size_t magic_offset{0};
-constexpr std::size_t payload_length_offset{2};
+constexpr std::size_t magic_offset = 0;
+constexpr std::size_t payload_length_offset = 2;
 
 } // namespace
 

@@ -13,8 +13,6 @@
 
 namespace {
 
-constexpr std::size_t buf_capacity = 256;
-
 using ddcs::common::Uuid;
 using ddcs::wire::acmp::CommandOutcome;
 using ddcs::wire::acmp::decode_command_ack;
@@ -36,6 +34,8 @@ using ddcs::wire::acmp::encode_status;
 using ddcs::wire::acmp::message_type;
 using ddcs::wire::acmp::MessageType;
 using ddcs::wire::acmp::RegisterOutcome;
+
+constexpr std::size_t buf_capacity = 256;
 
 Uuid make_uuid() {
     std::array<std::byte, 16> bytes{};
@@ -204,14 +204,14 @@ TEST(AcmpMessageTest, RejectsTrailingBytes) {
     auto const written = encode_register_outcome(storage, RegisterOutcome::Code::failed);
     ASSERT_TRUE(written.has_value());
 
-    // body 뒤 1바이트 잉여(storage는 0 초기화)
+    // body 뒤 1바이트 잉여 (storage는 0 초기화)
     std::span<std::byte const> const in{storage.data(), *written + 1};
     EXPECT_EQ(message_type(in), MessageType::register_outcome);
     EXPECT_FALSE(decode_register_outcome(in.subspan(1)).has_value());
 }
 
 TEST(AcmpMessageTest, RejectsTruncatedBody) {
-    // command_ack body는 command_id(8)인데 3바이트만 주면 부족.
+    // command_ack body는 command_id(8)인데 3바이트만 주면 부족
     std::array<std::byte, 3> const raw{std::byte{1}, std::byte{2}, std::byte{3}};
     EXPECT_FALSE(decode_command_ack(raw).has_value());
 }

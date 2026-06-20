@@ -7,8 +7,8 @@
 
 namespace ddcs::wire::frame {
 
-inline constexpr std::uint16_t magic_value{0xDDC5};
-inline constexpr std::size_t header_size{4};
+inline constexpr std::uint16_t magic_value = 0xDDC5;
+inline constexpr std::size_t header_size = 4;
 
 // Layout (big-endian):
 //   [0, 2) : magic (0xDDC5)
