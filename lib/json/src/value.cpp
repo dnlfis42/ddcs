@@ -9,28 +9,28 @@
 namespace ddcs::json {
 
 Value::Value() noexcept
-    : data_{nullptr} {}
+    : data_(nullptr) {}
 
 Value::Value(std::nullptr_t) noexcept
-    : data_{nullptr} {}
+    : data_(nullptr) {}
 
 Value::Value(bool value) noexcept
-    : data_{value} {}
+    : data_(value) {}
 
 Value::Value(int value) noexcept
-    : data_{static_cast<std::int64_t>(value)} {}
+    : data_(static_cast<std::int64_t>(value)) {}
 
 Value::Value(std::int64_t value) noexcept
-    : data_{value} {}
+    : data_(value) {}
 
 Value::Value(double value) noexcept
-    : data_{value} {}
+    : data_(value) {}
 
 Value::Value(char const* value)
-    : data_{std::string{value}} {}
+    : data_(std::string{value}) {}
 
 Value::Value(std::string value)
-    : data_{std::move(value)} {}
+    : data_(std::move(value)) {}
 
 Value Value::array() {
     Value value;

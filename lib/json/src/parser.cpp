@@ -64,9 +64,10 @@ decode_surrogate_pair(std::uint16_t high_surrogate, std::uint16_t low_surrogate)
 class Parser {
 public:
     explicit Parser(std::string_view text) noexcept
-        : text_{text} {}
+        : text_(text) {}
 
-    // 입력 전체가 하나의 JSON value여야 한다. 뒤에 공백 외 문자가 남으면 실패한다.
+    // 입력 전체가 하나의 JSON value여야 한다.
+    // 뒤에 공백 외 문자가 남으면 실패한다.
     [[nodiscard]] std::optional<Value> parse() {
         auto value = parse_value();
         if (!value) {
