@@ -4,9 +4,8 @@
 #include "ddcs/io/channel_events.hpp"
 #include "ddcs/io/channel_handler.hpp"
 
-#include <utility>
-
 #include <cerrno>
+#include <utility>
 
 #include <fcntl.h>
 #include <sys/eventfd.h>
@@ -34,8 +33,6 @@ ddcs::common::Fd make_fd() {
     errno = 0;
     return ::fcntl(fd, F_GETFD) == -1 && errno == EBADF;
 }
-
-} // namespace
 
 TEST(ChannelTest, InitializesWithOwnedFd) {
     DummyHandler handler;
@@ -107,3 +104,5 @@ TEST(ChannelTest, ReinitializesAfterReset) {
     EXPECT_TRUE(channel.valid());
     EXPECT_EQ(channel.interests(), ChannelEvents::writable);
 }
+
+} // namespace

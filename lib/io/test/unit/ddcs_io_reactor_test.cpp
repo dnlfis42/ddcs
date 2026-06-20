@@ -27,13 +27,13 @@ struct PipeFds {
 
 class FlagHandler : public ChannelHandler {
 public:
-    int count{0};
-    ChannelEvents last_events{ChannelEvents::none};
-
     void on_ready(Channel&, ChannelEvents events) override {
         ++count;
         last_events = events;
     }
+
+    int count = 0;
+    ChannelEvents last_events = ChannelEvents::none;
 };
 
 PipeFds make_pipe() {
@@ -49,8 +49,6 @@ void write_byte(ddcs::common::Fd const& fd) {
     char const c{'x'};
     ASSERT_EQ(::write(fd.get(), &c, 1), 1);
 }
-
-} // namespace
 
 TEST(ReactorTest, RejectsInvalidChannel) {
     Reactor reactor;
@@ -117,3 +115,5 @@ TEST(ReactorTest, StopsDispatchingAfterRemove) {
     EXPECT_EQ(handler.count, 0);
     EXPECT_FALSE(channel.registered());
 }
+
+} // namespace

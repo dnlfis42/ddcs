@@ -21,13 +21,12 @@ using ddcs::io::TimerScheduler;
 
 class RecordingTimer : public TimerHandler {
 public:
-    std::vector<TimerId> fired;
     void on_expired(TimerId id) override {
-        fired.push_back(id);
+        fired_.push_back(id);
     }
-};
 
-} // namespace
+    std::vector<TimerId> fired_;
+};
 
 TEST(TimerSchedulerTest, DispatchesTimerThroughReactor) {
     Reactor reactor;
@@ -38,8 +37,8 @@ TEST(TimerSchedulerTest, DispatchesTimerThroughReactor) {
     TimerId const id = timers.schedule(5ms, handler);
     reactor.run_once(1000ms);
 
-    ASSERT_EQ(handler.fired.size(), 1u);
-    EXPECT_EQ(handler.fired[0], id);
+    ASSERT_EQ(handler.fired_.size(), 1u);
+    EXPECT_EQ(handler.fired_[0], id);
 }
 
 TEST(TimerSchedulerTest, SkipsCancelledTimer) {
@@ -52,7 +51,7 @@ TEST(TimerSchedulerTest, SkipsCancelledTimer) {
     timers.cancel(id);
     reactor.run_once(50ms);
 
-    EXPECT_TRUE(handler.fired.empty());
+    EXPECT_TRUE(handler.fired_.empty());
 }
 
 TEST(TimerSchedulerTest, RearmsTimerFdWhenNextTimerIsCancelled) {
@@ -68,13 +67,13 @@ TEST(TimerSchedulerTest, RearmsTimerFdWhenNextTimerIsCancelled) {
 
     clock.advance(5ms);
     timers.dispatch_expired();
-    EXPECT_TRUE(handler.fired.empty());
+    EXPECT_TRUE(handler.fired_.empty());
 
     clock.advance(15ms);
     timers.dispatch_expired();
 
-    ASSERT_EQ(handler.fired.size(), 1u);
-    EXPECT_EQ(handler.fired[0], second_id);
+    ASSERT_EQ(handler.fired_.size(), 1u);
+    EXPECT_EQ(handler.fired_[0], second_id);
 }
 
 TEST(TimerSchedulerTest, DispatchesExpiredTimersWithInjectedClock) {
@@ -85,13 +84,13 @@ TEST(TimerSchedulerTest, DispatchesExpiredTimersWithInjectedClock) {
 
     TimerId const id = timers.schedule(5ms, handler);
     timers.dispatch_expired();
-    EXPECT_TRUE(handler.fired.empty());
+    EXPECT_TRUE(handler.fired_.empty());
 
     clock.advance(5ms);
     timers.dispatch_expired();
 
-    ASSERT_EQ(handler.fired.size(), 1u);
-    EXPECT_EQ(handler.fired[0], id);
+    ASSERT_EQ(handler.fired_.size(), 1u);
+    EXPECT_EQ(handler.fired_[0], id);
 }
 
 TEST(TimerSchedulerTest, StopsSafelyFromCallback) {
@@ -103,13 +102,13 @@ TEST(TimerSchedulerTest, StopsSafelyFromCallback) {
         explicit StopTimer(TimerScheduler& scheduler_ref)
             : scheduler{scheduler_ref} {}
 
-        int count{0};
-        TimerScheduler& scheduler;
-
         void on_expired(TimerId) override {
             ++count;
             scheduler.stop();
         }
+
+        int count = 0;
+        TimerScheduler& scheduler;
     } handler{timers};
 
     timers.start();
@@ -118,3 +117,5 @@ TEST(TimerSchedulerTest, StopsSafelyFromCallback) {
 
     EXPECT_EQ(handler.count, 1);
 }
+
+} // namespace

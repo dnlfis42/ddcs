@@ -9,8 +9,6 @@ using ddcs::io::ChannelEvents;
 using ddcs::io::contains;
 using ddcs::io::to_underlying;
 
-} // namespace
-
 TEST(ChannelEventsTest, CombinesBitsWithOr) {
     auto const events = ChannelEvents::readable | ChannelEvents::writable;
 
@@ -52,3 +50,5 @@ TEST(ChannelEventsTest, ReturnsMaskValueWithToUnderlying) {
     EXPECT_EQ(to_underlying(ChannelEvents::readable), 1u << 0);
     EXPECT_EQ(to_underlying(ChannelEvents::edge_triggered), 1u << 16);
 }
+
+} // namespace

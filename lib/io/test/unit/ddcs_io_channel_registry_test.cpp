@@ -26,8 +26,6 @@ ddcs::common::Fd make_fd() {
     return fd;
 }
 
-} // namespace
-
 TEST(ChannelRegistryTest, ResolvesInsertedChannel) {
     ChannelRegistry registry;
     DummyHandler handler;
@@ -72,3 +70,5 @@ TEST(ChannelRegistryTest, ReturnsFalseWhenErasingUnknownChannel) {
 
     EXPECT_FALSE(registry.erase(channel));
 }
+
+} // namespace

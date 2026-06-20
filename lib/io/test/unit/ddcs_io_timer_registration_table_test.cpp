@@ -16,8 +16,6 @@ public:
     void on_expired(TimerId) override {}
 };
 
-} // namespace
-
 TEST(TimerRegistrationTableTest, ResolvesInsertedHandler) {
     TimerRegistrationTable table;
     DummyHandler handler;
@@ -79,3 +77,5 @@ TEST(TimerRegistrationTableTest, RejectsUnknownId) {
     EXPECT_FALSE(table.erase(unknown_id));
     EXPECT_EQ(table.consume(unknown_id), nullptr);
 }
+
+} // namespace

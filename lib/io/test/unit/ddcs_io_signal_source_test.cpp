@@ -48,14 +48,12 @@ void unblock_signal(int signal) {
     return ::sigismember(&mask, signal) == 1;
 }
 
-} // namespace
-
 TEST(SignalSourceTest, InvokesCallbackWithRaisedSignalNumber) {
     SignalMaskGuard signal_mask_guard;
     unblock_signal(SIGUSR1);
 
     Reactor reactor;
-    int delivered{0};
+    int delivered = 0;
     SignalSource source{reactor, {SIGUSR1}, [&](int signal) {
                             delivered = signal;
                             reactor.stop();
@@ -109,7 +107,7 @@ TEST(SignalSourceTest, StopsSafelyFromCallback) {
     unblock_signal(SIGUSR1);
 
     Reactor reactor;
-    int delivered{0};
+    int delivered = 0;
     SignalSource* source_ptr{nullptr};
     SignalSource source{reactor, {SIGUSR1}, [&](int signal) {
                             delivered = signal;
@@ -124,3 +122,5 @@ TEST(SignalSourceTest, StopsSafelyFromCallback) {
     EXPECT_EQ(delivered, SIGUSR1);
     EXPECT_FALSE(source.active());
 }
+
+} // namespace

@@ -16,8 +16,6 @@ time_point base() {
     return time_point{} + 1000s;
 }
 
-} // namespace
-
 TEST(TimerQueueTest, ReturnsNulloptWhenEmpty) {
     TimerQueue queue;
 
@@ -78,3 +76,5 @@ TEST(TimerQueueTest, ClearsAllEntries) {
     EXPECT_TRUE(queue.empty());
     EXPECT_FALSE(queue.top().has_value());
 }
+
+} // namespace
