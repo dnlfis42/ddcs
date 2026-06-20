@@ -181,7 +181,7 @@ TEST(AgentSessionServiceTest, OnConnectedSendsRegisterAndArmsTimeout) {
     EXPECT_EQ(sent_type(out.sends[0]), acmp::MessageType::register_request);
     auto const req = acmp::decode_register_request(sent_body(out.sends[0]));
     ASSERT_TRUE(req.has_value());
-    EXPECT_EQ(req->id, make_uuid(0xab));
+    EXPECT_EQ(req->uuid, make_uuid(0xab));
     EXPECT_TRUE(has_timer(out, TimerId::register_timeout));
 }
 

@@ -25,7 +25,7 @@ enum class MessageType : std::uint8_t {
 // CAUTION: string_view/span 멤버는 decode에 넘긴 바이트(buffer)가 살아있는 동안에만 유효하다.
 
 struct RegisterRequest {
-    common::Uuid id;
+    common::Uuid uuid;
     std::string_view group;
 };
 
@@ -69,7 +69,7 @@ struct CommandOutcome {
 // decode_<X>: in(type 이후 body)을 푼다. 구조 불일치면 nullopt. view 멤버는 in을 차용
 
 [[nodiscard]] std::optional<std::size_t> encode_register_request(
-    std::span<std::byte> out, common::Uuid const& id, std::string_view group
+    std::span<std::byte> out, common::Uuid const& uuid, std::string_view group
 ) noexcept;
 [[nodiscard]] std::optional<RegisterRequest>
 decode_register_request(std::span<std::byte const> in) noexcept;

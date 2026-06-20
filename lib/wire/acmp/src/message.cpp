@@ -143,13 +143,13 @@ MessageType message_type(std::span<std::byte const> in) noexcept {
 
 // RegisterRequest body: [id: uuid(16)][group: str]
 std::optional<std::size_t> encode_register_request(
-    std::span<std::byte> out, common::Uuid const& id, std::string_view group
+    std::span<std::byte> out, common::Uuid const& uuid, std::string_view group
 ) noexcept {
     std::span<std::byte> cur = out;
     if (!try_append_type(cur, MessageType::register_request)) {
         return std::nullopt;
     }
-    if (!try_append_uuid(cur, id)) {
+    if (!try_append_uuid(cur, uuid)) {
         return std::nullopt;
     }
     if (!try_append_string(cur, group)) {
@@ -160,7 +160,7 @@ std::optional<std::size_t> encode_register_request(
 
 std::optional<RegisterRequest> decode_register_request(std::span<std::byte const> in) noexcept {
     RegisterRequest out{};
-    if (!try_extract_uuid(in, out.id)) {
+    if (!try_extract_uuid(in, out.uuid)) {
         return std::nullopt;
     }
     if (!try_extract_string(in, out.group)) {

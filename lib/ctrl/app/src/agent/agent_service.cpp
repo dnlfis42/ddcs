@@ -93,7 +93,7 @@ void AgentService::handle_register_request(
         disconnector_.disconnect(conn); // 식별 불가라 응답 없이 종료
         return;
     }
-    domain::DeviceId const device = register_service_.enroll(request->id, request->group);
+    domain::DeviceId const device = register_service_.enroll(request->uuid, request->group);
     if (!device.valid()) {
         LOG_WARN(
             "agent.register.reject", logger::kv("conn", conn.get()),

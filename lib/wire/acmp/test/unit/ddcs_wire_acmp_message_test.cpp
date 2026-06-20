@@ -58,7 +58,7 @@ TEST(AcmpMessageTest, RoundTripsRegisterRequest) {
 
     auto const msg = decode_register_request(in.subspan(1));
     ASSERT_TRUE(msg.has_value());
-    EXPECT_EQ(msg->id, id);
+    EXPECT_EQ(msg->uuid, id);
     EXPECT_EQ(msg->group, group);
 }
 
@@ -72,7 +72,7 @@ TEST(AcmpMessageTest, RoundTripsRegisterRequestWithEmptyGroup) {
     std::span<std::byte const> const in{storage.data(), *written};
     auto const msg = decode_register_request(in.subspan(1));
     ASSERT_TRUE(msg.has_value());
-    EXPECT_EQ(msg->id, id);
+    EXPECT_EQ(msg->uuid, id);
     EXPECT_TRUE(msg->group.empty());
 }
 
