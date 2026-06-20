@@ -84,7 +84,7 @@ struct Reactor::Impl {
 };
 
 Reactor::Reactor()
-    : impl_{std::make_unique<Impl>()} {
+    : impl_(std::make_unique<Impl>()) {
     int const fd = ::epoll_create1(EPOLL_CLOEXEC);
     if (fd < 0) {
         int const err = errno;

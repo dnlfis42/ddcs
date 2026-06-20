@@ -63,12 +63,12 @@ public:
     };
 
     explicit Impl(Reactor& reactor)
-        : reactor_{reactor},
-          clock_{default_clock_} {}
+        : reactor_(reactor),
+          clock_(default_clock_) {}
 
     Impl(Reactor& reactor, common::Clock& injected_clock)
-        : reactor_{reactor},
-          clock_{injected_clock} {}
+        : reactor_(reactor),
+          clock_(injected_clock) {}
 
     void on_ready(Channel& event_channel, ChannelEvents events) override {
         if (&event_channel != &channel_ || !contains(events, ChannelEvents::readable)) {
@@ -258,10 +258,10 @@ private:
 };
 
 TimerScheduler::TimerScheduler(Reactor& reactor)
-    : impl_{std::make_unique<Impl>(reactor)} {}
+    : impl_(std::make_unique<Impl>(reactor)) {}
 
 TimerScheduler::TimerScheduler(Reactor& reactor, common::Clock& clock)
-    : impl_{std::make_unique<Impl>(reactor, clock)} {}
+    : impl_(std::make_unique<Impl>(reactor, clock)) {}
 
 TimerScheduler::~TimerScheduler() {
     stop();

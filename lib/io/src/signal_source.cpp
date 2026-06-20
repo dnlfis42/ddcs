@@ -146,7 +146,7 @@ private:
 };
 
 SignalSource::SignalSource(Reactor& reactor, std::initializer_list<int> signals, Callback callback)
-    : impl_{std::make_unique<Impl>(reactor, signals, std::move(callback))} {}
+    : impl_(std::make_unique<Impl>(reactor, signals, std::move(callback))) {}
 
 SignalSource::~SignalSource() {
     stop();
