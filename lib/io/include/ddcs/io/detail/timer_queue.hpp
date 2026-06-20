@@ -10,7 +10,8 @@
 
 namespace ddcs::io::detail {
 
-// TimerId를 deadline 순서로 보관하는 min-heap. clock과 handler를 모른다.
+// TimerId를 deadline 순서로 보관하는 min-heap
+//   clock과 handler를 모른다.
 class TimerQueue {
 public:
     using time_point = common::Clock::time_point;
@@ -20,17 +21,6 @@ public:
         TimerId id;
     };
 
-private:
-    struct Later {
-        bool operator()(Entry const& lhs, Entry const& rhs) const noexcept {
-            if (lhs.deadline != rhs.deadline) {
-                return lhs.deadline > rhs.deadline;
-            }
-            return lhs.id.get() > rhs.id.get();
-        }
-    };
-
-public:
     [[nodiscard]] bool empty() const noexcept {
         return heap_.empty();
     }
@@ -62,6 +52,16 @@ public:
     }
 
 private:
+    // deadline이 같으면 id가 작은(먼저 등록된) 쪽을 먼저 만료시키는 min-heap 비교자
+    struct Later {
+        bool operator()(Entry const& lhs, Entry const& rhs) const noexcept {
+            if (lhs.deadline != rhs.deadline) {
+                return lhs.deadline > rhs.deadline;
+            }
+            return lhs.id.get() > rhs.id.get();
+        }
+    };
+
     std::vector<Entry> heap_;
 };
 

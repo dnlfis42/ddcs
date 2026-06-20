@@ -31,6 +31,7 @@ using namespace std::chrono_literals;
 
 [[nodiscard]]
 itimerspec make_timerfd_spec(std::chrono::nanoseconds delay) noexcept {
+    // NOTE: it_value가 0이면 timerfd가 disarm되므로 즉시 만료도 최소 1ns로 무장한다.
     if (delay <= 0ns) {
         delay = 1ns;
     }
@@ -54,30 +55,80 @@ itimerspec make_timerfd_spec(std::chrono::nanoseconds delay) noexcept {
 
 } // namespace
 
-struct TimerScheduler::Impl final : ChannelHandler {
+class TimerScheduler::Impl final : ChannelHandler {
+public:
     enum class State {
         ready,
         active,
     };
 
-    explicit Impl(Reactor& reactor_ref)
-        : reactor{reactor_ref},
-          clock{default_clock} {}
+    explicit Impl(Reactor& reactor)
+        : reactor_{reactor},
+          clock_{default_clock_} {}
 
-    Impl(Reactor& reactor_ref, common::Clock& injected_clock)
-        : reactor{reactor_ref},
-          clock{injected_clock} {}
+    Impl(Reactor& reactor, common::Clock& injected_clock)
+        : reactor_{reactor},
+          clock_{injected_clock} {}
+
+    void on_ready(Channel& event_channel, ChannelEvents events) override {
+        if (&event_channel != &channel_ || !contains(events, ChannelEvents::readable)) {
+            return;
+        }
+
+        if (drain_timerfd()) {
+            dispatch_expired();
+        }
+    }
+
+    void start() {
+        if (state_ == State::active) {
+            return;
+        }
+
+        common::Fd fd{::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)};
+        if (!fd.valid()) {
+            common::throw_errno(errno, "timerfd_create");
+        }
+
+        if (!channel_.init(
+                std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this
+            )) {
+            common::throw_errno(EINVAL, "timer channel init failed");
+        }
+
+        if (!reactor_.add(channel_)) {
+            channel_.reset();
+            common::throw_errno(EINVAL, "reactor add timer channel failed");
+        }
+
+        try {
+            update_timerfd();
+            state_ = State::active;
+        } catch (...) {
+            stop_timerfd();
+            throw;
+        }
+    }
+
+    void stop() noexcept {
+        if (state_ != State::active) {
+            return;
+        }
+
+        stop_timerfd();
+        state_ = State::ready;
+    }
 
     [[nodiscard]] bool active() const noexcept {
-        return state == State::active;
+        return state_ == State::active;
     }
 
     [[nodiscard]] TimerId schedule(std::chrono::nanoseconds delay, TimerHandler& handler) {
-        auto const deadline = clock.now() + delay;
+        auto const deadline = clock_.now() + delay;
         auto const previous_deadline = next_deadline();
 
-        TimerId const id = timer_registrations.insert(handler);
-        timer_queue.push(deadline, id);
+        TimerId const id = timer_registrations_.insert(handler);
+        timer_queue_.push(deadline, id);
 
         if (!previous_deadline || deadline < *previous_deadline) {
             update_timerfd();
@@ -88,10 +139,10 @@ struct TimerScheduler::Impl final : ChannelHandler {
     void cancel(TimerId id) {
         prune_cancelled();
 
-        auto const next_timer = timer_queue.top();
+        auto const next_timer = timer_queue_.top();
         bool const was_next_timer = next_timer && next_timer->id == id;
 
-        if (!timer_registrations.erase(id)) {
+        if (!timer_registrations_.erase(id)) {
             return;
         }
 
@@ -100,62 +151,24 @@ struct TimerScheduler::Impl final : ChannelHandler {
         }
     }
 
-    void start() {
-        if (state == State::active) {
-            return;
-        }
-
-        common::Fd fd{::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)};
-        if (!fd.valid()) {
-            common::throw_errno(errno, "timerfd_create");
-        }
-
-        if (!channel.init(
-                std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this
-            )) {
-            common::throw_errno(EINVAL, "timer channel init");
-        }
-
-        if (!reactor.add(channel)) {
-            channel.reset();
-            common::throw_errno(EINVAL, "reactor add timer channel");
-        }
-
-        try {
-            update_timerfd();
-            state = State::active;
-        } catch (...) {
-            stop_timerfd();
-            throw;
-        }
-    }
-
-    void stop() noexcept {
-        if (state != State::active) {
-            return;
-        }
-
-        stop_timerfd();
-        state = State::ready;
-    }
-
     void dispatch_expired() {
-        auto const now = clock.now();
+        auto const now = clock_.now();
 
         for (;;) {
             prune_cancelled();
 
-            auto const timer = timer_queue.top();
+            auto const timer = timer_queue_.top();
             if (!timer || timer->deadline > now) {
                 break;
             }
 
-            timer_queue.pop();
-            TimerHandler* handler = timer_registrations.consume(timer->id);
+            timer_queue_.pop();
+            TimerHandler* handler = timer_registrations_.consume(timer->id);
             if (handler != nullptr) {
                 handler->on_expired(timer->id);
             }
-            if (!channel.registered()) {
+            // CAUTION: 콜백이 stop을 호출하면 channel이 해제되므로 즉시 멈춘다.
+            if (!channel_.registered()) {
                 return;
             }
         }
@@ -163,31 +176,24 @@ struct TimerScheduler::Impl final : ChannelHandler {
         update_timerfd();
     }
 
-    void on_ready(Channel& event_channel, ChannelEvents events) override {
-        if (&event_channel != &channel || !contains(events, ChannelEvents::readable)) {
-            return;
-        }
-        if (drain_timerfd()) {
-            dispatch_expired();
-        }
-    }
-
+private:
     [[nodiscard]] std::optional<detail::TimerQueue::time_point> next_deadline() {
         prune_cancelled();
 
-        auto const next_timer = timer_queue.top();
+        auto const next_timer = timer_queue_.top();
         if (!next_timer) {
             return std::nullopt;
         }
         return next_timer->deadline;
     }
 
+    // PERF: cancel은 등록 slot만 무효화하고, stale해진 heap entry는 top에 올라왔을 때 제거한다.
     void prune_cancelled() {
-        while (auto const next_timer = timer_queue.top()) {
-            if (timer_registrations.contains(next_timer->id)) {
+        while (auto const next_timer = timer_queue_.top()) {
+            if (timer_registrations_.contains(next_timer->id)) {
                 return;
             }
-            timer_queue.pop();
+            timer_queue_.pop();
         }
     }
 
@@ -196,7 +202,7 @@ struct TimerScheduler::Impl final : ChannelHandler {
 
         for (;;) {
             std::uint64_t expirations{};
-            ssize_t const n = ::read(channel.fd(), &expirations, sizeof(expirations));
+            ssize_t const n = ::read(channel_.fd(), &expirations, sizeof(expirations));
             if (n == static_cast<ssize_t>(sizeof(expirations))) {
                 has_expiration = true;
                 continue;
@@ -216,39 +222,39 @@ struct TimerScheduler::Impl final : ChannelHandler {
     }
 
     void update_timerfd() {
-        if (!channel.registered()) {
+        if (!channel_.registered()) {
             return;
         }
 
         itimerspec spec{};
         if (auto const deadline = next_deadline()) {
             auto const remaining =
-                std::max(*deadline - clock.now(), common::Clock::duration::zero());
+                std::max(*deadline - clock_.now(), common::Clock::duration::zero());
             spec =
                 make_timerfd_spec(std::chrono::duration_cast<std::chrono::nanoseconds>(remaining));
         }
 
-        if (::timerfd_settime(channel.fd(), 0, &spec, nullptr) < 0) {
+        if (::timerfd_settime(channel_.fd(), 0, &spec, nullptr) < 0) {
             common::throw_errno(errno, "timerfd_settime");
         }
     }
 
     void stop_timerfd() noexcept {
-        if (channel.registered()) {
-            reactor.remove(channel);
+        if (channel_.registered()) {
+            reactor_.remove(channel_);
         }
-        if (channel.valid()) {
-            channel.reset();
+        if (channel_.valid()) {
+            channel_.reset();
         }
     }
 
-    Reactor& reactor;
-    common::SteadyClock default_clock;
-    common::Clock& clock;
-    State state{State::ready};
-    Channel channel;
-    detail::TimerQueue timer_queue;
-    detail::TimerRegistrationTable timer_registrations;
+    Reactor& reactor_;
+    common::SteadyClock default_clock_;
+    common::Clock& clock_;
+    State state_ = State::ready;
+    Channel channel_;
+    detail::TimerQueue timer_queue_;
+    detail::TimerRegistrationTable timer_registrations_;
 };
 
 TimerScheduler::TimerScheduler(Reactor& reactor)
@@ -261,6 +267,14 @@ TimerScheduler::~TimerScheduler() {
     stop();
 }
 
+void TimerScheduler::start() {
+    impl_->start();
+}
+
+void TimerScheduler::stop() noexcept {
+    impl_->stop();
+}
+
 bool TimerScheduler::active() const noexcept {
     return impl_->active();
 }
@@ -271,14 +285,6 @@ TimerId TimerScheduler::schedule(std::chrono::nanoseconds delay, TimerHandler& h
 
 void TimerScheduler::cancel(TimerId id) {
     impl_->cancel(id);
-}
-
-void TimerScheduler::start() {
-    impl_->start();
-}
-
-void TimerScheduler::stop() noexcept {
-    impl_->stop();
 }
 
 void TimerScheduler::dispatch_expired() {

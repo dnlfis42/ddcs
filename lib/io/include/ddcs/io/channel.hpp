@@ -6,6 +6,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <exception>
 #include <utility>
 
 namespace ddcs::io {
@@ -14,8 +15,6 @@ class Reactor;
 
 // fd readiness를 Reactor에 등록하기 위한 정보
 class Channel {
-    friend class Reactor;
-
 public:
     enum class State : std::uint8_t {
         idle,
@@ -23,7 +22,6 @@ public:
         registered,
     };
 
-public:
     Channel() = default;
     ~Channel() = default;
 
@@ -31,6 +29,19 @@ public:
     Channel& operator=(Channel const&) = delete;
     Channel(Channel&&) noexcept = delete;
     Channel& operator=(Channel&&) noexcept = delete;
+
+    [[nodiscard]] bool
+    init(common::Fd&& fd, ChannelEvents interests, ChannelHandler& handler) noexcept {
+        if (valid() || !fd.valid()) {
+            return false;
+        }
+
+        fd_ = std::move(fd);
+        interests_ = interests;
+        handler_ = &handler;
+        state_ = State::ready;
+        return true;
+    }
 
     [[nodiscard]] int fd() const noexcept {
         return fd_.get();
@@ -53,20 +64,12 @@ public:
         return state_ == State::registered;
     }
 
-    bool init(common::Fd&& fd, ChannelEvents interests, ChannelHandler& handler) noexcept {
-        if (valid() || !fd.valid()) {
-            return false;
-        }
-
-        fd_ = std::move(fd);
-        interests_ = interests;
-        handler_ = &handler;
-        state_ = State::ready;
-        return true;
-    }
-
     void close() noexcept {
-        assert(!registered());
+        // CAUTION: registered 상태로 close하면 Reactor에 dangling 포인터와 stale fd가 남는다.
+        if (registered()) {
+            assert(false && "Channel: close on registered channel");
+            std::terminate();
+        }
 
         fd_.close();
         interests_ = ChannelEvents::none;
@@ -79,6 +82,8 @@ public:
     }
 
 private:
+    friend class Reactor;
+
     void set_interests(ChannelEvents interests) noexcept {
         interests_ = interests;
     }
@@ -93,11 +98,10 @@ private:
         state_ = State::ready;
     }
 
-private:
-    common::Fd fd_{};
-    ChannelEvents interests_{};
-    ChannelHandler* handler_{nullptr};
-    State state_{State::idle};
+    common::Fd fd_;
+    ChannelEvents interests_ = ChannelEvents::none;
+    ChannelHandler* handler_ = nullptr;
+    State state_ = State::idle;
 };
 
 } // namespace ddcs::io

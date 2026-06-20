@@ -21,8 +21,8 @@ namespace ddcs::io {
 
 namespace {
 
-constexpr std::size_t max_epoll_events{64};
-constexpr int epoll_wait_forever{-1};
+constexpr std::size_t max_epoll_events = 64;
+constexpr int epoll_wait_forever = -1;
 constexpr std::chrono::milliseconds wait_forever{-1};
 
 [[nodiscard]] int to_epoll_timeout(std::chrono::milliseconds timeout) noexcept {
@@ -73,13 +73,13 @@ constexpr std::chrono::milliseconds wait_forever{-1};
 } // namespace
 
 struct Reactor::Impl {
-    enum class State {
-        ready,
-        running,
+    enum class State : std::uint8_t {
+        ready = 0x01,
+        running = 0x02,
     };
 
-    common::Fd epoll_fd{};
-    State state{State::ready};
+    common::Fd epoll_fd;
+    State state = State::ready;
     detail::ChannelRegistry channel_registry;
 };
 
@@ -96,6 +96,47 @@ Reactor::Reactor()
 }
 
 Reactor::~Reactor() = default;
+
+void Reactor::run() {
+    assert(impl_->state == Impl::State::ready);
+
+    impl_->state = Impl::State::running;
+    while (impl_->state == Impl::State::running) {
+        run_once(wait_forever);
+    }
+}
+
+void Reactor::run_once(std::chrono::milliseconds timeout) {
+    assert(impl_->state == Impl::State::ready || impl_->state == Impl::State::running);
+
+    std::array<epoll_event, max_epoll_events> events{};
+
+    int const n = ::epoll_wait(
+        impl_->epoll_fd.get(), events.data(), static_cast<int>(events.size()),
+        to_epoll_timeout(timeout)
+    );
+    if (n < 0) {
+        int const err = errno;
+        if (err == EINTR) {
+            return;
+        }
+        common::throw_errno(err, "epoll_wait");
+    }
+
+    for (std::size_t i = 0; i < static_cast<std::size_t>(n); ++i) {
+        auto const& event = events[i];
+        // CAUTION: generation token이 어긋나면 fd 재사용 뒤의 stale 이벤트이므로 건너뛴다
+        if (auto* channel = impl_->channel_registry.resolve(event.data.u64)) {
+            channel->handler().on_ready(*channel, to_channel_events(event.events));
+        }
+    }
+}
+
+void Reactor::stop() noexcept {
+    if (impl_->state == Impl::State::running) {
+        impl_->state = Impl::State::ready;
+    }
+}
 
 bool Reactor::running() const noexcept {
     return impl_->state == Impl::State::running;
@@ -147,46 +188,6 @@ void Reactor::remove(Channel& channel) noexcept {
     (void)::epoll_ctl(impl_->epoll_fd.get(), EPOLL_CTL_DEL, channel.fd(), nullptr);
     (void)impl_->channel_registry.erase(channel);
     channel.mark_deregistered();
-}
-
-void Reactor::run() {
-    assert(impl_->state == Impl::State::ready);
-
-    impl_->state = Impl::State::running;
-    while (impl_->state == Impl::State::running) {
-        run_once(wait_forever);
-    }
-}
-
-void Reactor::run_once(std::chrono::milliseconds timeout) {
-    assert(impl_->state == Impl::State::ready || impl_->state == Impl::State::running);
-
-    std::array<epoll_event, max_epoll_events> events{};
-
-    int const n = ::epoll_wait(
-        impl_->epoll_fd.get(), events.data(), static_cast<int>(events.size()),
-        to_epoll_timeout(timeout)
-    );
-    if (n < 0) {
-        int const err = errno;
-        if (err == EINTR) {
-            return;
-        }
-        common::throw_errno(err, "epoll_wait");
-    }
-
-    for (std::size_t i = 0; i < static_cast<std::size_t>(n); ++i) {
-        auto const& event = events[i];
-        if (auto* channel = impl_->channel_registry.resolve(event.data.u64)) {
-            channel->handler().on_ready(*channel, to_channel_events(event.events));
-        }
-    }
-}
-
-void Reactor::stop() noexcept {
-    if (impl_->state == Impl::State::running) {
-        impl_->state = Impl::State::ready;
-    }
 }
 
 } // namespace ddcs::io
