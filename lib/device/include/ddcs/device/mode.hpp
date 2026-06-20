@@ -26,6 +26,8 @@ constexpr std::string_view to_string(Mode m) noexcept {
     return {}; // 어휘 밖 값(버그/손상)은 빈 문자열로 노출
 }
 
+// 텍스트를 mode 어휘로 검증해 해석한다.
+// 어휘 밖 값은 nullopt
 constexpr std::optional<Mode> parse_mode(std::string_view text) noexcept {
     if (text == "safe") {
         return Mode::safe;
@@ -39,7 +41,8 @@ constexpr std::optional<Mode> parse_mode(std::string_view text) noexcept {
     return std::nullopt;
 }
 
-// wire byte를 mode 어휘로 검증해 해석한다. 어휘 밖 값은 nullopt.
+// wire byte를 mode 어휘로 검증해 해석한다.
+// 어휘 밖 값은 nullopt
 constexpr std::optional<Mode> decode_mode(std::uint8_t wire) noexcept {
     switch (static_cast<Mode>(wire)) {
     case Mode::safe:

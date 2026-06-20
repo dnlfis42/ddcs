@@ -16,7 +16,7 @@ using ddcs::device::decode_set_mode;
 using ddcs::device::encode_set_mode;
 using ddcs::device::Mode;
 
-constexpr std::size_t buffer_capacity{64};
+constexpr std::size_t buffer_capacity = 64;
 
 TEST(CommandCodecTest, RoundTripsSetMode) {
     std::array<std::byte, buffer_capacity> buf{};
