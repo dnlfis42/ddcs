@@ -7,6 +7,7 @@ target_sources(
         FILE_SET HEADERS
             BASE_DIRS include
             FILES
+                include/ddcs/common/circular_buffer.hpp
                 include/ddcs/common/clock.hpp
                 include/ddcs/common/endian.hpp
                 include/ddcs/common/fd.hpp

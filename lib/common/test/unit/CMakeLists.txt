@@ -1,4 +1,10 @@
 ddcs_add_unit_test(
+    ddcs_common_circular_buffer_test
+    SOURCES ddcs_common_circular_buffer_test.cpp
+    LIBRARIES ddcs::common
+)
+
+ddcs_add_unit_test(
     ddcs_common_clock_test
     SOURCES ddcs_common_clock_test.cpp
     LIBRARIES ddcs::common
