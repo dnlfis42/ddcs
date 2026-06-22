@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ddcs/common/fd.hpp"
-#include "ddcs/common/ring_buffer.hpp"
+#include "ddcs/common/circular_buffer.hpp"
 #include "ddcs/ctrl/app/agent/port/connection_id.hpp"
 #include "ddcs/ctrl/app/agent/port/message_buffer.hpp"
 #include "ddcs/ctrl/infra/frame/peer_address.hpp"
@@ -40,7 +40,7 @@ public:
         error,
     };
 
-    static constexpr std::size_t rx_buffer_capacity{1 << 12};
+    static constexpr std::size_t rx_buffer_capacity = 1 << 12;
 
 public:
     Connection() = default;
@@ -117,12 +117,12 @@ private:
     }
 
 private:
-    Server* server_{nullptr};
-    port::ConnectionId id_{};
-    PeerAddress peer_{};
-    State state_{State::idle};
-    io::Channel channel_{};
-    common::RingBuffer<rx_buffer_capacity> rx_buffer_;
+    Server* server_ = nullptr;
+    port::ConnectionId id_;
+    PeerAddress peer_;
+    State state_ = State::idle;
+    io::Channel channel_;
+    common::CircularBuffer rx_buffer_{rx_buffer_capacity};
     std::queue<port::MessageBuffer> tx_queue_;
 };
 

@@ -1,9 +1,9 @@
 #pragma once
 
+#include "ddcs/common/circular_buffer.hpp"
 #include "ddcs/common/fd.hpp"
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
-#include "ddcs/common/ring_buffer.hpp"
 #include "ddcs/io/channel.hpp"
 #include "ddcs/io/channel_events.hpp"
 
@@ -18,7 +18,7 @@ namespace ddcs::agent::infra::frame {
 
 class Connector; // on_ready 위임 대상 (순환 의존 회피)
 
-inline constexpr std::size_t inbound_buffer_capacity{1 << 12};
+inline constexpr std::size_t rx_buffer_capacity = 1 << 12;
 
 // 단일 클라이언트 연결. 순수 메커니즘: syscall + 버퍼 + IoResult 보고만 한다.
 // 상태 전이는 스스로 하지 않고 Connector가 transition()/reset()으로 구동한다.
@@ -107,10 +107,10 @@ private:
     void on_ready(io::Channel& channel, io::ChannelEvents events) override;
 
 private:
-    Connector* connector_{nullptr};
-    io::Channel channel_{};
-    State state_{State::idle};
-    common::RingBuffer<inbound_buffer_capacity> rx_buffer_;
+    Connector* connector_ = nullptr;
+    io::Channel channel_;
+    State state_ = State::idle;
+    common::CircularBuffer rx_buffer_{rx_buffer_capacity};
     std::queue<common::PoolHandle<common::LinearBuffer>> tx_queue_;
 };
 

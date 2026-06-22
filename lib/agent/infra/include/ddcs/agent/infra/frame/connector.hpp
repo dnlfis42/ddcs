@@ -13,9 +13,8 @@
 
 #include <array>
 #include <chrono>
-#include <string>
-
 #include <cstdint>
+#include <string>
 
 namespace ddcs::io {
 

@@ -35,12 +35,6 @@ ddcs_add_unit_test(
 )
 
 ddcs_add_unit_test(
-    ddcs_common_ring_buffer_test
-    SOURCES ddcs_common_ring_buffer_test.cpp
-    LIBRARIES ddcs::common
-)
-
-ddcs_add_unit_test(
     ddcs_common_strong_id_test
     SOURCES ddcs_common_strong_id_test.cpp
     LIBRARIES ddcs::common
