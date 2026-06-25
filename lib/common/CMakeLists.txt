@@ -11,11 +11,9 @@ target_sources(
                 include/ddcs/common/clock.hpp
                 include/ddcs/common/endian.hpp
                 include/ddcs/common/env.hpp
-                include/ddcs/common/fd.hpp
                 include/ddcs/common/linear_buffer.hpp
                 include/ddcs/common/object_pool.hpp
                 include/ddcs/common/strong_id.hpp
-                include/ddcs/common/throw_errno.hpp
                 include/ddcs/common/uuid.hpp
 )
 target_link_libraries(ddcs_common INTERFACE ddcs::cxx_standard)

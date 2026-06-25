@@ -23,12 +23,6 @@ ddcs_add_unit_test(
 )
 
 ddcs_add_unit_test(
-    ddcs_common_fd_test
-    SOURCES ddcs_common_fd_test.cpp
-    LIBRARIES ddcs::common
-)
-
-ddcs_add_unit_test(
     ddcs_common_linear_buffer_test
     SOURCES ddcs_common_linear_buffer_test.cpp
     LIBRARIES ddcs::common
@@ -43,12 +37,6 @@ ddcs_add_unit_test(
 ddcs_add_unit_test(
     ddcs_common_strong_id_test
     SOURCES ddcs_common_strong_id_test.cpp
-    LIBRARIES ddcs::common
-)
-
-ddcs_add_unit_test(
-    ddcs_common_throw_errno_test
-    SOURCES ddcs_common_throw_errno_test.cpp
     LIBRARIES ddcs::common
 )
 
