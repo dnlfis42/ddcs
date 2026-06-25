@@ -17,6 +17,12 @@ ddcs_add_unit_test(
 )
 
 ddcs_add_unit_test(
+    ddcs_common_env_test
+    SOURCES ddcs_common_env_test.cpp
+    LIBRARIES ddcs::common
+)
+
+ddcs_add_unit_test(
     ddcs_common_fd_test
     SOURCES ddcs_common_fd_test.cpp
     LIBRARIES ddcs::common

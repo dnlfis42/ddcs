@@ -6,6 +6,9 @@ add_subdirectory(device)
 add_subdirectory(json)
 add_subdirectory(logger)
 
+# 앱 지원
+add_subdirectory(config)
+
 # 프로토콜 형식
 add_subdirectory(wire)
 
