@@ -27,7 +27,7 @@ class LogTest : public ::testing::Test {
 protected:
     void SetUp() override {
         ddcs::logger::Logger::instance().set_sink(sink);
-        ddcs::logger::Logger::instance().set_level(ddcs::logger::Level::Debug);
+        ddcs::logger::Logger::instance().set_level(ddcs::logger::Level::debug);
     }
 
 protected:
@@ -48,7 +48,7 @@ TEST_F(LogTest, EmitsRequiredHeaderFields) {
 }
 
 TEST_F(LogTest, FiltersBelowThreshold) {
-    ddcs::logger::Logger::instance().set_level(ddcs::logger::Level::Warn);
+    ddcs::logger::Logger::instance().set_level(ddcs::logger::Level::warn);
 
     LOG_DEBUG("d");
     LOG_INFO("i");
@@ -244,11 +244,11 @@ TEST_F(LogTest, EmitsValidJsonParseableByJsonLib) {
 TEST(LogParseLevelTest, ParsesKnownLevels) {
     using ddcs::logger::Level;
     using ddcs::logger::parse_level;
-    EXPECT_EQ(parse_level("debug"), std::optional<Level>{Level::Debug});
-    EXPECT_EQ(parse_level("INFO"), std::optional<Level>{Level::Info});
-    EXPECT_EQ(parse_level("Warn"), std::optional<Level>{Level::Warn});
-    EXPECT_EQ(parse_level("warning"), std::optional<Level>{Level::Warn});
-    EXPECT_EQ(parse_level("ERROR"), std::optional<Level>{Level::Error});
+    EXPECT_EQ(parse_level("debug"), std::optional<Level>{Level::debug});
+    EXPECT_EQ(parse_level("INFO"), std::optional<Level>{Level::info});
+    EXPECT_EQ(parse_level("Warn"), std::optional<Level>{Level::warn});
+    EXPECT_EQ(parse_level("warning"), std::optional<Level>{Level::warn});
+    EXPECT_EQ(parse_level("ERROR"), std::optional<Level>{Level::error});
 }
 
 TEST(LogParseLevelTest, ReturnsNulloptOnUnknown) {
@@ -258,13 +258,18 @@ TEST(LogParseLevelTest, ReturnsNulloptOnUnknown) {
     EXPECT_EQ(parse_level("inf"), std::nullopt); // 부분일치 불가
 }
 
-TEST(LogNoSinkTest, DoesNotThrowWhenLogging) {
-    ddcs::logger::Logger::instance().set_level(ddcs::logger::Level::Debug);
-    // 명시적으로 sink 해제는 API가 없으므로 다른 sink로 갈음
-    CaptureSink dummy;
-    ddcs::logger::Logger::instance().set_sink(dummy);
+TEST(LogNoSinkTest, ClearSinkMakesLoggingNoOp) {
+    auto& lg = ddcs::logger::Logger::instance();
+    lg.set_level(ddcs::logger::Level::debug);
 
-    EXPECT_NO_THROW(LOG_INFO("ping"));
+    CaptureSink sink;
+    lg.set_sink(sink);
+    LOG_INFO("ping");
+    ASSERT_EQ(sink.lines.size(), 1u); // 설치 상태에선 기록된다
+
+    lg.clear_sink(sink); // detach: 이후 log()는 null guard로 no-op
+    EXPECT_NO_THROW(LOG_INFO("after_detach"));
+    EXPECT_EQ(sink.lines.size(), 1u); // detach 후엔 증가하지 않는다
 }
 
 } // namespace

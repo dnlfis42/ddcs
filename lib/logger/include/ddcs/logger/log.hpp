@@ -12,21 +12,21 @@
 namespace ddcs::logger {
 
 enum class Level : std::uint8_t {
-    Debug = 0,
-    Info = 1,
-    Warn = 2,
-    Error = 3,
+    debug = 0,
+    info = 1,
+    warn = 2,
+    error = 3,
 };
 
 constexpr std::string_view to_string(Level level) noexcept {
     switch (level) {
-    case Level::Debug:
+    case Level::debug:
         return "DEBUG";
-    case Level::Info:
+    case Level::info:
         return "INFO";
-    case Level::Warn:
+    case Level::warn:
         return "WARN";
-    case Level::Error:
+    case Level::error:
         return "ERROR";
     }
     return "UNKNOWN";
@@ -77,8 +77,19 @@ public:
         sink_ = &sink;
     }
 
-    // sink가 없으면 no-op
-    // 필드 순서 고정: ts, level, event, 사용자 fields, file, line (file/line은 마지막 metadata)
+    // 자신이 심은 sink를 떼어낸다.
+    // 현재 sink가 expected일 때만 nullptr로 되돌려
+    // (멀티 인스턴스에서 다른 인스턴스가 심은 sink는 건드리지 않는다)
+    // 이후 log()가 null guard로 no-op이 되게 한다.
+    // sink 소유자(Agent/Controller Impl)는 sink 파괴 전에 이걸 호출해 dangling을 막는다.
+    void clear_sink(Sink const& expected) noexcept {
+        if (sink_ == &expected) {
+            sink_ = nullptr;
+        }
+    }
+
+    // - 필드 순서 고정: ts, level, event, 사용자 fields, file, line (file/line은 마지막 metadata)
+    // - sink가 없으면 no-op
     template <typename... Fields>
     void
     log(Level level, std::source_location const& location, std::string_view event,
@@ -133,7 +144,7 @@ private:
     static void append_number(std::string& out, double value);
     static void append_string_literal(std::string& out, std::string_view value);
 
-    Level threshold_ = Level::Info;
+    Level threshold_ = Level::info;
     Sink* sink_ = nullptr;
 };
 
@@ -189,10 +200,10 @@ void Logger::append_field_value(std::string& out, T const& value) {
     } while (0)
 
 #define LOG_DEBUG(event, ...)                                                                      \
-    DDCS_LOG_IMPL(::ddcs::logger::Level::Debug, event __VA_OPT__(, ) __VA_ARGS__)
+    DDCS_LOG_IMPL(::ddcs::logger::Level::debug, event __VA_OPT__(, ) __VA_ARGS__)
 #define LOG_INFO(event, ...)                                                                       \
-    DDCS_LOG_IMPL(::ddcs::logger::Level::Info, event __VA_OPT__(, ) __VA_ARGS__)
+    DDCS_LOG_IMPL(::ddcs::logger::Level::info, event __VA_OPT__(, ) __VA_ARGS__)
 #define LOG_WARN(event, ...)                                                                       \
-    DDCS_LOG_IMPL(::ddcs::logger::Level::Warn, event __VA_OPT__(, ) __VA_ARGS__)
+    DDCS_LOG_IMPL(::ddcs::logger::Level::warn, event __VA_OPT__(, ) __VA_ARGS__)
 #define LOG_ERROR(event, ...)                                                                      \
-    DDCS_LOG_IMPL(::ddcs::logger::Level::Error, event __VA_OPT__(, ) __VA_ARGS__)
+    DDCS_LOG_IMPL(::ddcs::logger::Level::error, event __VA_OPT__(, ) __VA_ARGS__)

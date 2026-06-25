@@ -27,8 +27,7 @@ constexpr std::string_view basename_of(char const* path) noexcept {
     return pos == std::string_view::npos ? sv : sv.substr(pos + 1);
 }
 
-// ISO8601 UTC + ms 정밀도
-// e.g. "2026-05-28T12:34:56.789Z"
+// ISO8601 UTC + ms 정밀도 (e.g. "2026-05-28T12:34:56.789Z")
 void append_iso8601_utc(std::string& out) {
     auto const now = std::chrono::system_clock::now();
     auto const sec = std::chrono::time_point_cast<std::chrono::seconds>(now);
@@ -77,16 +76,16 @@ std::optional<Level> parse_level(std::string_view text) noexcept {
     };
 
     if (ieq(text, "debug")) {
-        return Level::Debug;
+        return Level::debug;
     }
     if (ieq(text, "info")) {
-        return Level::Info;
+        return Level::info;
     }
     if (ieq(text, "warn") || ieq(text, "warning")) {
-        return Level::Warn;
+        return Level::warn;
     }
     if (ieq(text, "error")) {
-        return Level::Error;
+        return Level::error;
     }
     return std::nullopt;
 }
