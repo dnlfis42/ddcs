@@ -17,6 +17,18 @@ ddcs_add_unit_test(
 )
 
 ddcs_add_unit_test(
+    ddcs_io_fd_test
+    SOURCES ddcs_io_fd_test.cpp
+    LIBRARIES ddcs::io
+)
+
+ddcs_add_unit_test(
+    ddcs_io_throw_errno_test
+    SOURCES ddcs_io_throw_errno_test.cpp
+    LIBRARIES ddcs::io
+)
+
+ddcs_add_unit_test(
     ddcs_io_reactor_test
     SOURCES ddcs_io_reactor_test.cpp
     LIBRARIES ddcs::io

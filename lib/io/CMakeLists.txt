@@ -8,17 +8,19 @@ target_sources(
         FILE_SET HEADERS
             BASE_DIRS include
             FILES
-                include/ddcs/io/channel.hpp
-                include/ddcs/io/channel_events.hpp
-                include/ddcs/io/channel_handler.hpp
-                include/ddcs/io/reactor.hpp
-                include/ddcs/io/signal_source.hpp
-                include/ddcs/io/timer_handler.hpp
-                include/ddcs/io/timer_id.hpp
-                include/ddcs/io/timer_scheduler.hpp
                 include/ddcs/io/detail/channel_registry.hpp
                 include/ddcs/io/detail/timer_queue.hpp
                 include/ddcs/io/detail/timer_registration_table.hpp
+                include/ddcs/io/channel.hpp
+                include/ddcs/io/channel_events.hpp
+                include/ddcs/io/channel_handler.hpp
+                include/ddcs/io/fd.hpp
+                include/ddcs/io/reactor.hpp
+                include/ddcs/io/signal_source.hpp
+                include/ddcs/io/throw_errno.hpp
+                include/ddcs/io/timer_handler.hpp
+                include/ddcs/io/timer_id.hpp
+                include/ddcs/io/timer_scheduler.hpp
 )
 target_link_libraries(
     ddcs_io

@@ -27,7 +27,7 @@ constexpr std::string_view to_string(Mode m) noexcept {
 }
 
 // 텍스트를 mode 어휘로 검증해 해석한다.
-// 어휘 밖 값은 nullopt
+// - 어휘 밖 값은 nullopt
 constexpr std::optional<Mode> parse_mode(std::string_view text) noexcept {
     if (text == "safe") {
         return Mode::safe;
@@ -41,16 +41,32 @@ constexpr std::optional<Mode> parse_mode(std::string_view text) noexcept {
     return std::nullopt;
 }
 
-// wire byte를 mode 어휘로 검증해 해석한다.
-// 어휘 밖 값은 nullopt
-constexpr std::optional<Mode> decode_mode(std::uint8_t wire) noexcept {
-    switch (static_cast<Mode>(wire)) {
+// mode 어휘를 wire byte로 직렬화한다.
+constexpr std::uint8_t encode_mode(Mode m) noexcept {
+    switch (m) {
     case Mode::safe:
+        return 0;
     case Mode::normal:
+        return 1;
     case Mode::performance:
-        return static_cast<Mode>(wire);
+        return 2;
     }
-    return std::nullopt;
+    return 0; // 어휘 밖(불가) 방어
+}
+
+// wire byte를 mode 어휘로 검증해 해석한다.
+// - 어휘 밖 값은 nullopt
+constexpr std::optional<Mode> decode_mode(std::uint8_t wire) noexcept {
+    switch (wire) {
+    case 0:
+        return Mode::safe;
+    case 1:
+        return Mode::normal;
+    case 2:
+        return Mode::performance;
+    default:
+        return std::nullopt;
+    }
 }
 
 } // namespace ddcs::device

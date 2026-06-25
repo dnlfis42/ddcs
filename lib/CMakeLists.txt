@@ -1,20 +1,19 @@
-# 기반 타입과 도메인 모델
+# 기반 라이브러리
 add_subdirectory(common)
-add_subdirectory(device)
-
-# 데이터 형식과 관측
 add_subdirectory(json)
 add_subdirectory(logger)
 
 # 앱 지원
 add_subdirectory(config)
 
-# 프로토콜 형식
+# 런타임 라이브러리
+add_subdirectory(io)
+add_subdirectory(net)
+
+# 계약 라이브러리
+add_subdirectory(device)
 add_subdirectory(wire)
 
-# 런타임 I/O
-add_subdirectory(io)
-
-# 애플리케이션 계층
+# 애플리케이션 라이브러리
 add_subdirectory(agent)
 add_subdirectory(ctrl)
