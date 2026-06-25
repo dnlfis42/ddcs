@@ -1,9 +1,9 @@
 #include "ddcs/io/reactor.hpp"
 
-#include "ddcs/common/fd.hpp"
 #include "ddcs/io/channel.hpp"
 #include "ddcs/io/channel_events.hpp"
 #include "ddcs/io/channel_handler.hpp"
+#include "ddcs/io/fd.hpp"
 
 #include <utility>
 
@@ -21,8 +21,8 @@ using ddcs::io::ChannelHandler;
 using ddcs::io::Reactor;
 
 struct PipeFds {
-    ddcs::common::Fd read;
-    ddcs::common::Fd write;
+    ddcs::io::Fd read;
+    ddcs::io::Fd write;
 };
 
 class FlagHandler : public ChannelHandler {
@@ -42,10 +42,10 @@ PipeFds make_pipe() {
         ADD_FAILURE() << "pipe failed";
         return {};
     }
-    return PipeFds{ddcs::common::Fd{fds[0]}, ddcs::common::Fd{fds[1]}};
+    return PipeFds{ddcs::io::Fd{fds[0]}, ddcs::io::Fd{fds[1]}};
 }
 
-void write_byte(ddcs::common::Fd const& fd) {
+void write_byte(ddcs::io::Fd const& fd) {
     char const c{'x'};
     ASSERT_EQ(::write(fd.get(), &c, 1), 1);
 }

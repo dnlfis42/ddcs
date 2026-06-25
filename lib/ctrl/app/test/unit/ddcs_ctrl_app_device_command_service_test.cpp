@@ -96,8 +96,6 @@ struct CommandFixture {
     }
 };
 
-} // namespace
-
 TEST(CommandServiceTest, DispatchSendsCommandAndRegistersSlot) {
     CommandFixture f;
 
@@ -282,3 +280,5 @@ TEST(CommandServiceTest, RetryGivesUpWhenSendRejected) {
     EXPECT_EQ(commands.pending_count(), 0u);
     EXPECT_EQ(commands.retried_total(), 0u);
 }
+
+} // namespace

@@ -16,13 +16,11 @@
 namespace ddcs::ctrl::app::device {
 
 // 명령 전달 use-case. device 1급 장부에 계열(type)당 미결 슬롯 1개를 유지한다.
-// - 논리 명령 1개당 CommandId 1개.
-//   재전송은 동일 id로 나간다(agent는 멱등 재실행. MQTT/CoAP 계열 관례).
-// - 같은 (device, type) 재발송은 supersede: 옛 의도는 송신 성패와 무관하게 dispatch 순간 폐기된다.
-// - 보관본은 헤더 미기록 상태로 슬롯에 상주하고, send는 매번 사본을 소비한다.
-//   (전송 계층이 buffer를 점유하므로)
-// - 미지 id 응답(stale)은 재전송/supersede의 정상 부산물: 카운터 + DEBUG로만 관측한다.
-// 주기 구동(sweep)은 조립 루트
+// - 논리 명령 1개당 CommandId 1개, 재전송도 동일 id (agent 멱등 재실행, MQTT/CoAP 관례)
+// - 같은 (device, type) 재발송은 supersede: 옛 의도는 송신 성패와 무관하게 dispatch 순간 폐기
+// - 보관본은 헤더 미기록 상태로 슬롯에 상주, send는 매번 사본 소비 (전송 계층이 buffer 점유)
+// - 미지 id 응답(stale)은 재전송/supersede의 정상 부산물: 카운터 + DEBUG로만 관측
+// - 주기 구동(sweep)은 조립 루트
 class CommandService {
 public:
     explicit CommandService(
@@ -76,7 +74,7 @@ public:
     }
 
     // 논리 명령 발송 + 슬롯 등록(deadline은 now + timeout). 같은 (device, type) 미결은 supersede
-    // RETURN: 발급된 CommandId. 송신 실패면 invalid (이때도 supersede는 유효하다)
+    // - 송신 실패면 invalid를 반환한다(이때도 supersede는 유효하다).
     port::CommandId dispatch(
         domain::DeviceId device, std::uint8_t command_type, port::CommandBuffer payload,
         common::Clock::time_point now
@@ -86,16 +84,17 @@ public:
     void
     acknowledge(domain::DeviceId device, port::CommandId command_id, common::Clock::time_point now);
 
-    // CommandOutcome 반영: 성공 시 슬롯 종료(RTT 기록)
-    //                      실패 시 시도 실패(재시도/포기)
-    // 미지 id는 stale
+    // CommandOutcome 반영:
+    // - 성공 시 슬롯 종료 (RTT 기록)
+    // - 실패 시 시도 실패 (재시도/포기)
+    // - 미지 id는 stale
     void settle(
         domain::DeviceId device, port::CommandId command_id, bool success, std::string_view reason,
         common::Clock::time_point now
     );
 
-    // 만기 슬롯 처리: in_flight 초과 시 시도 실패
-    //                 backoff 경과 시 동일 id 재전송
+    // 만기 슬롯 처리:
+    // - in_flight 초과 시 시도 실패, backoff 경과 시 동일 id 재전송
     void sweep(common::Clock::time_point now);
 
 private:
@@ -109,7 +108,6 @@ private:
         common::Clock::time_point dispatched_at{}; // 최초 dispatch(총 RTT 기준)
         common::Clock::time_point next_at{};       // in_flight=응답 deadline / backoff=재전송 시각
         int attempts{1};
-        bool acked{false};
         Phase phase{Phase::in_flight};
     };
 

@@ -1,1 +1,11 @@
-# PARKED: agent-controller e2e는 현재 wire(acmp) 3-way 기준으로 재작성 후 활성화한다.
+ddcs_add_unit_test(
+    ddcs_agent_controller_e2e_test
+    SOURCES ddcs_agent_controller_e2e_test.cpp
+    LIBRARIES
+        ddcs::common
+        ddcs::logger
+        ddcs::device
+        ddcs::agent::domain
+        ddcs::agent
+        ddcs::ctrl
+)

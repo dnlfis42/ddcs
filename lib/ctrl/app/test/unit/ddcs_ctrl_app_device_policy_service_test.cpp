@@ -11,10 +11,10 @@
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/domain/group_policy.hpp"
-#include "ddcs/device/command.hpp"
+#include "ddcs/ctrl/domain/status.hpp"
 #include "ddcs/device/mode.hpp"
-#include "ddcs/device/status.hpp"
 #include "ddcs/json/value.hpp"
+#include "ddcs/wire/message/command.hpp"
 
 #include <array>
 #include <chrono>
@@ -28,7 +28,7 @@
 
 namespace {
 
-namespace cmd = ddcs::device;
+namespace msg = ddcs::wire::message;
 namespace json = ddcs::json;
 
 using ddcs::common::LinearBuffer;
@@ -85,20 +85,24 @@ public:
     bool try_send(
         DeviceId device, CommandId command_id, std::uint8_t command_type, CommandBuffer message
     ) override {
-        auto const set_mode = cmd::decode_set_mode(message->data_span());
+        auto const set_mode = msg::decode_set_mode(message->data_span());
         EXPECT_TRUE(set_mode.has_value());
-        sent.push_back(Sent{
-            .device = device,
-            .command_id = command_id,
-            .type = command_type,
-            .mode = set_mode.value_or(cmd::SetMode{}).mode,
-        });
+        sent.push_back(
+            Sent{
+                .device = device,
+                .command_id = command_id,
+                .type = command_type,
+                .mode = ddcs::device::decode_mode(set_mode.value_or(msg::SetMode{}).mode)
+                            .value_or(Mode::safe),
+            }
+        );
         return true;
     }
 
 private:
-    ObjectPool<LinearBuffer> pool_{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128
-    })};
+    ObjectPool<LinearBuffer> pool_{
+        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128})
+    };
 };
 
 // 재진입 회귀용 대역. for_each_active의 순회 창(iterating)을 노출한다.
@@ -142,8 +146,9 @@ public:
 
 private:
     WindowedDeviceRoster& roster_;
-    ObjectPool<LinearBuffer> pool_{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128
-    })};
+    ObjectPool<LinearBuffer> pool_{
+        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128})
+    };
 };
 
 struct PolicyFixture {
@@ -159,7 +164,7 @@ struct PolicyFixture {
         devices.find_or_create(id);
         devices.set_group(id, std::move(group));
         devices.update_status(
-            id, ddcs::device::Status{.mode = Mode::normal, .load = load, .temp = 40.0}
+            id, ddcs::ctrl::domain::Status{.mode = Mode::normal, .load = load, .temp = 40.0}
         );
         if (active) {
             roster.active.push_back(id);
@@ -169,7 +174,7 @@ struct PolicyFixture {
 
     void set_load(DeviceId id, double load) {
         devices.update_status(
-            id, ddcs::device::Status{.mode = Mode::normal, .load = load, .temp = 40.0}
+            id, ddcs::ctrl::domain::Status{.mode = Mode::normal, .load = load, .temp = 40.0}
         );
     }
 
@@ -179,8 +184,6 @@ struct PolicyFixture {
         return p;
     }
 };
-
-} // namespace
 
 TEST(PolicyServiceTest, EvaluateWithoutPolicyDoesNothing) {
     PolicyFixture f;
@@ -202,7 +205,7 @@ TEST(PolicyServiceTest, TransitionsToBusyAboveHighLoad) {
 
     ASSERT_EQ(f.sender.sent.size(), 2u); // sensors 멤버 전원, pumps 제외
     for (auto const& s : f.sender.sent) {
-        EXPECT_EQ(s.type, static_cast<std::uint8_t>(cmd::CommandType::set_mode));
+        EXPECT_EQ(s.type, static_cast<std::uint8_t>(msg::CommandType::set_mode));
         EXPECT_EQ(s.mode, Mode::safe);
     }
     EXPECT_EQ(f.commands.pending_count(), 2u); // 전달 추적은 CommandService로 넘어갔다.
@@ -259,7 +262,7 @@ TEST(PolicyServiceTest, SetPolicyResetsRegime) {
 TEST(PolicyServiceTest, ExcludesInactiveDevicesFromAggregationAndCommands) {
     PolicyFixture f;
     f.enroll(0x01, "sensors", 10.0);
-    f.enroll(0x02, "sensors", 100.0, /*active=*/false); // 끊긴 device의 stale 트윈
+    f.enroll(0x02, "sensors", 100.0, /*active=*/false); // 끊긴 device의 stale Shadow
     f.policy.set_policy(PolicyFixture::sensors_policy());
 
     f.policy.evaluate(f.clock.now());
@@ -280,8 +283,10 @@ TEST(PolicyServiceTest, SkipsGroupWithoutActiveDevices) {
 }
 
 TEST(PolicyServiceTest, ParsePolicyBuildsGroupPolicy) {
-    auto const j = json::parse(R"({"groups":{"sensors":{"high_load":80,"low_load":20,)"
-                               R"("busy_mode":"safe","idle_mode":"normal"}}})");
+    auto const j = json::parse(
+        R"({"groups":{"sensors":{"high_load":80,"low_load":20,)"
+        R"("busy_mode":"safe","idle_mode":"normal"}}})"
+    );
     ASSERT_TRUE(j.has_value());
 
     auto const p = parse_policy(*j);
@@ -303,16 +308,22 @@ TEST(PolicyServiceTest, ParsePolicyRejectsInvalidInput) {
     EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":80}}})")).has_value());
 
     // 미지 mode
-    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":80,"low_load":20,)"
-                                           R"("busy_mode":"warp","idle_mode":"normal"}}})"))
+    EXPECT_FALSE(parse_policy(*json::parse(
+                                  R"({"groups":{"s":{"high_load":80,"low_load":20,)"
+                                  R"("busy_mode":"warp","idle_mode":"normal"}}})"
+                              ))
                      .has_value());
     // 임계 역전 시 발진
-    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":20,"low_load":80,)"
-                                           R"("busy_mode":"safe","idle_mode":"normal"}}})"))
+    EXPECT_FALSE(parse_policy(*json::parse(
+                                  R"({"groups":{"s":{"high_load":20,"low_load":80,)"
+                                  R"("busy_mode":"safe","idle_mode":"normal"}}})"
+                              ))
                      .has_value());
     // 밴드 없음
-    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":50,"low_load":50,)"
-                                           R"("busy_mode":"safe","idle_mode":"normal"}}})"))
+    EXPECT_FALSE(parse_policy(*json::parse(
+                                  R"({"groups":{"s":{"high_load":50,"low_load":50,)"
+                                  R"("busy_mode":"safe","idle_mode":"normal"}}})"
+                              ))
                      .has_value());
 }
 
@@ -332,7 +343,7 @@ TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
         devices.find_or_create(id);
         devices.set_group(id, "sensors");
         devices.update_status(
-            id, ddcs::device::Status{.mode = Mode::normal, .load = 95.0, .temp = 40.0}
+            id, ddcs::ctrl::domain::Status{.mode = Mode::normal, .load = 95.0, .temp = 40.0}
         );
         roster.active.push_back(id);
     }
@@ -344,3 +355,5 @@ TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
     ASSERT_EQ(sender.sent_count, 2); // busy 전환에서 그룹 전원에 발신됐다(경로가 실제로 탔다).
     EXPECT_FALSE(sender.dispatched_during_iteration); // 발송은 순회 밖에서만
 }
+
+} // namespace

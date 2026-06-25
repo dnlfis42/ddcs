@@ -1,9 +1,10 @@
 #include "ddcs/ctrl/infra/prometheus/server.hpp"
 
-#include "ddcs/common/fd.hpp"
 #include "ddcs/ctrl/app/metrics/port/metrics_source.hpp"
+#include "ddcs/io/fd.hpp"
 #include "ddcs/io/reactor.hpp"
 #include "ddcs/logger/log.hpp"
+#include "ddcs/net/socket.hpp"
 
 #include <cerrno>
 #include <cstddef>
@@ -18,13 +19,11 @@ namespace ddcs::ctrl::infra::prometheus {
 
 namespace {
 
-constexpr std::size_t pool_chunk{8};
-constexpr io::ChannelEvents read_interest{
-    io::ChannelEvents::readable | io::ChannelEvents::edge_triggered
-};
-constexpr io::ChannelEvents write_interest{
-    io::ChannelEvents::writable | io::ChannelEvents::edge_triggered
-};
+constexpr std::size_t pool_chunk = 8;
+constexpr io::ChannelEvents read_interest =
+    io::ChannelEvents::readable | io::ChannelEvents::edge_triggered;
+constexpr io::ChannelEvents write_interest =
+    io::ChannelEvents::writable | io::ChannelEvents::edge_triggered;
 
 // Prometheus exposition(text/plain) 본문을 HTTP 응답으로 감싼다(Connection: close).
 std::string http_ok(std::string const& body) {
@@ -38,25 +37,16 @@ std::string http_ok(std::string const& body) {
     return r;
 }
 
-[[nodiscard]] std::uint16_t query_bound_port(int fd) noexcept {
-    sockaddr_in addr{};
-    socklen_t len{sizeof(addr)};
-    if (::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) < 0) {
-        return 0;
-    }
-    return ntohs(addr.sin_port);
-}
-
 } // namespace
 
 Server::Server(
     io::Reactor& reactor, port::MetricsSource& source, std::uint16_t listen_port, int backlog
 )
-    : reactor_{reactor},
-      source_{source},
-      listen_port_{listen_port},
-      backlog_{backlog},
-      pool_{common::ObjectPool<Connection>::create<pool_chunk>()} {}
+    : reactor_(reactor),
+      source_(source),
+      listen_port_(listen_port),
+      backlog_(backlog),
+      pool_(common::ObjectPool<Connection>::create<pool_chunk>()) {}
 
 Server::~Server() {
     close();
@@ -67,13 +57,13 @@ bool Server::init() noexcept {
         return false;
     }
 
-    common::Fd fd{::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)};
+    io::Fd fd{::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)};
     if (!fd.valid()) {
         LOG_WARN("prometheus.socket_fail", logger::kv("errno", errno));
         return false;
     }
 
-    int const yes{1};
+    int const yes = 1;
     if (::setsockopt(fd.get(), SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0) {
         LOG_WARN("prometheus.setsockopt_fail", logger::kv("errno", errno));
         return false;
@@ -95,7 +85,7 @@ bool Server::init() noexcept {
         return false;
     }
 
-    bound_port_ = query_bound_port(fd.get());
+    bound_port_ = net::bound_port(fd.get());
     if (!listen_channel_.init(std::move(fd), read_interest, *this)) {
         return false;
     }
@@ -153,9 +143,7 @@ void Server::on_ready(io::Channel& channel, io::ChannelEvents events) {
     }
 
     if (contains(events, io::ChannelEvents::error) || contains(events, io::ChannelEvents::hangup)) {
-        LOG_ERROR(
-            "prometheus.listener_error", logger::kv("events", static_cast<std::uint32_t>(events))
-        );
+        LOG_ERROR("prometheus.listener_error", logger::kv("events", io::to_underlying(events)));
         return;
     }
 
@@ -167,9 +155,7 @@ void Server::on_ready(io::Channel& channel, io::ChannelEvents events) {
 
 void Server::drain_accepts() {
     for (;;) {
-        common::Fd fd{
-            ::accept4(listen_channel_.fd(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC)
-        };
+        io::Fd fd{::accept4(listen_channel_.fd(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC)};
         if (!fd.valid()) {
             int const err = errno;
             if (err == EAGAIN || err == EWOULDBLOCK) {

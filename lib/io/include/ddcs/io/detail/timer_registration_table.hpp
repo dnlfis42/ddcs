@@ -11,7 +11,7 @@
 namespace ddcs::io::detail {
 
 // TimerId를 TimerHandler 등록으로 식별하는 표
-//   cancel이나 expiry로 슬롯이 풀리면 generation이 올라 이전 id는 stale이 된다.
+// - cancel이나 expiry로 슬롯이 풀리면 generation이 올라 이전 id는 stale이 된다.
 class TimerRegistrationTable {
 public:
     [[nodiscard]] bool contains(TimerId id) const noexcept {

@@ -8,15 +8,16 @@ target_sources(
         FILE_SET HEADERS
             BASE_DIRS include
             FILES
-                include/ddcs/ctrl/domain/device.hpp
                 include/ddcs/ctrl/domain/device_id.hpp
                 include/ddcs/ctrl/domain/device_registry.hpp
+                include/ddcs/ctrl/domain/device_shadow.hpp
                 include/ddcs/ctrl/domain/group_policy.hpp
+                include/ddcs/ctrl/domain/status.hpp
 )
 target_link_libraries(
     ddcs_ctrl_domain
     PRIVATE ddcs::build_options
-    PUBLIC ddcs::cxx_standard ddcs::device ddcs::common
+    PUBLIC ddcs::cxx_standard ddcs::common ddcs::device
 )
 
 add_subdirectory(test/unit)

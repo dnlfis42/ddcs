@@ -1,0 +1,39 @@
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <string_view>
+
+namespace ddcs::ctrl::infra::transport {
+
+inline constexpr std::size_t min_peer_address_format_buffer_size = 64;
+
+struct PeerAddress {
+    enum class Family : std::uint8_t {
+        none,
+        v4,
+        v6,
+    };
+
+    Family family = Family::none;
+    std::uint16_t port = 0;
+    std::array<std::uint8_t, 16> addr{};
+
+    [[nodiscard]] std::string_view format(std::span<char> buf) const noexcept;
+
+    void clear() noexcept {
+        family = Family::none;
+        port = 0;
+        addr = {};
+    }
+
+    void reset() noexcept {
+        clear();
+    }
+
+    bool operator==(PeerAddress const&) const = default;
+};
+
+} // namespace ddcs::ctrl::infra::transport

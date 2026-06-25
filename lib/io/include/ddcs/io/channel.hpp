@@ -1,8 +1,8 @@
 #pragma once
 
-#include "ddcs/common/fd.hpp"
 #include "ddcs/io/channel_events.hpp"
 #include "ddcs/io/channel_handler.hpp"
+#include "ddcs/io/fd.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -31,7 +31,7 @@ public:
     Channel& operator=(Channel&&) noexcept = delete;
 
     [[nodiscard]] bool
-    init(common::Fd&& fd, ChannelEvents interests, ChannelHandler& handler) noexcept {
+    init(io::Fd&& fd, ChannelEvents interests, ChannelHandler& handler) noexcept {
         if (valid() || !fd.valid()) {
             return false;
         }
@@ -98,7 +98,7 @@ private:
         state_ = State::ready;
     }
 
-    common::Fd fd_;
+    io::Fd fd_;
     ChannelEvents interests_ = ChannelEvents::none;
     ChannelHandler* handler_ = nullptr;
     State state_ = State::idle;

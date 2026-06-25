@@ -1,6 +1,5 @@
 #include "ddcs/agent/domain/simulated_device.hpp"
 
-#include "ddcs/device/command.hpp"
 #include "ddcs/device/mode.hpp"
 
 #include <gtest/gtest.h>
@@ -9,7 +8,6 @@ namespace {
 
 using ddcs::agent::domain::SimulatedDevice;
 using ddcs::device::Mode;
-using ddcs::device::SetMode;
 
 TEST(SimulatedDeviceTest, DefaultsToNormalMode) {
     SimulatedDevice dev{};
@@ -25,7 +23,7 @@ TEST(SimulatedDeviceTest, QueryAdvancesLoadEachCall) {
 
 TEST(SimulatedDeviceTest, LoadStaysWithinBand) {
     SimulatedDevice::Config cfg{.baseline = 55.0, .amplitude = 45.0, .step = 0.7, .temp = 40.0};
-    SimulatedDevice dev{Mode::normal, cfg};
+    SimulatedDevice dev{{}, Mode::normal, cfg};
     for (int i = 0; i < 200; ++i) {
         double const load = dev.query().load;
         EXPECT_GE(load, cfg.baseline - cfg.amplitude - 1e-9);
@@ -51,8 +49,8 @@ TEST(SimulatedDeviceTest, CrossesHighAndLowOverCycle) {
 }
 
 TEST(SimulatedDeviceTest, ApplySetModeUpdatesMode) {
-    SimulatedDevice dev{Mode::normal};
-    EXPECT_TRUE(dev.apply(SetMode{.mode = Mode::performance}));
+    SimulatedDevice dev{{}, Mode::normal};
+    EXPECT_TRUE(dev.apply(Mode::performance));
     EXPECT_EQ(dev.mode(), Mode::performance);
     EXPECT_EQ(dev.query().mode, Mode::performance);
 }
@@ -60,7 +58,7 @@ TEST(SimulatedDeviceTest, ApplySetModeUpdatesMode) {
 TEST(SimulatedDeviceTest, QueryReportsConfiguredTemp) {
     SimulatedDevice::Config cfg{};
     cfg.temp = 42.5;
-    SimulatedDevice dev{Mode::normal, cfg};
+    SimulatedDevice dev{{}, Mode::normal, cfg};
     EXPECT_EQ(dev.query().temp, 42.5);
 }
 

@@ -10,8 +10,8 @@ namespace ddcs::io {
 class Channel;
 
 // epoll 기반 readiness 이벤트 루프
-//   등록된 Channel보다 오래 살아야 한다.
-//   스레드 안전하지 않으므로 단일 스레드 reactor loop에서만 호출한다.
+// - 등록된 Channel보다 오래 살아야 한다.
+// - 스레드 안전하지 않으므로 단일 스레드 reactor loop에서만 호출한다.
 class Reactor {
 public:
     Reactor();

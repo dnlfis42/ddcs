@@ -2,8 +2,6 @@
 
 #include "ddcs/logger/log.hpp"
 
-#include <gtest/gtest.h>
-
 #include <chrono>
 #include <string>
 
@@ -11,6 +9,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -44,13 +44,12 @@ std::string scrape_metrics(Controller& controller, std::uint16_t port) {
     return resp;
 }
 
-// 조립 루트 스모크: 구성 후 start, ephemeral 바인드, 1회 디스패치, stop까지 무사한지.
-// (왕복 검증은 7b loopback e2e에서.)
+// 조립 루트 스모크: 구성 후 start, ephemeral 바인드, 1회 디스패치, stop까지 무사한지
 TEST(ControllerTest, StartsBindsEphemeralPortAndDispatchesOnce) {
     Controller::Config cfg{};
     cfg.listen_port = 0;
     cfg.accept_backlog = 16;
-    cfg.log_level = ddcs::logger::Level::Warn;
+    cfg.log_level = ddcs::logger::Level::warn;
 
     Controller controller{cfg};
     controller.start();
@@ -60,10 +59,10 @@ TEST(ControllerTest, StartsBindsEphemeralPortAndDispatchesOnce) {
     controller.stop();
 }
 
-// metrics_port nullopt(기본)면 엔드포인트 비활성: 바인드 포트 0.
+// metrics_port nullopt(기본)면 엔드포인트 비활성: 바인드 포트 0
 TEST(ControllerTest, DisablesMetricsByDefault) {
     Controller::Config cfg{};
-    cfg.log_level = ddcs::logger::Level::Warn;
+    cfg.log_level = ddcs::logger::Level::warn;
 
     Controller controller{cfg};
     controller.start();
@@ -71,11 +70,11 @@ TEST(ControllerTest, DisablesMetricsByDefault) {
     controller.stop();
 }
 
-// metrics_port 지정 시 엔드포인트 활성: GET /metrics가 실제 레지스트리 gauge를 노출.
+// metrics_port 지정 시 엔드포인트 활성: GET /metrics가 실제 레지스트리 gauge를 노출
 TEST(ControllerTest, ServesMetricsWhenEnabled) {
     Controller::Config cfg{};
     cfg.metrics_port = 0; // ephemeral, 활성
-    cfg.log_level = ddcs::logger::Level::Warn;
+    cfg.log_level = ddcs::logger::Level::warn;
 
     Controller controller{cfg};
     controller.start();
@@ -84,7 +83,7 @@ TEST(ControllerTest, ServesMetricsWhenEnabled) {
     auto const resp = scrape_metrics(controller, controller.metrics_port());
     EXPECT_NE(resp.find("200 OK"), std::string::npos);
     EXPECT_NE(resp.find("# TYPE ddcs_connections gauge"), std::string::npos);
-    EXPECT_NE(resp.find("ddcs_connections 0"), std::string::npos); // agent 없음
+    EXPECT_NE(resp.find("ddcs_connections 0"), std::string::npos); // session 없음
     controller.stop();
 }
 

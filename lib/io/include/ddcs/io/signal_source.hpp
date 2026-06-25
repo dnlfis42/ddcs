@@ -10,7 +10,7 @@ class Channel;
 class Reactor;
 
 // signalfd로 받은 signal을 Reactor 콜백으로 전달하는 source
-//   Reactor보다 먼저 소멸해야 한다.
+// - Reactor보다 먼저 소멸해야 한다.
 class SignalSource {
 public:
     using Callback = std::function<void(int signal)>;

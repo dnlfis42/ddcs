@@ -1,13 +1,13 @@
 #include "ddcs/agent/agent.hpp"
 
-#include "ddcs/agent/app/session_service.hpp"
+#include "ddcs/agent/app/session/session_service.hpp"
 #include "ddcs/agent/domain/dummy_device.hpp"
 #include "ddcs/logger/log.hpp"
 
-#include <gtest/gtest.h>
-
 #include <chrono>
 #include <memory>
+
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -17,7 +17,7 @@ TEST(AgentTest, AssemblesStartsAndDispatchesWithoutController) {
     cfg.controller_host = "127.0.0.1";
     cfg.controller_port = 65000; // 리스너 없으면 connect refused되어 backoff
     cfg.device = std::make_unique<ddcs::agent::domain::DummyDevice>();
-    cfg.log_level = ddcs::logger::Level::Warn;
+    cfg.log_level = ddcs::logger::Level::warn;
 
     ddcs::agent::Agent agent{std::move(cfg)};
     agent.start();
@@ -25,7 +25,7 @@ TEST(AgentTest, AssemblesStartsAndDispatchesWithoutController) {
     agent.run_once(std::chrono::milliseconds{10});
 
     // 컨트롤러 없으면 등록 못 함. idle 유지 (크래시 없이)
-    EXPECT_EQ(agent.session().state(), ddcs::agent::app::SessionService::State::idle);
+    EXPECT_EQ(agent.session().state(), ddcs::agent::app::session::SessionService::State::idle);
     agent.stop();
 }
 

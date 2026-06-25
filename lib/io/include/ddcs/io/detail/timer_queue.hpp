@@ -11,7 +11,7 @@
 namespace ddcs::io::detail {
 
 // TimerId를 deadline 순서로 보관하는 min-heap
-//   clock과 handler를 모른다.
+// - clock과 handler를 모른다.
 class TimerQueue {
 public:
     using time_point = common::Clock::time_point;

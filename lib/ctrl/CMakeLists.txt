@@ -19,12 +19,12 @@ target_link_libraries(
     ddcs_ctrl
     PRIVATE
         ddcs::build_options
-        ddcs::ctrl::infra
-        ddcs::ctrl::app
-        ddcs::ctrl::domain
-        ddcs::io
         ddcs::json
-    PUBLIC ddcs::cxx_standard ddcs::logger ddcs::device ddcs::common
+        ddcs::io
+        ddcs::ctrl::domain
+        ddcs::ctrl::app
+        ddcs::ctrl::infra
+    PUBLIC ddcs::cxx_standard ddcs::common ddcs::logger ddcs::device
 )
 
 add_subdirectory(test/unit)

@@ -14,8 +14,8 @@
 namespace ddcs::json {
 
 // 재귀 JSON 값 DOM
-//   null, bool, number, string, array, object 6가지 JSON 값 종류를 표현한다.
-//   object는 삽입 순서를 보존한다.
+// - null, bool, number, string, array, object 6가지 JSON 값 종류를 표현한다.
+// - object는 삽입 순서를 보존한다.
 class Value {
 public:
     using Array = std::vector<Value>;
@@ -51,10 +51,10 @@ public:
     // array 원소를 조회한다. array가 아니거나 범위를 벗어나면 nullptr를 반환한다.
     [[nodiscard]] Value const* at(std::size_t index) const noexcept;
 
-    // array 끝에 원소를 추가한다. null이면 array로 승격한다. array/null이 아니면 false.
+    // array 끝에 원소를 추가한다. null이면 array로 승격한다. array/null이 아니면 false
     [[nodiscard]] bool try_push_back(Value value);
 
-    // try_push_back과 같지만 체이닝용이다. array/null이 아니면 throw.
+    // try_push_back과 같지만 체이닝용이다. array/null이 아니면 throw
     Value& push_back(Value value);
 
     // object 멤버를 조회한다. object가 아니거나 키가 없으면 nullptr를 반환한다.
@@ -73,10 +73,10 @@ public:
         }
     }
 
-    // null을 object로 승격하고, 기존 키는 위치를 유지한 채 갱신한다. object/null이 아니면 false.
+    // null을 object로 승격하고, 기존 키는 위치를 유지한 채 갱신한다. object/null이 아니면 false
     [[nodiscard]] bool try_set(std::string key, Value value);
 
-    // try_set과 같지만 체이닝용이다. object/null이 아니면 throw.
+    // try_set과 같지만 체이닝용이다. object/null이 아니면 throw
     Value& set(std::string key, Value value);
 
     // 현재 값을 불필요한 공백 없이 compact JSON text로 직렬화해 반환한다.

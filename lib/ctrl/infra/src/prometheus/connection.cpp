@@ -12,16 +12,19 @@
 namespace ddcs::ctrl::infra::prometheus {
 
 namespace {
-constexpr std::size_t request_cap{8192}; // 요청 상한, 넘으면 그만 읽고 응답(악성/과대 방어)
+
+constexpr std::size_t request_cap = 8192; // 요청 상한, 넘으면 그만 읽고 응답 (악성/과대 방어)
+
 } // namespace
 
-bool Connection::assign(Server& server, common::Fd fd, io::ChannelEvents interests) noexcept {
+bool Connection::assign(Server& server, io::Fd fd, io::ChannelEvents interests) noexcept {
     if (state_ != State::idle) {
         return false;
     }
     if (!channel_.init(std::move(fd), interests, *this)) {
         return false;
     }
+
     server_ = &server;
     state_ = State::reading;
     rx_.clear();

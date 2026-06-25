@@ -81,7 +81,6 @@ port::CommandId CommandService::dispatch(
             .dispatched_at = now,
             .next_at = after(now, command_timeout_),
             .attempts = 1,
-            .acked = false,
             .phase = Phase::in_flight,
         }
     );
@@ -104,7 +103,6 @@ void CommandService::acknowledge(
         return;
     }
 
-    slot->acked = true;
     slot->phase = Phase::in_flight;
     slot->next_at = after(now, command_timeout_); // 작동 확인 후 outcome까지 연장
     LOG_INFO("command.ack", logger::kv("command", command_id.get()));
@@ -214,7 +212,6 @@ void CommandService::resend(
 
     ++retried_total_;
     slot->attempts += 1;
-    slot->acked = false;
     slot->phase = Phase::in_flight;
     slot->next_at = after(now, command_timeout_);
     LOG_INFO(

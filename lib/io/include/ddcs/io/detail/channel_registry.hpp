@@ -10,7 +10,7 @@
 namespace ddcs::io::detail {
 
 // fd를 generation token으로 식별하는 Channel 등록 표
-//   token에 담은 generation이 fd 재사용 전후의 등록을 구분한다.
+// - token에 담은 generation이 fd 재사용 전후의 등록을 구분한다.
 class ChannelRegistry {
 public:
     using Token = std::uint64_t;

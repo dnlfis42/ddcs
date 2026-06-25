@@ -1,8 +1,8 @@
 #include "ddcs/io/detail/channel_registry.hpp"
 
-#include "ddcs/common/fd.hpp"
 #include "ddcs/io/channel.hpp"
 #include "ddcs/io/channel_handler.hpp"
+#include "ddcs/io/fd.hpp"
 
 #include <sys/eventfd.h>
 
@@ -20,8 +20,8 @@ public:
     void on_ready(Channel&, ChannelEvents) override {}
 };
 
-ddcs::common::Fd make_fd() {
-    ddcs::common::Fd fd{::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)};
+ddcs::io::Fd make_fd() {
+    ddcs::io::Fd fd{::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)};
     EXPECT_TRUE(fd.valid());
     return fd;
 }

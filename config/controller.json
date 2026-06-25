@@ -1,0 +1,9 @@
+{
+  "metrics_port": 9090,
+  "accept_backlog": 128,
+  "policy_path": "config/policy.json",
+  "log_level": "info",
+  "timeout_ms": { "handshake": 3000, "liveness": 3000, "command": 5000 },
+  "command": { "max_attempts": 3, "backoff_base_ms": 500 },
+  "sweep_interval_ms": 1000
+}

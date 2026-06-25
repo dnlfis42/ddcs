@@ -4,21 +4,22 @@
 
 namespace ddcs::agent::domain {
 
-SimulatedDevice::SimulatedDevice(device::Mode initial) noexcept
-    : SimulatedDevice{initial, Config{}} {}
+SimulatedDevice::SimulatedDevice(common::Uuid id, device::Mode initial) noexcept
+    : SimulatedDevice(id, initial, Config{}) {}
 
-SimulatedDevice::SimulatedDevice(device::Mode initial, Config cfg) noexcept
-    : mode_{initial},
-      cfg_{cfg} {}
+SimulatedDevice::SimulatedDevice(common::Uuid id, device::Mode initial, Config cfg) noexcept
+    : id_(id),
+      mode_(initial),
+      cfg_(cfg) {}
 
-DeviceState SimulatedDevice::query() {
+Status SimulatedDevice::query() {
     phase_ += cfg_.step;
     double const load = cfg_.baseline + cfg_.amplitude * std::sin(phase_);
-    return DeviceState{.mode = mode_, .load = load, .temp = cfg_.temp};
+    return Status{.mode = mode_, .load = load, .temp = cfg_.temp};
 }
 
-bool SimulatedDevice::apply(device::SetMode const& cmd) {
-    mode_ = cmd.mode;
+bool SimulatedDevice::apply(device::Mode mode) {
+    mode_ = mode;
     return true;
 }
 

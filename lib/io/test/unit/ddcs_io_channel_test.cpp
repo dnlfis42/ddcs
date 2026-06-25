@@ -1,8 +1,8 @@
 #include "ddcs/io/channel.hpp"
 
-#include "ddcs/common/fd.hpp"
 #include "ddcs/io/channel_events.hpp"
 #include "ddcs/io/channel_handler.hpp"
+#include "ddcs/io/fd.hpp"
 
 #include <cerrno>
 #include <utility>
@@ -23,8 +23,8 @@ public:
     void on_ready(Channel&, ChannelEvents) override {}
 };
 
-ddcs::common::Fd make_fd() {
-    ddcs::common::Fd fd{::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)};
+ddcs::io::Fd make_fd() {
+    ddcs::io::Fd fd{::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)};
     EXPECT_TRUE(fd.valid());
     return fd;
 }
@@ -37,7 +37,7 @@ ddcs::common::Fd make_fd() {
 TEST(ChannelTest, InitializesWithOwnedFd) {
     DummyHandler handler;
     Channel channel;
-    ddcs::common::Fd fd = make_fd();
+    ddcs::io::Fd fd = make_fd();
     int const raw_fd = fd.get();
 
     ASSERT_TRUE(channel.init(std::move(fd), ChannelEvents::readable, handler));
@@ -53,13 +53,13 @@ TEST(ChannelTest, InitializesWithOwnedFd) {
 TEST(ChannelTest, RejectsInvalidFd) {
     DummyHandler handler;
     Channel channel;
-    ddcs::common::Fd fd;
+    ddcs::io::Fd fd;
 
     EXPECT_FALSE(channel.init(std::move(fd), ChannelEvents::readable, handler));
 
     EXPECT_FALSE(channel.valid());
     EXPECT_FALSE(channel.registered());
-    EXPECT_EQ(channel.fd(), ddcs::common::Fd::invalid);
+    EXPECT_EQ(channel.fd(), ddcs::io::Fd::invalid);
     EXPECT_EQ(channel.interests(), ChannelEvents::none);
 }
 
@@ -68,7 +68,7 @@ TEST(ChannelTest, DoesNotConsumeFdWhenAlreadyInitialized) {
     Channel channel;
     ASSERT_TRUE(channel.init(make_fd(), ChannelEvents::readable, handler));
 
-    ddcs::common::Fd fd = make_fd();
+    ddcs::io::Fd fd = make_fd();
     int const raw_fd = fd.get();
 
     EXPECT_FALSE(channel.init(std::move(fd), ChannelEvents::writable, handler));
@@ -88,7 +88,7 @@ TEST(ChannelTest, ResetsAndClosesFd) {
 
     EXPECT_FALSE(channel.valid());
     EXPECT_FALSE(channel.registered());
-    EXPECT_EQ(channel.fd(), ddcs::common::Fd::invalid);
+    EXPECT_EQ(channel.fd(), ddcs::io::Fd::invalid);
     EXPECT_EQ(channel.interests(), ChannelEvents::none);
     EXPECT_TRUE(fd_is_closed(raw_fd));
 }

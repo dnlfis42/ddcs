@@ -17,10 +17,10 @@ target_link_libraries(
     PRIVATE ddcs::build_options ddcs::io ddcs::agent::infra
     PUBLIC
         ddcs::cxx_standard
-        ddcs::agent::app
-        ddcs::agent::domain
-        ddcs::logger
         ddcs::common
+        ddcs::logger
+        ddcs::agent::domain
+        ddcs::agent::app
 )
 
 add_subdirectory(test/unit)

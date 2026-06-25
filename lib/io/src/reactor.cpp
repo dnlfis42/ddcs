@@ -1,10 +1,10 @@
 #include "ddcs/io/reactor.hpp"
 
-#include "ddcs/common/fd.hpp"
-#include "ddcs/common/throw_errno.hpp"
 #include "ddcs/io/channel.hpp"
 #include "ddcs/io/channel_events.hpp"
 #include "ddcs/io/detail/channel_registry.hpp"
+#include "ddcs/io/fd.hpp"
+#include "ddcs/io/throw_errno.hpp"
 
 #include <array>
 #include <cassert>
@@ -37,7 +37,7 @@ constexpr std::chrono::milliseconds wait_forever{-1};
 }
 
 [[nodiscard]] std::uint32_t to_epoll_interests(ChannelEvents interests) noexcept {
-    std::uint32_t events{0};
+    std::uint32_t events = 0;
     if (contains(interests, ChannelEvents::readable)) {
         events |= EPOLLIN;
     }
@@ -78,7 +78,7 @@ struct Reactor::Impl {
         running = 0x02,
     };
 
-    common::Fd epoll_fd;
+    io::Fd epoll_fd;
     State state = State::ready;
     detail::ChannelRegistry channel_registry;
 };
@@ -88,7 +88,7 @@ Reactor::Reactor()
     int const fd = ::epoll_create1(EPOLL_CLOEXEC);
     if (fd < 0) {
         int const err = errno;
-        common::throw_errno(err, "epoll_create1");
+        io::throw_errno(err, "epoll_create1");
     }
 
     impl_->epoll_fd.reset(fd);
@@ -120,7 +120,7 @@ void Reactor::run_once(std::chrono::milliseconds timeout) {
         if (err == EINTR) {
             return;
         }
-        common::throw_errno(err, "epoll_wait");
+        io::throw_errno(err, "epoll_wait");
     }
 
     for (std::size_t i = 0; i < static_cast<std::size_t>(n); ++i) {

@@ -2,12 +2,12 @@
 
 #include "ddcs/device/mode.hpp"
 
+#include <cstddef>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
-
-#include <cstddef>
 
 namespace ddcs::ctrl::domain {
 
@@ -27,27 +27,34 @@ public:
         return GroupRule{high_load, low_load, busy_mode, idle_mode};
     }
 
+    // 초과 임계
     double high_load() const noexcept {
         return high_load_;
-    } // 초과 임계
+    }
+
+    // 복귀 임계
     double low_load() const noexcept {
         return low_load_;
-    } // 복귀 임계
+    }
+
+    // 초과 시 목표 모드
     device::Mode busy_mode() const noexcept {
         return busy_mode_;
-    } // 초과 시 목표 모드
+    }
+
+    // 회복 시 목표 모드
     device::Mode idle_mode() const noexcept {
         return idle_mode_;
-    } // 회복 시 목표 모드
+    }
 
 private:
     GroupRule(
         double high_load, double low_load, device::Mode busy_mode, device::Mode idle_mode
     ) noexcept
-        : high_load_{high_load},
-          low_load_{low_load},
-          busy_mode_{busy_mode},
-          idle_mode_{idle_mode} {}
+        : high_load_(high_load),
+          low_load_(low_load),
+          busy_mode_(busy_mode),
+          idle_mode_(idle_mode) {}
 
     double high_load_;
     double low_load_;
@@ -56,12 +63,13 @@ private:
 };
 
 // 그룹에서 룰로 가는 정책
-// 부팅 시 policy.json에서 빌드(app의 parse_policy), PolicyService가 평가에 사용한다.
-// 순수 값객체(json 무지)
-// 핫스왑 단위 (set_policy로 통째 교체)
+// - 부팅 시 policy.json에서 빌드(app의 parse_policy), PolicyService가 평가에 사용한다.
+// - 순수 값객체 (json 무지)
+// - 핫스왑 단위 (set_policy로 통째 교체)
 class GroupPolicy {
 public:
-    void set(std::string group, GroupRule rule) { // 빌드 (있으면 갱신, 없으면 append, 삽입순 유지)
+    // 빌드 (있으면 갱신, 없으면 append, 삽입순 유지)
+    void set(std::string group, GroupRule rule) {
         for (auto& [g, r] : rules_) {
             if (g == group) {
                 r = rule;
@@ -78,8 +86,19 @@ public:
         return rules_.size();
     }
 
+    // 알려진 그룹인지 확인
+    [[nodiscard]] bool contains(std::string_view group) const noexcept {
+        for (auto const& [g, r] : rules_) {
+            if (g == group) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // fn(std::string const& group, GroupRule const& rule)
     template <typename Fn>
-    void for_each(Fn&& fn) const { // fn(std::string const& group, GroupRule const& rule)
+    void for_each(Fn&& fn) const {
         for (auto const& [group, rule] : rules_) {
             fn(group, rule);
         }

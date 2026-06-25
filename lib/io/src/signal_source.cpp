@@ -1,10 +1,10 @@
 #include "ddcs/io/signal_source.hpp"
 
-#include "ddcs/common/fd.hpp"
-#include "ddcs/common/throw_errno.hpp"
 #include "ddcs/io/channel.hpp"
 #include "ddcs/io/channel_handler.hpp"
+#include "ddcs/io/fd.hpp"
 #include "ddcs/io/reactor.hpp"
+#include "ddcs/io/throw_errno.hpp"
 
 #include <cerrno>
 #include <csignal>
@@ -50,28 +50,28 @@ public:
 
         if (int const err = ::pthread_sigmask(SIG_BLOCK, &signal_mask, &previous_signal_mask_);
             err != 0) {
-            common::throw_errno(err, "pthread_sigmask");
+            io::throw_errno(err, "pthread_sigmask");
         }
         has_previous_signal_mask_ = true;
 
-        common::Fd fd{::signalfd(-1, &signal_mask, SFD_NONBLOCK | SFD_CLOEXEC)};
+        io::Fd fd{::signalfd(-1, &signal_mask, SFD_NONBLOCK | SFD_CLOEXEC)};
         if (!fd.valid()) {
             int const err = errno;
             restore_previous_signal_mask();
-            common::throw_errno(err, "signalfd");
+            io::throw_errno(err, "signalfd");
         }
 
         if (!channel_.init(
                 std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this
             )) {
             restore_previous_signal_mask();
-            common::throw_errno(EINVAL, "signal channel init failed");
+            io::throw_errno(EINVAL, "signal channel init failed");
         }
 
         if (!reactor_.add(channel_)) {
             channel_.reset();
             restore_previous_signal_mask();
-            common::throw_errno(EINVAL, "reactor add signal channel failed");
+            io::throw_errno(EINVAL, "reactor add signal channel failed");
         }
 
         state_ = State::active;
@@ -120,7 +120,7 @@ private:
                 if (err == EINTR) {
                     continue;
                 }
-                common::throw_errno(err, "read signalfd");
+                io::throw_errno(err, "read signalfd");
             }
             return;
         }

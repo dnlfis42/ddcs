@@ -160,18 +160,16 @@ private:
         return storage_.get() + tail_offset_;
     }
 
-    // Layout:
-    //   [0, data_offset_)            : headroom
-    //   [data_offset_, tail_offset_) : data
-    //   [tail_offset_, capacity_)    : tailroom
-    //
-    // Invariant:
-    //   data_offset_ <= tail_offset_ <= capacity_
+    // Invariant: data_offset_ <= tail_offset_ <= capacity_
     void assert_invariant() const noexcept {
         assert(data_offset_ <= tail_offset_);
         assert(tail_offset_ <= capacity_);
     }
 
+    // Layout:
+    // - [0, data_offset_): headroom
+    // - [data_offset_, tail_offset_): data
+    // - [tail_offset_, capacity_): tailroom
     std::unique_ptr<std::byte[]> storage_;
     std::size_t capacity_;
     std::size_t data_offset_ = 0;

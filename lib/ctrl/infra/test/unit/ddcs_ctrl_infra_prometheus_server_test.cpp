@@ -8,18 +8,19 @@
 #include <cstdint>
 #include <string>
 
-#include <gtest/gtest.h>
-
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <gtest/gtest.h>
+
 namespace {
+
+using namespace std::chrono_literals;
 
 using ddcs::ctrl::infra::prometheus::Server;
 using ddcs::io::Reactor;
-using namespace std::chrono_literals;
 
 class FakeSource final : public ddcs::ctrl::app::metrics::port::MetricsSource {
 public:
@@ -54,8 +55,6 @@ std::string scrape_over_socket(std::uint16_t port, Reactor& reactor, std::string
     ::close(cfd);
     return resp;
 }
-
-} // namespace
 
 TEST(PrometheusServerTest, ServesScrapeOverHttp) {
     Reactor reactor;
@@ -99,3 +98,5 @@ TEST(PrometheusServerTest, StopDropsOpenConnections) {
     EXPECT_FALSE(server.active());
     ::close(cfd);
 }
+
+} // namespace

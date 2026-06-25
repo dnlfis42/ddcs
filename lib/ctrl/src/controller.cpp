@@ -1,20 +1,20 @@
 #include "ddcs/ctrl/controller.hpp"
 
 #include "ddcs/common/clock.hpp"
-#include "ddcs/ctrl/app/agent/agent_registry.hpp"
-#include "ddcs/ctrl/app/agent/agent_service.hpp"
-#include "ddcs/ctrl/app/agent/command_sender.hpp"
-#include "ddcs/ctrl/app/agent/device_roster.hpp"
-#include "ddcs/ctrl/app/agent/handshake_monitor.hpp"
-#include "ddcs/ctrl/app/agent/liveness_monitor.hpp"
 #include "ddcs/ctrl/app/device/command_service.hpp"
 #include "ddcs/ctrl/app/device/policy_service.hpp"
-#include "ddcs/ctrl/app/device/register_service.hpp"
+#include "ddcs/ctrl/app/device/registration_service.hpp"
 #include "ddcs/ctrl/app/device/status_service.hpp"
 #include "ddcs/ctrl/app/metrics/metrics_service.hpp"
+#include "ddcs/ctrl/app/session/command_sender.hpp"
+#include "ddcs/ctrl/app/session/device_roster.hpp"
+#include "ddcs/ctrl/app/session/handshake_monitor.hpp"
+#include "ddcs/ctrl/app/session/liveness_monitor.hpp"
+#include "ddcs/ctrl/app/session/session_registry.hpp"
+#include "ddcs/ctrl/app/session/session_service.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
-#include "ddcs/ctrl/infra/frame/server.hpp"
 #include "ddcs/ctrl/infra/prometheus/server.hpp"
+#include "ddcs/ctrl/infra/transport/server.hpp"
 #include "ddcs/io/reactor.hpp"
 #include "ddcs/io/signal_source.hpp"
 #include "ddcs/io/timer_handler.hpp"
@@ -49,8 +49,9 @@ public:
     void stop();
 
     std::uint16_t port() const {
-        return frame_server_.port();
+        return transport_server_.port();
     }
+
     std::uint16_t metrics_port() const {
         return prometheus_server_ ? prometheus_server_->port() : 0;
     }
@@ -67,51 +68,51 @@ private:
     io::Reactor reactor_;
     io::SignalSource signal_source_;
     io::TimerScheduler timer_scheduler_;
-    infra::frame::Server frame_server_; // sender()/disconnector() 제공이라 의존자보다 먼저 선언
 
-    app::agent::AgentRegistry agents_;
+    // sender()/disconnector() 제공이라 의존자보다 먼저 선언
+    infra::transport::Server transport_server_;
+
+    app::session::SessionRegistry sessions_;
     domain::DeviceRegistry devices_;
-    app::agent::CommandSender command_sender_;
+    app::session::CommandSender command_sender_;
     app::device::CommandService commands_;
-    app::device::RegisterService registrar_;
+    app::device::RegistrationService registrar_;
     app::device::StatusService status_;
-    app::agent::DeviceRoster roster_;
+    app::session::DeviceRoster roster_;
     app::device::PolicyService policy_;
-    app::agent::HandshakeMonitor handshake_monitor_;
-    app::agent::LivenessMonitor liveness_monitor_;
-    app::agent::AgentService agent_service_; // frame_server_의 ConnectionObserver
+    app::session::HandshakeMonitor handshake_monitor_;
+    app::session::LivenessMonitor liveness_monitor_;
+    // transport_server_의 ConnectionListener + MessageReceiver
+    app::session::SessionService session_service_;
     app::metrics::MetricsService metrics_service_;
     // reactor의 2nd guest. Config.metrics_port 있을 때만 start()에서 emplace
     // metrics_service_ 뒤에 선언해 먼저 소멸 (MetricsSource& 참조가 dangling 되지 않도록)
     std::optional<infra::prometheus::Server> prometheus_server_;
 
-    io::TimerId sweep_timer_{};
+    io::TimerId sweep_timer_;
 };
 
 Controller::Impl::Impl(Config cfg)
-    : cfg_{std::move(cfg)},
-      signal_source_{reactor_, {SIGINT, SIGTERM}, [this](int) { stop(); }},
-      timer_scheduler_{reactor_},
-      frame_server_{reactor_, cfg_.listen_port, cfg_.accept_backlog, cfg_.max_payload_size},
-      command_sender_{agents_, frame_server_.sender()},
-      commands_{
+    : cfg_(std::move(cfg)),
+      signal_source_(reactor_, {SIGINT, SIGTERM}, [this](int) { stop(); }),
+      timer_scheduler_(reactor_),
+      transport_server_(reactor_, cfg_.listen_port, cfg_.accept_backlog),
+      command_sender_(sessions_, transport_server_.sender()),
+      commands_(
           command_sender_, cfg_.command_timeout, cfg_.command_max_attempts,
           cfg_.command_backoff_base
-      },
-      registrar_{devices_},
-      status_{devices_},
-      roster_{agents_},
-      policy_{roster_, devices_, commands_},
-      handshake_monitor_{agents_, frame_server_.disconnector(), cfg_.handshake_timeout},
-      liveness_monitor_{agents_, frame_server_.disconnector(), cfg_.liveness_timeout},
-      agent_service_{agents_,
-                     frame_server_.sender(),
-                     frame_server_.disconnector(),
-                     clock_,
-                     registrar_,
-                     status_,
-                     commands_},
-      metrics_service_{agents_, devices_, commands_, liveness_monitor_, handshake_monitor_} {
+      ),
+      registrar_(devices_),
+      status_(devices_),
+      roster_(sessions_),
+      policy_(roster_, devices_, commands_),
+      handshake_monitor_(sessions_, transport_server_.disconnector(), cfg_.handshake_timeout),
+      liveness_monitor_(sessions_, transport_server_.disconnector(), cfg_.liveness_timeout),
+      session_service_(
+          sessions_, transport_server_.disconnector(), transport_server_.sender(), clock_,
+          registrar_, status_, commands_, policy_.policy()
+      ),
+      metrics_service_(sessions_, devices_, commands_, liveness_monitor_, handshake_monitor_) {
     auto& lg = logger::Logger::instance();
     lg.set_level(cfg_.log_level);
     lg.set_sink(cfg_.log_sink != nullptr ? *cfg_.log_sink : default_sink_);
@@ -119,24 +120,27 @@ Controller::Impl::Impl(Config cfg)
 
 Controller::Impl::~Impl() {
     stop();
-    // frame Server dtor가 on_disconnected를 notify하므로,
-    // AgentService(observer)가 살아있는 지금 명시적으로 닫는다.
-    // CAUTION: 멤버 소멸은 역순이라 frame_server_가 agent_service_보다 늦게 소멸한다.
-    // CAUTION  생성 의존 때문에 선언 순서 고정
-    frame_server_.close();
+    // transport Server dtor가 on_disconnected를 notify하므로,
+    // SessionService(listener/receiver)가 살아있는 지금 명시적으로 닫는다.
+    // CAUTION: 멤버 소멸은 역순이라 transport_server_가 session_service_보다 늦게 소멸한다.
+    //          생성 의존 때문에 선언 순서 고정
+    transport_server_.close();
+    // default_sink_가 곧 파괴되므로, 전역 Logger가 그것을 가리키면 떼어내 dangling을 막는다.
+    logger::Logger::instance().clear_sink(default_sink_);
 }
 
 void Controller::Impl::start() {
     signal_source_.start();
     timer_scheduler_.start();
-    if (!frame_server_.init(agent_service_)) {
-        throw std::runtime_error{"frame server init failed"};
+    if (!transport_server_.init(session_service_, session_service_)) {
+        throw std::runtime_error{"transport server init failed"};
     }
-    if (!frame_server_.start()) {
-        throw std::runtime_error{"frame server start failed"};
+    if (!transport_server_.start()) {
+        throw std::runtime_error{"transport server start failed"};
     }
     if (cfg_.metrics_port) {
-        constexpr int metrics_backlog{16}; // 스크레이프는 저빈도라 작은 backlog로 충분
+        // 스크레이프는 저빈도라 작은 backlog로 충분
+        constexpr int metrics_backlog = 16;
         prometheus_server_.emplace(reactor_, metrics_service_, *cfg_.metrics_port, metrics_backlog);
         if (!prometheus_server_->init() || !prometheus_server_->start()) {
             throw std::runtime_error{"prometheus server start failed"};
@@ -202,7 +206,7 @@ void Controller::Impl::load_policy() {
 }
 
 Controller::Controller(Config cfg)
-    : impl_{std::make_unique<Impl>(std::move(cfg))} {}
+    : impl_(std::make_unique<Impl>(std::move(cfg))) {}
 
 Controller::~Controller() = default;
 

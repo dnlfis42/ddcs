@@ -1,8 +1,7 @@
 #include "ddcs/ctrl/app/metrics/metrics_service.hpp"
 
-#include <string>
-
 #include <cstdint>
+#include <string>
 
 namespace ddcs::ctrl::app::metrics {
 
@@ -33,7 +32,8 @@ std::string MetricsService::scrape() {
     std::string out;
     // gauge. 현재값.
     append_metric(
-        out, "ddcs_connections", "Current agent connections (all phases).", "gauge", agents_.size()
+        out, "ddcs_connections", "Current session connections (all phases).", "gauge",
+        sessions_.size()
     );
     append_metric(
         out, "ddcs_devices_known", "Persistently known devices (by uuid).", "gauge", devices_.size()
@@ -44,7 +44,7 @@ std::string MetricsService::scrape() {
     );
     // counter. 누적. 실패율 = gave_up/dispatched, 평균 RTT = rtt_ms_sum/completed.
     append_metric(
-        out, "ddcs_commands_dispatched_total", "Commands sent to agents.", "counter",
+        out, "ddcs_commands_dispatched_total", "Commands sent to sessions.", "counter",
         commands_.dispatched_total()
     );
     append_metric(
@@ -74,7 +74,7 @@ std::string MetricsService::scrape() {
         out, "ddcs_commands_stale_total", "Late responses to closed/superseded commands (ignored).",
         "counter", commands_.stale_total()
     );
-    // 알람 counter. 명령 최종 실패 + agent 건강 (operator가 rate로 알람)
+    // 알람 counter. 명령 최종 실패 + session 건강 (operator가 rate로 알람)
     append_metric(
         out, "ddcs_commands_gave_up_total", "Commands abandoned after exhausting retries.",
         "counter", commands_.gave_up_total()

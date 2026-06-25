@@ -24,9 +24,7 @@ Uuid make_uuid(std::uint8_t seed) {
     return Uuid{bytes};
 }
 
-} // namespace
-
-TEST(StatusServiceTest, UpdateStatusUpdatesDeviceTwin) {
+TEST(StatusServiceTest, UpdateStatusUpdatesDeviceShadow) {
     DeviceRegistry devices;
     StatusService service{devices};
     auto const id = make_uuid(0xAA);
@@ -91,3 +89,5 @@ TEST(StatusServiceTest, IgnoresNonFiniteTempKeepingLastGood) {
     EXPECT_DOUBLE_EQ(dev->status.load, 0.3);
     EXPECT_DOUBLE_EQ(dev->status.temp, 30.0);
 }
+
+} // namespace

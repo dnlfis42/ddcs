@@ -1,13 +1,13 @@
 #include "ddcs/io/timer_scheduler.hpp"
 
 #include "ddcs/common/clock.hpp"
-#include "ddcs/common/fd.hpp"
-#include "ddcs/common/throw_errno.hpp"
 #include "ddcs/io/channel.hpp"
 #include "ddcs/io/channel_handler.hpp"
 #include "ddcs/io/detail/timer_queue.hpp"
 #include "ddcs/io/detail/timer_registration_table.hpp"
+#include "ddcs/io/fd.hpp"
 #include "ddcs/io/reactor.hpp"
+#include "ddcs/io/throw_errno.hpp"
 #include "ddcs/io/timer_handler.hpp"
 
 #include <algorithm>
@@ -85,20 +85,20 @@ public:
             return;
         }
 
-        common::Fd fd{::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)};
+        io::Fd fd{::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)};
         if (!fd.valid()) {
-            common::throw_errno(errno, "timerfd_create");
+            io::throw_errno(errno, "timerfd_create");
         }
 
         if (!channel_.init(
                 std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this
             )) {
-            common::throw_errno(EINVAL, "timer channel init failed");
+            io::throw_errno(EINVAL, "timer channel init failed");
         }
 
         if (!reactor_.add(channel_)) {
             channel_.reset();
-            common::throw_errno(EINVAL, "reactor add timer channel failed");
+            io::throw_errno(EINVAL, "reactor add timer channel failed");
         }
 
         try {
@@ -215,7 +215,7 @@ private:
                 if (err == EINTR) {
                     continue;
                 }
-                common::throw_errno(err, "read timerfd");
+                io::throw_errno(err, "read timerfd");
             }
             return has_expiration;
         }
@@ -235,7 +235,7 @@ private:
         }
 
         if (::timerfd_settime(channel_.fd(), 0, &spec, nullptr) < 0) {
-            common::throw_errno(errno, "timerfd_settime");
+            io::throw_errno(errno, "timerfd_settime");
         }
     }
 

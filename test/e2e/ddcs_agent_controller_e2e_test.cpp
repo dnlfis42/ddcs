@@ -1,43 +1,45 @@
 #include "ddcs/agent/agent.hpp"
-#include "ddcs/agent/app/session_service.hpp"
+#include "ddcs/agent/app/session/session_service.hpp"
 #include "ddcs/agent/domain/dummy_device.hpp"
 #include "ddcs/common/uuid.hpp"
 #include "ddcs/ctrl/controller.hpp"
 #include "ddcs/device/mode.hpp"
 #include "ddcs/logger/log.hpp"
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <cstddef>
-#include <cstdint>
+#include <gtest/gtest.h>
 
 namespace {
 
-using State = ddcs::agent::app::SessionService::State;
+using State = ddcs::agent::app::session::SessionService::State;
 
 // 양쪽(Controller/Agent) 로그를 한 sink에 모은다.
 // logger singleton이라 마지막 set_sink가 이김
 // -> 두 facade Config에 같은 인스턴스를 명시 주입한다.
 class CaptureSink : public ddcs::logger::Sink {
 public:
-    void write(std::string_view line) noexcept override {
-        std::lock_guard<std::mutex> lk{m_};
-        lines_.emplace_back(line);
-    }
     bool contains(std::string_view needle) {
         std::lock_guard<std::mutex> lk{m_};
         return std::any_of(lines_.begin(), lines_.end(), [&](auto const& l) {
             return l.find(needle) != std::string::npos;
         });
+    }
+
+    void write(std::string_view line) noexcept override {
+        std::lock_guard<std::mutex> lk{m_};
+        lines_.emplace_back(line);
     }
 
 private:
@@ -64,28 +66,42 @@ bool pump_until(ddcs::ctrl::Controller& c, ddcs::agent::Agent& a, Pred pred, int
     return pred();
 }
 
-std::unique_ptr<ddcs::ctrl::Controller> make_controller(CaptureSink& sink) {
+std::unique_ptr<ddcs::ctrl::Controller>
+make_controller(CaptureSink& sink, std::filesystem::path policy_path = {}) {
     ddcs::ctrl::Controller::Config cfg{};
     cfg.listen_port = 0;
     cfg.liveness_timeout = std::chrono::milliseconds{300};
-    cfg.log_level = ddcs::logger::Level::Debug;
+    cfg.sweep_interval = std::chrono::milliseconds{20}; // command/liveness/policy sweep을 촘촘히
+    if (!policy_path.empty()) {
+        cfg.policy_path = std::move(policy_path);
+    }
+    cfg.log_level = ddcs::logger::Level::debug;
     cfg.log_sink = &sink;
     return std::make_unique<ddcs::ctrl::Controller>(cfg);
 }
 
 std::unique_ptr<ddcs::agent::Agent>
-make_agent(CaptureSink& sink, std::uint16_t port, std::uint8_t uuid_seed) {
+make_agent(CaptureSink& sink, std::uint16_t port, std::uint8_t uuid_seed, std::string group = {}) {
     ddcs::agent::Agent::Config cfg{};
     cfg.controller_host = "127.0.0.1";
     cfg.controller_port = port;
-    cfg.agent_uuid = make_uuid(uuid_seed);
-    cfg.device = std::make_unique<ddcs::agent::domain::DummyDevice>();
+    cfg.device = std::make_unique<ddcs::agent::domain::DummyDevice>(make_uuid(uuid_seed));
     cfg.session.heartbeat = std::chrono::milliseconds{50};
-    cfg.session.status_update = std::chrono::milliseconds{100};
+    cfg.session.status_update = std::chrono::milliseconds{50};
     cfg.session.register_timeout = std::chrono::milliseconds{500};
-    cfg.log_level = ddcs::logger::Level::Debug;
+    cfg.session.group = std::move(group); // 정책 타깃팅용 그룹 선언
+    cfg.log_level = ddcs::logger::Level::debug;
     cfg.log_sink = &sink;
     return std::make_unique<ddcs::agent::Agent>(std::move(cfg));
+}
+
+// 단일 그룹 정책을 temp 파일로 떨군다. low_load 위(>0)라 load=0인 DummyDevice는 idle로 떨어진다.
+std::filesystem::path write_idle_policy(std::string_view group) {
+    auto const path = std::filesystem::temp_directory_path() / "ddcs_e2e_policy.json";
+    std::ofstream f{path};
+    f << R"({"groups":{")" << group
+      << R"(":{"high_load":10.0,"low_load":5.0,"busy_mode":"safe","idle_mode":"performance"}}})";
+    return path;
 }
 
 } // namespace
@@ -101,8 +117,8 @@ TEST(AgentControllerE2eTest, AgentRegistersAndReachesActive) {
         pump_until(*controller, *agent, [&] { return agent->session().state() == State::active; });
 
     ASSERT_TRUE(active);
-    EXPECT_TRUE(sink.contains("\"msg\":\"agent.register\""));           // controller가 등록 처리
-    EXPECT_TRUE(sink.contains("\"msg\":\"agent.session.registered\"")); // agent가 응답 수신
+    EXPECT_TRUE(sink.contains(R"("event":"session.registered")"));       // controller가 등록 확정
+    EXPECT_TRUE(sink.contains(R"("event":"agent.session.registered")")); // agent가 응답 수신
 }
 
 TEST(AgentControllerE2eTest, HeartbeatKeepsAgentAliveOverTime) {
@@ -124,31 +140,27 @@ TEST(AgentControllerE2eTest, HeartbeatKeepsAgentAliveOverTime) {
     }
 
     EXPECT_EQ(agent->session().state(), State::active);
-    EXPECT_FALSE(sink.contains("\"msg\":\"agent.liveness_timeout\"")); // 축출 안 됨
+    EXPECT_FALSE(sink.contains(R"("event":"session.liveness_timeout")")); // 축출 안 됨
 }
 
-// operator API:
-// - controller.set_mode로 c->a Command 발신 -> agent 적용 -> CommandOutcome 왕복
-TEST(AgentControllerE2eTest, OperatorSetModeRoundTrips) {
+// 정책 경로로 c->a Command가 왕복한다(operator API 없음 - load 임계 전환이 명령을 낸다).
+// load=0인 device가 low_load 밴드 아래라 controller가 idle_mode SetMode를 발신 -> agent 적용 ->
+// outcome 회신.
+TEST(AgentControllerE2eTest, PolicyCommandRoundTrips) {
     CaptureSink sink;
-    auto controller = make_controller(sink);
+    auto const policy = write_idle_policy("edge");
+    auto controller = make_controller(sink, policy);
     controller->start();
-    auto agent = make_agent(sink, controller->port(), 0xef);
+    auto agent = make_agent(sink, controller->port(), 0xef, "edge");
     agent->start();
 
-    ASSERT_TRUE(pump_until(*controller, *agent, [&] {
-        return agent->session().state() == State::active;
-    }));
-
-    auto const command_id = controller->set_mode(make_uuid(0xef), ddcs::device::Mode::performance);
-    EXPECT_NE(command_id, 0u); // dispatch 됨
-
     bool const round_trip = pump_until(*controller, *agent, [&] {
-        return sink.contains("\"msg\":\"command.outcome\"");
+        return sink.contains(R"("event":"agent.session.cmd.applied")") // agent가 명령 적용
+               && sink.contains(R"("event":"command.outcome")");       // controller가 outcome 상관
     });
 
-    EXPECT_TRUE(round_trip); // controller가 outcome 수신/상관
-    EXPECT_TRUE(sink.contains("\"msg\":\"agent.session.cmd.applied\"")); // agent가 명령 적용
+    EXPECT_TRUE(round_trip);
+    EXPECT_EQ(agent->session().state(), State::active); // 명령 후에도 세션 유지
 }
 
 // controller가 사라지면 agent가 backoff 후 같은 포트의 새 controller로 자동 재접속/재등록
@@ -175,7 +187,7 @@ TEST(AgentControllerE2eTest, AgentReconnectsAfterControllerDrop) {
     ddcs::ctrl::Controller::Config ccfg{};
     ccfg.listen_port = port;
     ccfg.liveness_timeout = std::chrono::milliseconds{300};
-    ccfg.log_level = ddcs::logger::Level::Debug;
+    ccfg.log_level = ddcs::logger::Level::debug;
     ccfg.log_sink = &sink;
     auto controller2 = std::make_unique<ddcs::ctrl::Controller>(ccfg);
     controller2->start();

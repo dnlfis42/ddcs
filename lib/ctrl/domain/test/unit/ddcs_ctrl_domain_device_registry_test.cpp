@@ -21,12 +21,10 @@ Uuid make_uuid(std::uint8_t seed) {
     return Uuid{b};
 }
 
-} // namespace
-
 TEST(DeviceRegistryTest, CreatesNewDeviceForUnknownUuid) {
     DeviceRegistry reg;
     auto const u = make_uuid(1);
-    Device const& d = reg.find_or_create(u);
+    DeviceShadow const& d = reg.find_or_create(u);
     EXPECT_EQ(d.id, u);
     EXPECT_TRUE(d.id.valid());
     EXPECT_EQ(reg.size(), 1u);
@@ -53,7 +51,7 @@ TEST(DeviceRegistryTest, FindsByUuid) {
     DeviceRegistry reg;
     auto const u = make_uuid(5);
     reg.find_or_create(u);
-    Device const* found = reg.find(u);
+    DeviceShadow const* found = reg.find(u);
     ASSERT_NE(found, nullptr);
     EXPECT_EQ(found->id, u);
     EXPECT_EQ(reg.find(make_uuid(6)), nullptr);
@@ -62,7 +60,7 @@ TEST(DeviceRegistryTest, FindsByUuid) {
 TEST(DeviceRegistryTest, FindsById) {
     DeviceRegistry reg;
     DeviceId const id = reg.find_or_create(make_uuid(7)).id;
-    Device const* found = reg.find(id);
+    DeviceShadow const* found = reg.find(id);
     ASSERT_NE(found, nullptr);
     EXPECT_EQ(found->id, id);
     EXPECT_EQ(reg.find(make_uuid(99)), nullptr);
@@ -73,7 +71,7 @@ TEST(DeviceRegistryTest, SetsGroup) {
     auto const u = make_uuid(8);
     DeviceId const id = reg.find_or_create(u).id;
     reg.set_group(id, "sensors");
-    Device const* d = reg.find(u);
+    DeviceShadow const* d = reg.find(u);
     ASSERT_NE(d, nullptr);
     EXPECT_EQ(d->group, "sensors");
 }
@@ -84,7 +82,7 @@ TEST(DeviceRegistryTest, RefreshesGroupOnReRegister) {
     DeviceId const id = reg.find_or_create(u).id;
     reg.set_group(id, "g1");
     reg.set_group(id, "g2"); // 재등록 시 갱신
-    Device const* d = reg.find(u);
+    DeviceShadow const* d = reg.find(u);
     ASSERT_NE(d, nullptr);
     EXPECT_EQ(d->group, "g2");
 }
@@ -94,3 +92,5 @@ TEST(DeviceRegistryTest, IgnoresUnknownIdWhenSettingGroup) {
     reg.set_group(make_uuid(200), "g"); // 미지 id면 no-op (크래시 없음)
     EXPECT_EQ(reg.size(), 0u);
 }
+
+} // namespace

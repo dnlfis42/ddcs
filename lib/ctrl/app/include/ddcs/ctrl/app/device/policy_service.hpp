@@ -22,10 +22,11 @@ namespace ddcs::ctrl::app::device {
 // load(read+parse)와 apply(set_policy) 분리는 핫리로드(future) 대비
 std::optional<domain::GroupPolicy> parse_policy(json::Value const& root);
 
-// 정책 엔진: 주기 evaluate로 active device의 그룹별 평균 load 집계 후 히스테리시스 임계 비교를 거쳐
-//            regime(busy/idle) 전환 시에만 그룹의 active device들에게 SetMode 발신
-//            (전환마다 1회, 스팸 없음, 복귀 지원)
-//  전달 신뢰성(supersede/동일 id 재전송)은 CommandService 몫
+// 정책 엔진
+// - 주기 evaluate로 active device의 그룹별 평균 load 집계 후 히스테리시스 임계 비교를 거쳐
+//   regime(busy/idle) 전환 시에만 그룹의 active device들에게 SetMode 발신
+//   (전환마다 1회, 스팸 없음, 복귀 지원)
+// - 전달 신뢰성(supersede/동일 id 재전송)은 CommandService 몫
 class PolicyService {
 private:
     enum class Regime : std::uint8_t { unknown, busy, idle };
@@ -40,6 +41,12 @@ public:
 
     void set_policy(domain::GroupPolicy policy);  // load-once/핫리로드 apply (regime 리셋)
     void evaluate(common::Clock::time_point now); // 주기 호출(조립 루트 tick)
+
+    // 로드된 정책 (알려진 그룹 집합)
+    // - set_policy가 같은 멤버를 in-place 교체해도 참조는 계속 유효하다.
+    [[nodiscard]] domain::GroupPolicy const& policy() const noexcept {
+        return policy_;
+    }
 
 private:
     void

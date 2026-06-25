@@ -4,16 +4,16 @@
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
 #include "ddcs/common/uuid.hpp"
-#include "ddcs/ctrl/app/agent/agent.hpp"
-#include "ddcs/ctrl/app/agent/agent_registry.hpp"
-#include "ddcs/ctrl/app/agent/handshake_monitor.hpp"
-#include "ddcs/ctrl/app/agent/liveness_monitor.hpp"
-#include "ddcs/ctrl/app/agent/port/connection_id.hpp"
-#include "ddcs/ctrl/app/agent/port/disconnector.hpp"
 #include "ddcs/ctrl/app/device/command_service.hpp"
 #include "ddcs/ctrl/app/device/port/command_buffer.hpp"
 #include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/device/port/command_sender.hpp"
+#include "ddcs/ctrl/app/session/handshake_monitor.hpp"
+#include "ddcs/ctrl/app/session/liveness_monitor.hpp"
+#include "ddcs/ctrl/app/session/session.hpp"
+#include "ddcs/ctrl/app/session/session_registry.hpp"
+#include "ddcs/ctrl/app/transport/port/connection_id.hpp"
+#include "ddcs/ctrl/app/transport/port/disconnector.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
 
 #include <array>
@@ -33,16 +33,16 @@ using ddcs::common::LinearBuffer;
 using ddcs::common::ManualClock;
 using ddcs::common::ObjectPool;
 using ddcs::common::Uuid;
-using ddcs::ctrl::app::agent::AgentRegistry;
-using ddcs::ctrl::app::agent::HandshakeMonitor;
-using ddcs::ctrl::app::agent::LivenessMonitor;
-using ddcs::ctrl::app::agent::port::ConnectionId;
-using ddcs::ctrl::app::agent::port::Disconnector;
 using ddcs::ctrl::app::device::CommandService;
 using ddcs::ctrl::app::device::port::CommandBuffer;
 using ddcs::ctrl::app::device::port::CommandId;
 using ddcs::ctrl::app::device::port::CommandSender;
 using ddcs::ctrl::app::metrics::MetricsService;
+using ddcs::ctrl::app::session::HandshakeMonitor;
+using ddcs::ctrl::app::session::LivenessMonitor;
+using ddcs::ctrl::app::session::SessionRegistry;
+using ddcs::ctrl::app::transport::port::ConnectionId;
+using ddcs::ctrl::app::transport::port::Disconnector;
 using ddcs::ctrl::domain::DeviceRegistry;
 using namespace std::chrono_literals;
 
@@ -79,32 +79,32 @@ private:
 // infra처럼 disconnect가 동기로 registry erase까지 끝내는 대역
 class FakeDisconnector final : public Disconnector {
 public:
-    explicit FakeDisconnector(AgentRegistry& agents) noexcept
-        : agents_{agents} {}
+    explicit FakeDisconnector(SessionRegistry& sessions) noexcept
+        : sessions_{sessions} {}
     void disconnect(ConnectionId id) override {
-        agents_.erase(id);
+        sessions_.erase(id);
     }
 
 private:
-    AgentRegistry& agents_;
+    SessionRegistry& sessions_;
 };
 
 struct Fixture {
     ManualClock clock;
-    AgentRegistry agents;
+    SessionRegistry sessions;
     DeviceRegistry devices;
     FakeCommandSender sender;
-    FakeDisconnector disconnector{agents};
+    FakeDisconnector disconnector{sessions};
     CommandService commands{sender, 5s, 1, 500ms};
-    HandshakeMonitor handshake{agents, disconnector, 3s};
-    LivenessMonitor liveness{agents, disconnector, 3s};
-    MetricsService metrics{agents, devices, commands, liveness, handshake};
+    HandshakeMonitor handshake{sessions, disconnector, 3s};
+    LivenessMonitor liveness{sessions, disconnector, 3s};
+    MetricsService metrics{sessions, devices, commands, liveness, handshake};
 
     ddcs::ctrl::domain::DeviceId activate(std::uint64_t conn, std::uint8_t seed) {
         ConnectionId const id{conn};
-        EXPECT_TRUE(agents.add(id, clock.now()));
-        EXPECT_TRUE(agents.bind(id, make_uuid(seed), clock.now()));
-        EXPECT_TRUE(agents.find(id)->confirm(clock.now()));
+        EXPECT_TRUE(sessions.add(id, clock.now()));
+        EXPECT_TRUE(sessions.bind(id, make_uuid(seed), clock.now()));
+        EXPECT_TRUE(sessions.find(id)->confirm(clock.now()));
         return make_uuid(seed);
     }
 
@@ -115,12 +115,12 @@ struct Fixture {
     }
 };
 
-} // namespace
-
 TEST(MetricsServiceTest, ScrapeReportsGauges) {
     Fixture f;
-    EXPECT_TRUE(f.agents.add(ConnectionId{1}, f.clock.now())); // handshaking도 connection으로 집계
-    EXPECT_TRUE(f.agents.add(ConnectionId{2}, f.clock.now()));
+    EXPECT_TRUE(
+        f.sessions.add(ConnectionId{1}, f.clock.now())
+    ); // handshaking도 connection으로 집계
+    EXPECT_TRUE(f.sessions.add(ConnectionId{2}, f.clock.now()));
     f.devices.find_or_create(make_uuid(1));
 
     auto const text = f.metrics.scrape();
@@ -177,7 +177,7 @@ TEST(MetricsServiceTest, ScrapeReflectsEvictionAlarm) {
 
 TEST(MetricsServiceTest, ScrapeReflectsHandshakeExpiry) {
     Fixture f;
-    EXPECT_TRUE(f.agents.add(ConnectionId{1}, f.clock.now())); // handshaking, 등록 미완
+    EXPECT_TRUE(f.sessions.add(ConnectionId{1}, f.clock.now())); // handshaking, 등록 미완
 
     f.clock.advance(4s); // > handshake 3s
     f.handshake.sweep(f.clock.now());
@@ -185,3 +185,5 @@ TEST(MetricsServiceTest, ScrapeReflectsHandshakeExpiry) {
     auto const text = f.metrics.scrape();
     EXPECT_TRUE(contains(text, "ddcs_handshake_expired_total 1"));
 }
+
+} // namespace
