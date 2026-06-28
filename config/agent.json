@@ -1,5 +1,16 @@
 {
-  "device": { "group": "edge" },
-  "session_ms": { "heartbeat": 1000, "status_update": 5000, "register_timeout": 2000 },
-  "log_level": "info"
+  "log": {
+    "level": "info"
+  },
+  "transport": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "reconnect_base_delay_ms": 200,
+    "reconnect_max_delay_ms": 5000
+  },
+  "session": {
+    "registration_timeout_ms": 5000,
+    "heartbeat_interval_ms": 500,
+    "status_report_interval_ms": 1000
+  }
 }

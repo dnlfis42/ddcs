@@ -1,6 +1,6 @@
 #include "ddcs/ctrl/infra/prometheus/server.hpp"
 
-#include "ddcs/ctrl/app/metrics/port/metrics_source.hpp"
+#include "ddcs/ctrl/app/metrics/port/prometheus_source.hpp"
 #include "ddcs/io/reactor.hpp"
 
 #include <chrono>
@@ -22,7 +22,7 @@ using namespace std::chrono_literals;
 using ddcs::ctrl::infra::prometheus::Server;
 using ddcs::io::Reactor;
 
-class FakeSource final : public ddcs::ctrl::app::metrics::port::MetricsSource {
+class FakeSource final : public ddcs::ctrl::app::metrics::port::PrometheusSource {
 public:
     std::string scrape() override {
         return "test_metric 42\n";

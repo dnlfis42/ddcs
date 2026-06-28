@@ -19,7 +19,7 @@ class Reactor;
 
 namespace ddcs::ctrl::app::metrics::port {
 
-class MetricsSource;
+class PrometheusSource;
 
 } // namespace ddcs::ctrl::app::metrics::port
 
@@ -33,7 +33,7 @@ namespace port = ddcs::ctrl::app::metrics::port;
 class Server final : private io::ChannelHandler {
 public:
     Server(
-        io::Reactor& reactor, port::MetricsSource& source, std::uint16_t listen_port, int backlog
+        io::Reactor& reactor, port::PrometheusSource& source, std::uint16_t listen_port, int backlog
     );
     ~Server() override;
 
@@ -84,7 +84,7 @@ private:
 
 private:
     io::Reactor& reactor_;
-    port::MetricsSource& source_;
+    port::PrometheusSource& source_;
     std::uint16_t listen_port_;
     std::uint16_t bound_port_ = 0;
     int const backlog_;

@@ -110,9 +110,11 @@ Controller::Impl::Impl(Config cfg)
       liveness_monitor_(sessions_, transport_server_.disconnector(), cfg_.liveness_timeout),
       session_service_(
           sessions_, transport_server_.disconnector(), transport_server_.sender(), clock_,
-          registrar_, status_, commands_, policy_.policy()
+          registrar_, status_, commands_, policy_, policy_.policy()
       ),
-      metrics_service_(sessions_, devices_, commands_, liveness_monitor_, handshake_monitor_) {
+      metrics_service_(
+          sessions_, devices_, commands_, liveness_monitor_, handshake_monitor_, policy_.policy()
+      ) {
     auto& lg = logger::Logger::instance();
     lg.set_level(cfg_.log_level);
     lg.set_sink(cfg_.log_sink != nullptr ? *cfg_.log_sink : default_sink_);
@@ -194,7 +196,13 @@ void Controller::Impl::load_policy() {
         LOG_WARN("policy.load.parse_fail", logger::kv("path", path.string()));
         return;
     }
-    auto policy = app::device::parse_policy(*json);
+    // 정책은 controller 설정 파일에 인라인된 "policy" 객체다.
+    auto const* policy_node = json->find("policy");
+    if (policy_node == nullptr) {
+        LOG_WARN("policy.load.absent", logger::kv("path", path.string()));
+        return; // 정책 없음 = 빈 정책 (evaluate no-op)
+    }
+    auto policy = app::device::parse_policy(*policy_node);
     if (!policy) {
         LOG_WARN("policy.load.invalid", logger::kv("path", path.string()));
         return;

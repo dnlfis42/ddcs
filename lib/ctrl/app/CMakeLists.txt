@@ -21,12 +21,13 @@ target_sources(
                 include/ddcs/ctrl/app/device/port/command_buffer.hpp
                 include/ddcs/ctrl/app/device/port/command_id.hpp
                 include/ddcs/ctrl/app/device/port/command_sender.hpp
+                include/ddcs/ctrl/app/device/port/device_release_sink.hpp
                 include/ddcs/ctrl/app/device/port/device_roster.hpp
                 include/ddcs/ctrl/app/device/command_service.hpp
                 include/ddcs/ctrl/app/device/policy_service.hpp
                 include/ddcs/ctrl/app/device/registration_service.hpp
                 include/ddcs/ctrl/app/device/status_service.hpp
-                include/ddcs/ctrl/app/metrics/port/metrics_source.hpp
+                include/ddcs/ctrl/app/metrics/port/prometheus_source.hpp
                 include/ddcs/ctrl/app/metrics/metrics_service.hpp
                 include/ddcs/ctrl/app/session/command_sender.hpp
                 include/ddcs/ctrl/app/session/device_roster.hpp

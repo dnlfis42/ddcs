@@ -1,0 +1,14 @@
+# Prometheus 를 기본 데이터소스로 자동 등록한다. uid 는 대시보드가 참조하는 고정값.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: ddcs-prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      # prometheus.yml 의 scrape_interval 과 일치시켜 $__rate_interval 을 정확히 계산.
+      timeInterval: "1s"

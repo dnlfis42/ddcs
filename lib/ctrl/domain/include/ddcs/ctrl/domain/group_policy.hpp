@@ -11,20 +11,32 @@
 
 namespace ddcs::ctrl::domain {
 
-// 그룹 정책 룰. 히스테리시스(high/low) 임계 + 전환 모드
-// 평균 load > high_load면 busy_mode, < low_load면 idle_mode, 그 사이면 유지 (밴드)
+// 온도 override 룰(선택). max_temp > high_temp면 high_temp_mode 강제, < resume_temp면 해제.
+// 단방향 트립(과열)이고 resume_temp는 그 해제 임계(데드밴드)다. load와 독립 축이며 thermal이 이긴다.
+struct ThermalRule {
+    double high_temp;            // 트립 임계 (이 위로 가면 과열)
+    double resume_temp;          // 해제 임계 (이 아래로 식으면 복귀; resume < high)
+    device::Mode high_temp_mode; // 과열 시 강제 모드
+};
+
+// 그룹 정책 룰. 히스테리시스(high/low) load 임계 + 전환 모드 + 선택적 온도 override
+// 평균 load > high_load면 high_load_mode, < low_load면 low_load_mode, 그 사이면 유지 (밴드)
 class GroupRule {
 public:
     // 밴드 불변식 low_load < high_load를 강제한다. 위반 시 nullopt
     // 역전/동일 임계는 매 evaluate마다 busy와 idle 사이 발진을 만든다.
     // high/low 자체의 부호/범위는 정책 작성자 재량이다. load 도메인이 무경계 f64이기 때문이다.
     static std::optional<GroupRule> try_make(
-        double high_load, double low_load, device::Mode busy_mode, device::Mode idle_mode
+        double high_load, double low_load, device::Mode high_load_mode, device::Mode low_load_mode,
+        std::optional<ThermalRule> thermal = std::nullopt
     ) noexcept {
         if (!(low_load < high_load)) {
             return std::nullopt;
         }
-        return GroupRule{high_load, low_load, busy_mode, idle_mode};
+        if (thermal && !(thermal->resume_temp < thermal->high_temp)) {
+            return std::nullopt; // thermal 밴드도 resume < high 강제
+        }
+        return GroupRule{high_load, low_load, high_load_mode, low_load_mode, thermal};
     }
 
     // 초과 임계
@@ -38,28 +50,36 @@ public:
     }
 
     // 초과 시 목표 모드
-    device::Mode busy_mode() const noexcept {
-        return busy_mode_;
+    device::Mode high_load_mode() const noexcept {
+        return high_load_mode_;
     }
 
     // 회복 시 목표 모드
-    device::Mode idle_mode() const noexcept {
-        return idle_mode_;
+    device::Mode low_load_mode() const noexcept {
+        return low_load_mode_;
+    }
+
+    // 온도 override 룰 (없으면 nullopt = thermal 비활성)
+    std::optional<ThermalRule> const& thermal() const noexcept {
+        return thermal_;
     }
 
 private:
     GroupRule(
-        double high_load, double low_load, device::Mode busy_mode, device::Mode idle_mode
+        double high_load, double low_load, device::Mode high_load_mode, device::Mode low_load_mode,
+        std::optional<ThermalRule> thermal
     ) noexcept
         : high_load_(high_load),
           low_load_(low_load),
-          busy_mode_(busy_mode),
-          idle_mode_(idle_mode) {}
+          high_load_mode_(high_load_mode),
+          low_load_mode_(low_load_mode),
+          thermal_(thermal) {}
 
     double high_load_;
     double low_load_;
-    device::Mode busy_mode_;
-    device::Mode idle_mode_;
+    device::Mode high_load_mode_;
+    device::Mode low_load_mode_;
+    std::optional<ThermalRule> thermal_;
 };
 
 // 그룹에서 룰로 가는 정책

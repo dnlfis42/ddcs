@@ -2,9 +2,11 @@
 #include "ddcs/agent/domain/simulated_device.hpp"
 #include "ddcs/common/uuid.hpp"
 #include "ddcs/config/config.hpp"
+#include "ddcs/device/mode.hpp"
 #include "ddcs/logger/log.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -24,6 +26,17 @@ namespace {
 std::string env_or(char const* name, char const* fallback) {
     char const* const v = std::getenv(name);
     return v != nullptr ? std::string{v} : std::string{fallback};
+}
+
+// SimulatedDevice 파라미터 override용. 없거나 파싱 실패 시 fallback.
+double env_double(char const* name, double fallback) {
+    char const* const v = std::getenv(name);
+    if (v == nullptr) {
+        return fallback;
+    }
+    char* end = nullptr;
+    double const parsed = std::strtod(v, &end);
+    return end != v ? parsed : fallback;
 }
 
 void load_or_note(ddcs::config::Config& conf, std::filesystem::path const& path) {
@@ -129,18 +142,18 @@ struct LoadedUuid {
 };
 
 // 인스턴스별 device 신원. 우선순위:
-// 1. DDCS_AGENT_UUID (env, 명시)
-// 2. DDCS_AGENT_UUID_FILE (기본 data/agent.uuid) 읽기 - 재시작에도 안정
+// 1. DDCS_DEVICE_ID (env, 명시)
+// 2. DDCS_DEVICE_ID_FILE (기본 data/agent.uuid) 읽기 - 재시작에도 안정
 // 3. 랜덤 생성 후 그 파일에 기록 - 첫 부팅 자가발급(이후 안정). 기록 실패 시에만 ephemeral.
 LoadedUuid load_device_uuid() {
-    if (char const* env = std::getenv("DDCS_AGENT_UUID")) {
+    if (char const* env = std::getenv("DDCS_DEVICE_ID")) {
         if (auto u = parse_device_uuid(env)) {
             return {*u, false};
         }
-        std::fprintf(stderr, "ddcs-agent: DDCS_AGENT_UUID is invalid or nil; ignoring\n");
+        std::fprintf(stderr, "ddcs-agent: DDCS_DEVICE_ID is invalid or nil; ignoring\n");
     }
 
-    std::filesystem::path const path = env_or("DDCS_AGENT_UUID_FILE", "data/agent.uuid");
+    std::filesystem::path const path = env_or("DDCS_DEVICE_ID_FILE", "data/agent.uuid");
 
     if (std::ifstream in{path}) {
         std::string const text{
@@ -176,25 +189,60 @@ int main() {
     // 부팅 실패(config malformed, epoll/signalfd/timerfd 생성 실패 등)는 여기서 잡아 운영자용
     // 1줄 진단 + EXIT_FAILURE로 끝낸다. (config malformed는 add_file이 throw)
     try {
-        std::filesystem::path const dir = env_or("DDCS_CONFIG_DIR", "config");
+        std::filesystem::path const path = env_or("DDCS_CONFIG_PATH", "config/agent.json");
         ddcs::config::Config conf;
-        load_or_note(conf, dir / "network.json"); // 공유 엔드포인트
-        load_or_note(conf, dir / "agent.json");   // agent 전용(uuid 없음)
+        load_or_note(conf, path); // 단일 agent 설정 파일 (신원은 별도 env/파일로 해석)
 
         auto const uuid = load_device_uuid();
 
         ddcs::agent::Agent::Config cfg{};
-        cfg.controller_host =
-            conf.get_string("controller.host", "DDCS_CONTROLLER_HOST", "127.0.0.1");
-        cfg.controller_port = conf.get_port("controller.port", "DDCS_CONTROLLER_PORT", 8080);
+        cfg.controller_host = conf.get_string("transport.host", "DDCS_TRANSPORT_HOST", "127.0.0.1");
+        cfg.controller_port = conf.get_port("transport.port", "DDCS_TRANSPORT_PORT", 8080);
         cfg.device_id_is_ephemeral = uuid.ephemeral;
-        cfg.session.group = conf.get_string("device.group", "DDCS_AGENT_GROUP", "edge");
-        cfg.session.heartbeat = conf.get_duration_ms("session_ms.heartbeat", 1000);
-        cfg.session.status_update = conf.get_duration_ms("session_ms.status_update", 5000);
-        cfg.session.register_timeout = conf.get_duration_ms("session_ms.register_timeout", 2000);
-        cfg.device = std::make_unique<ddcs::agent::domain::SimulatedDevice>(uuid.value);
+        cfg.session.group = conf.get_string("device.group", "DDCS_DEVICE_GROUP", "zone_a");
+        cfg.session.heartbeat = conf.get_duration_ms("session.heartbeat_interval_ms", 1000);
+        cfg.session.status_update = conf.get_duration_ms("session.status_report_interval_ms", 5000);
+        cfg.session.register_timeout =
+            conf.get_duration_ms("session.registration_timeout_ms", 2000);
+        // device 시뮬레이션: load/temp는 mode-구동 상태(정책이 SetMode로 몰고 sim이 rate*tick
+        // 적분). rate(초당)는 device 스펙(글로벌 기본값), tick은 status 보고 주기에서 주입.
+        ddcs::agent::domain::SimulatedDevice::Config sim{};
+        sim.tick_seconds =
+            static_cast<double>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(cfg.session.status_update)
+                    .count()
+            ) /
+            1000.0;
+        sim.load_noise = env_double("DDCS_SIM_NOISE", sim.load_noise);
+        sim.temp_noise = sim.load_noise * 0.5;
+        // 개체차: load rate는 +-jitter(평균 보존), 초기 load/temp는 랜덤, noise seed도 device마다.
+        // temp rate(발열/냉각)는 기기 공통 스펙이라 안 흔든다. 개체 분산은 초기온도+noise로만 줘서
+        // device들이 high_temp에 서로 다른 시점에 닿게 한다(그래야 per-device thermal이 보임).
+        std::mt19937_64 rng{std::random_device{}()};
+        // jitter는 부호 보존 위해 (0,1): 1 이상이면 load_rate가 0/부호반전돼 limit cycle이 깨진다.
+        // (음수/0은 아래 lambda가 그대로 통과시켜 무효화한다.)
+        double jitter = env_double("DDCS_SIM_JITTER", 0.10);
+        if (jitter > 0.99) {
+            jitter = 0.99;
+        }
+        auto vary = [&](double v) {
+            if (jitter <= 0.0) {
+                return v;
+            }
+            std::uniform_real_distribution<double> d{1.0 - jitter, 1.0 + jitter};
+            return v * d(rng);
+        };
+        sim.load_rate_performance = vary(sim.load_rate_performance);
+        sim.load_rate_normal = vary(sim.load_rate_normal);
+        sim.load_rate_safe = vary(sim.load_rate_safe);
+        sim.load_initial = std::uniform_real_distribution<double>{20.0, 80.0}(rng);
+        sim.temp_initial = std::uniform_real_distribution<double>{40.0, 55.0}(rng);
+        sim.seed = rng();
+        cfg.device = std::make_unique<ddcs::agent::domain::SimulatedDevice>(
+            uuid.value, ddcs::device::Mode::normal, sim
+        );
         if (auto const level =
-                ddcs::logger::parse_level(conf.get_string("log_level", "DDCS_LOG_LEVEL", "info"))) {
+                ddcs::logger::parse_level(conf.get_string("log.level", "DDCS_LOG_LEVEL", "info"))) {
             cfg.log_level = *level;
         }
 

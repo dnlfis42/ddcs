@@ -15,5 +15,5 @@ add_subdirectory(device)
 add_subdirectory(wire)
 
 # 애플리케이션 라이브러리
-add_subdirectory(agent)
 add_subdirectory(ctrl)
+add_subdirectory(agent)

@@ -99,8 +99,8 @@ make_agent(CaptureSink& sink, std::uint16_t port, std::uint8_t uuid_seed, std::s
 std::filesystem::path write_idle_policy(std::string_view group) {
     auto const path = std::filesystem::temp_directory_path() / "ddcs_e2e_policy.json";
     std::ofstream f{path};
-    f << R"({"groups":{")" << group
-      << R"(":{"high_load":10.0,"low_load":5.0,"busy_mode":"safe","idle_mode":"performance"}}})";
+    f << R"({"policy":{"groups":{")" << group
+      << R"(":{"high_load":10.0,"low_load":5.0,"high_load_mode":"safe","low_load_mode":"performance"}}}})";
     return path;
 }
 

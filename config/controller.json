@@ -1,9 +1,57 @@
 {
-  "metrics_port": 9090,
-  "accept_backlog": 128,
-  "policy_path": "config/policy.json",
-  "log_level": "info",
-  "timeout_ms": { "handshake": 3000, "liveness": 3000, "command": 5000 },
-  "command": { "max_attempts": 3, "backoff_base_ms": 500 },
-  "sweep_interval_ms": 1000
+  "log": {
+    "level": "info"
+  },
+  "controller": {
+    "sweep_interval_ms": 1000
+  },
+  "prometheus": {
+    "bind_address": "0.0.0.0",
+    "port": 9000
+  },
+  "transport": {
+    "bind_address": "0.0.0.0",
+    "port": 8080,
+    "accept_backlog": 128
+  },
+  "session": {
+    "handshake_timeout_ms": 3000,
+    "liveness_timeout_ms": 1500
+  },
+  "command": {
+    "timeout_ms": 5000,
+    "max_attempts": 3,
+    "backoff_base_ms": 500
+  },
+  "policy": {
+    "groups": {
+      "zone_a": {
+        "high_load": 70,
+        "low_load": 30,
+        "high_temp": 65,
+        "resume_temp": 50,
+        "high_load_mode": "performance",
+        "low_load_mode": "normal",
+        "high_temp_mode": "safe"
+      },
+      "zone_b": {
+        "high_load": 60,
+        "low_load": 45,
+        "high_temp": 65,
+        "resume_temp": 50,
+        "high_load_mode": "performance",
+        "low_load_mode": "normal",
+        "high_temp_mode": "safe"
+      },
+      "zone_c": {
+        "high_load": 80,
+        "low_load": 20,
+        "high_temp": 65,
+        "resume_temp": 50,
+        "high_load_mode": "performance",
+        "low_load_mode": "normal",
+        "high_temp_mode": "safe"
+      }
+    }
+  }
 }

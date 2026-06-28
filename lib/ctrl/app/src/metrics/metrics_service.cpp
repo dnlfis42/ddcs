@@ -1,6 +1,11 @@
 #include "ddcs/ctrl/app/metrics/metrics_service.hpp"
 
+#include "ddcs/device/mode.hpp"
+
+#include <array>
+#include <charconv>
 #include <cstdint>
+#include <map>
 #include <string>
 
 namespace ddcs::ctrl::app::metrics {
@@ -23,6 +28,40 @@ void append_metric(
     out += name;
     out += ' ';
     out += std::to_string(value);
+    out += '\n';
+}
+
+// Prometheus label value escaping (backslash, double-quote, newline).
+void append_label_value(std::string& out, std::string const& value) {
+    for (char const c : value) {
+        switch (c) {
+        case '\\':
+            out += "\\\\";
+            break;
+        case '"':
+            out += "\\\"";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        default:
+            out += c;
+            break;
+        }
+    }
+}
+
+// group 라벨 게이지 한 줄 (locale-독립 double 포맷, json writer와 동일 규약).
+void append_group_gauge(
+    std::string& out, char const* name, std::string const& group, double value
+) {
+    out += name;
+    out += "{group=\"";
+    append_label_value(out, group);
+    out += "\"} ";
+    char buf[32];
+    auto const res = std::to_chars(buf, buf + sizeof(buf), value);
+    out.append(buf, res.ptr);
     out += '\n';
 }
 
@@ -88,6 +127,62 @@ std::string MetricsService::scrape() {
         "Connections dropped for not completing registration in time.", "counter",
         handshake_.expired_total()
     );
+
+    // per-group 게이지. active device를 group으로 집계해 group{,mode} 라벨로 노출한다.
+    // 정책이 group 단위라(평균 load -> regime -> mode) group별 동작을 분리 관측한다.
+    struct GroupAgg {
+        std::uint64_t devices{};
+        double load_sum{};
+        double temp_sum{};
+        std::array<std::uint64_t, 3> by_mode{}; // index = encode_mode (safe/normal/performance)
+    };
+    std::map<std::string, GroupAgg> groups; // label 출력 순서 안정 위해 ordered
+    sessions_.for_each([&](session::Session const& s) {
+        if (s.state() != session::Session::State::active) {
+            return; // 등록 미완 세션은 정책 대상 아님
+        }
+        auto const* shadow = devices_.find(s.device());
+        if (shadow == nullptr || shadow->group.empty() || !policy_.contains(shadow->group)) {
+            return; // 정책 밖 group은 제외 -- label cardinality를 config group으로 한정
+        }
+        auto& a = groups[shadow->group];
+        a.devices += 1;
+        a.load_sum += shadow->status.load;
+        a.temp_sum += shadow->status.temp;
+        a.by_mode[ddcs::device::encode_mode(shadow->status.mode)] += 1;
+    });
+
+    out += "# HELP ddcs_group_load_avg Average reported load across active devices in the group.\n";
+    out += "# TYPE ddcs_group_load_avg gauge\n";
+    for (auto const& [group, agg] : groups) {
+        double const avg =
+            agg.devices != 0 ? agg.load_sum / static_cast<double>(agg.devices) : 0.0;
+        append_group_gauge(out, "ddcs_group_load_avg", group, avg);
+    }
+
+    out += "# HELP ddcs_group_temp_avg Average reported temperature (C) across active devices in "
+           "the group.\n";
+    out += "# TYPE ddcs_group_temp_avg gauge\n";
+    for (auto const& [group, agg] : groups) {
+        double const avg =
+            agg.devices != 0 ? agg.temp_sum / static_cast<double>(agg.devices) : 0.0;
+        append_group_gauge(out, "ddcs_group_temp_avg", group, avg);
+    }
+
+    out += "# HELP ddcs_group_devices Active devices per group and mode.\n";
+    out += "# TYPE ddcs_group_devices gauge\n";
+    for (auto const& [group, agg] : groups) {
+        for (std::uint8_t m = 0; m < 3; ++m) {
+            out += "ddcs_group_devices{group=\"";
+            append_label_value(out, group);
+            out += "\",mode=\"";
+            out += ddcs::device::to_string(static_cast<ddcs::device::Mode>(m));
+            out += "\"} ";
+            out += std::to_string(agg.by_mode[m]);
+            out += '\n';
+        }
+    }
+
     return out;
 }
 

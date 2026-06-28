@@ -15,7 +15,7 @@ SessionService::SessionService(
     SessionRegistry& sessions, port::Disconnector& disconnector, port::MessageSender& sender,
     common::Clock& clock, device::RegistrationService& registration_service,
     device::StatusService& status_service, device::CommandService& command_service,
-    domain::GroupPolicy const& group_policy
+    device::port::DeviceReleaseSink& release_sink, domain::GroupPolicy const& group_policy
 ) noexcept
     : sessions_(sessions),
       disconnector_(disconnector),
@@ -24,6 +24,7 @@ SessionService::SessionService(
       registration_service_(registration_service),
       status_service_(status_service),
       command_service_(command_service),
+      release_sink_(release_sink),
       group_policy_(group_policy) {}
 
 void SessionService::on_connected(port::ConnectionId conn) {
@@ -36,7 +37,17 @@ void SessionService::on_connected(port::ConnectionId conn) {
 }
 
 void SessionService::on_disconnected(port::ConnectionId conn, port::DisconnectReason reason) {
+    // erase가 세션을 지우기 전에, 바인딩된(confirming/active) device를 집어둔다.
+    domain::DeviceId device{};
+    if (Session const* const session = sessions_.find(conn); session != nullptr) {
+        device = session->device(); // 미바인딩(handshaking)이면 nil
+    }
     if (sessions_.erase(conn)) {
+        if (device.valid()) {
+            // 세션 끝난 device의 per-device 제어 상태 폐기(재접속 시 stale 명령 방지 + 맵 증식
+            // 방지)
+            release_sink_.on_device_left(device);
+        }
         LOG_INFO(
             "session.disconnected", logger::kv("conn", conn.get()),
             logger::kv("reason", static_cast<std::uint64_t>(reason))

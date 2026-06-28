@@ -1,6 +1,6 @@
 #include "ddcs/ctrl/infra/prometheus/server.hpp"
 
-#include "ddcs/ctrl/app/metrics/port/metrics_source.hpp"
+#include "ddcs/ctrl/app/metrics/port/prometheus_source.hpp"
 #include "ddcs/io/fd.hpp"
 #include "ddcs/io/reactor.hpp"
 #include "ddcs/logger/log.hpp"
@@ -40,7 +40,7 @@ std::string http_ok(std::string const& body) {
 } // namespace
 
 Server::Server(
-    io::Reactor& reactor, port::MetricsSource& source, std::uint16_t listen_port, int backlog
+    io::Reactor& reactor, port::PrometheusSource& source, std::uint16_t listen_port, int backlog
 )
     : reactor_(reactor),
       source_(source),

@@ -11,6 +11,7 @@ namespace {
 
 using ddcs::ctrl::domain::GroupPolicy;
 using ddcs::ctrl::domain::GroupRule;
+using ddcs::ctrl::domain::ThermalRule;
 using ddcs::device::Mode;
 
 TEST(GroupRuleTest, MakesRuleWhenLowBelowHigh) {
@@ -19,8 +20,8 @@ TEST(GroupRuleTest, MakesRuleWhenLowBelowHigh) {
     ASSERT_TRUE(rule.has_value());
     EXPECT_EQ(rule->high_load(), 80.0);
     EXPECT_EQ(rule->low_load(), 20.0);
-    EXPECT_EQ(rule->busy_mode(), Mode::safe);
-    EXPECT_EQ(rule->idle_mode(), Mode::normal);
+    EXPECT_EQ(rule->high_load_mode(), Mode::safe);
+    EXPECT_EQ(rule->low_load_mode(), Mode::normal);
 }
 
 TEST(GroupRuleTest, RejectsInvertedBand) {
@@ -52,8 +53,34 @@ TEST(GroupPolicyTest, SetUpdatesExistingGroupInPlace) {
     p.for_each([](std::string const& group, GroupRule const& rule) {
         EXPECT_EQ(group, "a");
         EXPECT_EQ(rule.high_load(), 70.0); // 갱신 반영
-        EXPECT_EQ(rule.busy_mode(), Mode::performance);
+        EXPECT_EQ(rule.high_load_mode(), Mode::performance);
     });
+}
+
+TEST(GroupRuleTest, NoThermalByDefault) {
+    auto const rule = GroupRule::try_make(80.0, 20.0, Mode::safe, Mode::normal);
+    ASSERT_TRUE(rule.has_value());
+    EXPECT_FALSE(rule->thermal().has_value());
+}
+
+TEST(GroupRuleTest, MakesThermalRuleWhenResumeBelowHigh) {
+    auto const rule = GroupRule::try_make(
+        80.0, 20.0, Mode::performance, Mode::normal,
+        ThermalRule{.high_temp = 90.0, .resume_temp = 75.0, .high_temp_mode = Mode::safe}
+    );
+    ASSERT_TRUE(rule.has_value());
+    ASSERT_TRUE(rule->thermal().has_value());
+    EXPECT_EQ(rule->thermal()->high_temp, 90.0);
+    EXPECT_EQ(rule->thermal()->resume_temp, 75.0);
+    EXPECT_EQ(rule->thermal()->high_temp_mode, Mode::safe);
+}
+
+TEST(GroupRuleTest, RejectsInvertedThermalBand) {
+    EXPECT_FALSE(GroupRule::try_make(
+                     80.0, 20.0, Mode::performance, Mode::normal,
+                     ThermalRule{.high_temp = 75.0, .resume_temp = 90.0, .high_temp_mode = Mode::safe}
+    )
+                     .has_value());
 }
 
 } // namespace

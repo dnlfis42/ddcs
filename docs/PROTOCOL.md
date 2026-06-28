@@ -1,9 +1,9 @@
 # DDCS Wire Protocol
 
 DDCS는 controller와 agent 사이 TCP 위에서 동작하는 자체 wire protocol이다.
-전송 단위는 **frame** - 고정 크기 헤더 + 가변 길이 payload. payload 하나가 곧 하나의 **message**다.
+전송 단위는 **frame** -- 고정 크기 헤더 + 가변 길이 payload. payload 하나가 곧 하나의 **message**다.
 
-와이어는 두 계층으로 갈린다: `wire::frame`(프레이밍)과 `wire::message`(메시지). frame은 payload의 의미를 모른다 - message type조차 frame이 아니라 payload 안에 있다.
+와이어는 두 계층으로 갈린다: `wire::frame`(프레이밍)과 `wire::message`(메시지). frame은 payload의 의미를 모른다 -- message type조차 frame이 아니라 payload 안에 있다.
 
 ## Frame (`wire::frame`)
 
@@ -112,7 +112,7 @@ mode 어휘<->wire byte 매핑은 `device` 커널이 소유한다(`device::encod
 - **등록은 3-way handshake다**: `register_request`(A->C) -> `register_outcome`(C->A) -> `register_ack`(A->C)
   controller는 `register_ack` 수신 시점부터 liveness를 측정한다.
   등록 왕복(outcome 전달 + ack 회신) 지연이 liveness 시한을 잠식하지 않게 하기 위함이며, 등록 구간(요청 대기 / ack 대기)은 단계별로 별도 시한이 걸린다.
-- agent는 success `register_outcome`을 받으면 즉시 `register_ack`을 보내고, 곧바로 첫 `heartbeat`를 시작한다.
+- agent는 success `register_outcome`을 받으면 즉시 `register_ack`을 보내고, 곧바로 초기 `status`를 1회 게시한 뒤 `heartbeat` 주기를 무장한다(첫 `heartbeat`는 주기 만료 후 송신).
 - 등록 완료 전에 유효한 A->C message는 단계당 하나다: 등록 전엔 `register_request`, 판정 송신 후엔 `register_ack`
   그 외 message는 프로토콜 위반으로 connection을 종료한다.
 - **Liveness**는 active 세션에서 수신한 모든 정상 message로 갱신한다. `heartbeat`는 body 없는 keepalive다.

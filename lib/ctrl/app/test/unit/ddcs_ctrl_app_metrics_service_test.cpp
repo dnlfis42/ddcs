@@ -15,6 +15,8 @@
 #include "ddcs/ctrl/app/transport/port/connection_id.hpp"
 #include "ddcs/ctrl/app/transport/port/disconnector.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
+#include "ddcs/ctrl/domain/group_policy.hpp"
+#include "ddcs/device/mode.hpp"
 
 #include <array>
 #include <chrono>
@@ -98,7 +100,8 @@ struct Fixture {
     CommandService commands{sender, 5s, 1, 500ms};
     HandshakeMonitor handshake{sessions, disconnector, 3s};
     LivenessMonitor liveness{sessions, disconnector, 3s};
-    MetricsService metrics{sessions, devices, commands, liveness, handshake};
+    ddcs::ctrl::domain::GroupPolicy policy;
+    MetricsService metrics{sessions, devices, commands, liveness, handshake, policy};
 
     ddcs::ctrl::domain::DeviceId activate(std::uint64_t conn, std::uint8_t seed) {
         ConnectionId const id{conn};
@@ -184,6 +187,42 @@ TEST(MetricsServiceTest, ScrapeReflectsHandshakeExpiry) {
 
     auto const text = f.metrics.scrape();
     EXPECT_TRUE(contains(text, "ddcs_handshake_expired_total 1"));
+}
+
+TEST(MetricsServiceTest, ScrapeReportsGroupGauges) {
+    using ddcs::ctrl::domain::GroupRule;
+    using ddcs::ctrl::domain::Status;
+    using ddcs::device::Mode;
+    Fixture f;
+    // 메트릭은 정책 group으로 한정되므로 zone_a/zone_b를 정책에 등록
+    f.policy.set("zone_a", *GroupRule::try_make(70, 30, Mode::performance, Mode::normal));
+    f.policy.set("zone_b", *GroupRule::try_make(60, 45, Mode::performance, Mode::safe));
+
+    // zone_a: 2개 active (load 80, 60 -> avg 70), 둘 다 performance
+    auto const a1 = f.activate(1, 0x01);
+    auto const a2 = f.activate(2, 0x02);
+    f.devices.find_or_create(a1);
+    f.devices.set_group(a1, "zone_a");
+    f.devices.update_status(a1, Status{.mode = Mode::performance, .load = 80.0, .temp = 50.0});
+    f.devices.find_or_create(a2);
+    f.devices.set_group(a2, "zone_a");
+    f.devices.update_status(a2, Status{.mode = Mode::performance, .load = 60.0, .temp = 60.0});
+    // zone_b: 1개 active (load 10), safe
+    auto const b1 = f.activate(3, 0x03);
+    f.devices.find_or_create(b1);
+    f.devices.set_group(b1, "zone_b");
+    f.devices.update_status(b1, Status{.mode = Mode::safe, .load = 10.0, .temp = 30.0});
+
+    auto const text = f.metrics.scrape();
+
+    EXPECT_TRUE(contains(text, "# TYPE ddcs_group_load_avg gauge"));
+    EXPECT_TRUE(contains(text, "ddcs_group_load_avg{group=\"zone_a\"} 70")); // (80+60)/2
+    EXPECT_TRUE(contains(text, "ddcs_group_load_avg{group=\"zone_b\"} 10"));
+    EXPECT_TRUE(contains(text, "ddcs_group_temp_avg{group=\"zone_a\"} 55")); // (50+60)/2
+    EXPECT_TRUE(contains(text, "ddcs_group_temp_avg{group=\"zone_b\"} 30"));
+    EXPECT_TRUE(contains(text, "ddcs_group_devices{group=\"zone_a\",mode=\"performance\"} 2"));
+    EXPECT_TRUE(contains(text, "ddcs_group_devices{group=\"zone_a\",mode=\"safe\"} 0"));
+    EXPECT_TRUE(contains(text, "ddcs_group_devices{group=\"zone_b\",mode=\"safe\"} 1"));
 }
 
 } // namespace

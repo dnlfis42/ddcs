@@ -5,6 +5,7 @@
 #include "ddcs/common/object_pool.hpp"
 #include "ddcs/common/uuid.hpp"
 #include "ddcs/ctrl/app/device/command_service.hpp"
+#include "ddcs/ctrl/app/device/port/device_release_sink.hpp"
 #include "ddcs/ctrl/app/device/registration_service.hpp"
 #include "ddcs/ctrl/app/device/status_service.hpp"
 #include "ddcs/ctrl/app/session/command_sender.hpp"
@@ -84,18 +85,15 @@ public:
 
     void send(ConnectionId conn, MessageBuffer message) override {
         auto const readable = message->data_span();
-        sent.push_back(
-            Sent{
-                .conn = conn,
-                .payload = std::vector<std::byte>{readable.begin(), readable.end()},
-            }
-        );
+        sent.push_back(Sent{
+            .conn = conn,
+            .payload = std::vector<std::byte>{readable.begin(), readable.end()},
+        });
     }
 
 private:
-    ObjectPool<LinearBuffer> pool_{
-        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256})
-    };
+    ObjectPool<LinearBuffer> pool_{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256
+    })};
 };
 
 // infra처럼 disconnect가 동기로 on_disconnected를 되부르는 대역
@@ -113,6 +111,16 @@ public:
     }
 };
 
+// device 세션 종료 통지를 기록하는 대역
+class FakeReleaseSink final : public ddcs::ctrl::app::device::port::DeviceReleaseSink {
+public:
+    std::vector<DeviceId> left;
+
+    void on_device_left(DeviceId device) override {
+        left.push_back(device);
+    }
+};
+
 struct ServiceFixture {
     ManualClock clock;
     SessionRegistry sessions;
@@ -123,10 +131,11 @@ struct ServiceFixture {
     ddcs::ctrl::app::device::StatusService status_service{devices};
     CommandSender command_sender{sessions, outbox};
     ddcs::ctrl::app::device::CommandService commands{command_sender, 5s, 1, 500ms};
+    FakeReleaseSink release_sink;
     ddcs::ctrl::domain::GroupPolicy
         policy; // 빈 정책: 모든 group이 unknown(soft warn은 no-op), 등록은 성공
-    SessionService service{sessions,       disconnector, outbox, clock, registration_service,
-                           status_service, commands,     policy};
+    SessionService service{sessions,       disconnector, outbox,       clock, registration_service,
+                           status_service, commands,     release_sink, policy};
     ObjectPool<LinearBuffer> body_pool{
         ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256})
     };
@@ -247,6 +256,38 @@ TEST(SessionServiceTest, DisconnectErasesAgent) {
 
     EXPECT_EQ(f.sessions.find(ConnectionId{1}), nullptr);
     EXPECT_EQ(f.sessions.size(), 0u);
+}
+
+TEST(SessionServiceTest, DisconnectOfBoundDeviceNotifiesReleaseSink) {
+    ServiceFixture f;
+    DeviceId const device = f.register_active(1, 0xAA);
+
+    f.service.on_disconnected(ConnectionId{1}, DisconnectReason::peer_closed);
+
+    ASSERT_EQ(f.release_sink.left.size(), 1u); // policy가 per-device 제어 상태를 폐기하도록
+    EXPECT_EQ(f.release_sink.left[0], device);
+}
+
+TEST(SessionServiceTest, DisconnectOfUnboundConnectionDoesNotNotifyReleaseSink) {
+    ServiceFixture f;
+    f.service.on_connected(ConnectionId{1}); // handshaking. device 미바인딩
+
+    f.service.on_disconnected(ConnectionId{1}, DisconnectReason::peer_closed);
+
+    EXPECT_TRUE(f.release_sink.left.empty()); // 바인딩 안 된 세션은 폐기할 device가 없다
+}
+
+TEST(SessionServiceTest, KickOldNotifiesReleaseSinkForReplacedDevice) {
+    ServiceFixture f;
+    DeviceId const device = f.register_active(1, 0xAA);
+
+    // 같은 device가 새 conn으로 재등록 -> kick-old가 옛 conn을 동기로 끊는다.
+    // 이 경로(재시작/재접속)가 바로 stale 명령 belief를 남기던 곳이다.
+    f.service.on_connected(ConnectionId{2});
+    f.deliver(ConnectionId{2}, f.payload_register_request(make_uuid(0xAA), "g"));
+
+    ASSERT_EQ(f.release_sink.left.size(), 1u);
+    EXPECT_EQ(f.release_sink.left[0], device);
 }
 
 TEST(SessionServiceTest, RegisterRequestBindsAndSendsSuccessOutcome) {

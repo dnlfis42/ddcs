@@ -2,6 +2,7 @@
 
 #include "ddcs/common/clock.hpp"
 #include "ddcs/ctrl/app/device/command_service.hpp"
+#include "ddcs/ctrl/app/device/port/device_release_sink.hpp"
 #include "ddcs/ctrl/app/device/registration_service.hpp"
 #include "ddcs/ctrl/app/device/status_service.hpp"
 #include "ddcs/ctrl/app/session/session.hpp"
@@ -39,7 +40,7 @@ public:
         SessionRegistry& sessions, port::Disconnector& disconnector, port::MessageSender& sender,
         common::Clock& clock, device::RegistrationService& registration_service,
         device::StatusService& status_service, device::CommandService& command_service,
-        domain::GroupPolicy const& group_policy
+        device::port::DeviceReleaseSink& release_sink, domain::GroupPolicy const& group_policy
     ) noexcept;
 
     void on_connected(port::ConnectionId conn) override;
@@ -71,6 +72,7 @@ private:
     device::RegistrationService& registration_service_;
     device::StatusService& status_service_;
     device::CommandService& command_service_;
+    device::port::DeviceReleaseSink& release_sink_; // 세션 종료 device의 제어 상태 폐기 통지
     domain::GroupPolicy const& group_policy_; // 등록 시 미지 그룹 경고용(읽기 전용)
 };
 
