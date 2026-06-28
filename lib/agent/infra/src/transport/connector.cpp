@@ -43,15 +43,17 @@ constexpr io::ChannelEvents read_interest{
 } // namespace
 
 Connector::Connector(
-    io::Reactor& reactor, io::TimerScheduler& timers, std::string host, std::uint16_t port
+    io::Reactor& reactor, io::TimerScheduler& timers, std::string host, std::uint16_t port,
+    std::chrono::nanoseconds reconnect_base, std::chrono::nanoseconds reconnect_max
 )
     : reactor_(reactor),
       timers_(timers),
       host_(std::move(host)),
       port_(port),
-      payload_pool_{
+      payload_pool_(
           common::ObjectPool<common::LinearBuffer>::create<pool_chunk>(payload_buf_capacity)
-      } {}
+      ),
+      backoff_(reconnect_base, reconnect_max) {}
 
 Connector::~Connector() {
     if (connection_.registered()) {

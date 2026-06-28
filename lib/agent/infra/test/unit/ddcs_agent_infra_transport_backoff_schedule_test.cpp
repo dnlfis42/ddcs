@@ -43,4 +43,13 @@ TEST(AgentBackoffScheduleTest, ResetRestartsAtBase) {
     expect_within_jitter(sched.next_delay(), 1s);
 }
 
+TEST(AgentBackoffScheduleTest, HonorsCustomBaseAndMax) {
+    BackoffSchedule sched(200ms, 800ms); // 설정 주입: base 200ms, cap 800ms
+    // 수열(base): 200, 400, 800, 800, ... (cap 800)
+    std::chrono::nanoseconds const bases[] = {200ms, 400ms, 800ms, 800ms};
+    for (auto base : bases) {
+        expect_within_jitter(sched.next_delay(), base);
+    }
+}
+
 } // namespace

@@ -16,8 +16,8 @@ std::uint32_t BackoffSchedule::next_rand() noexcept {
 }
 
 std::chrono::nanoseconds BackoffSchedule::next_delay() noexcept {
-    auto const base = static_cast<std::uint64_t>(base_delay.count());
-    auto const cap = static_cast<std::uint64_t>(max_delay.count());
+    auto const base = static_cast<std::uint64_t>(base_delay_.count());
+    auto const cap = static_cast<std::uint64_t>(max_delay_.count());
 
     // base * 2^attempt, cap.
     std::uint64_t delay = base;

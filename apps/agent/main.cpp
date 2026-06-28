@@ -198,6 +198,8 @@ int main() {
         ddcs::agent::Agent::Config cfg{};
         cfg.controller_host = conf.get_string("transport.host", "DDCS_TRANSPORT_HOST", "127.0.0.1");
         cfg.controller_port = conf.get_port("transport.port", "DDCS_TRANSPORT_PORT", 8080);
+        cfg.reconnect_base_delay = conf.get_duration_ms("transport.reconnect_base_delay_ms", 1000);
+        cfg.reconnect_max_delay = conf.get_duration_ms("transport.reconnect_max_delay_ms", 30000);
         cfg.device_id_is_ephemeral = uuid.ephemeral;
         cfg.session.group = conf.get_string("device.group", "DDCS_DEVICE_GROUP", "zone_a");
         cfg.session.heartbeat = conf.get_duration_ms("session.heartbeat_interval_ms", 1000);

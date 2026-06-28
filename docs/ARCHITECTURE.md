@@ -408,7 +408,7 @@ stateDiagram-v2
 ```
 
 - **트리거** -- TCP 셋업 실패, 연결/등록 중 error/hangup, `receive`/`transmit`의 peer_closed/error, 프레이밍 위반, app이 부른 `close()`(등록 timeout, bad outcome, 예기치 못한 메시지 등). **liveness 상실은 Controller가 구동한다** -- agent에는 자체 liveness 타이머가 없고, Controller의 `LivenessMonitor`가 끊으면 agent가 hangup으로 관측한다.
-- **backoff** -- `base=1s`, `cap=30s`, jitter `+/-25%`. delay = `base * 2^attempt`를 30s로 클램프(1, 2, 4, 8, 16, 30, 30, ...) 후 jitter 적용. jitter는 결정적 xorshift32(테스트 가능).
+- **backoff** -- `base`/`cap` 기본 `1s`/`30s`(설정 `transport.reconnect_base_delay_ms`/`reconnect_max_delay_ms`로 튜닝), jitter `+/-25%`. delay = `base * 2^attempt`를 `cap`으로 클램프(기본 1, 2, 4, 8, 16, 30, 30, ...) 후 jitter 적용. jitter는 결정적 xorshift32(테스트 가능).
 - **리셋 시점 -- TCP 연결이 아니라 등록 성공.** `notify_registered()`가 `backoff.reset()`을 부르고, 이는 성공 `register_outcome` 이후에만 호출된다.
 - **재접속 시 전체 3-way 재등록.** 끊기면 연결은 idle로 복귀(fd FIN, rx 클리어, tx drain, app 타이머 취소)하고, 재연결 후 `register_request -> outcome -> ack`를 다시 밟는다. 돌아온 DeviceId는 Controller가 kick-old로 처리한다(7절/5절).
 

@@ -35,7 +35,9 @@ namespace port = ddcs::agent::app::transport::port;
 class Connector : public port::Outbound, public io::TimerHandler {
 public:
     Connector(
-        io::Reactor& reactor, io::TimerScheduler& timers, std::string host, std::uint16_t port
+        io::Reactor& reactor, io::TimerScheduler& timers, std::string host, std::uint16_t port,
+        std::chrono::nanoseconds reconnect_base = BackoffSchedule::default_base_delay,
+        std::chrono::nanoseconds reconnect_max = BackoffSchedule::default_max_delay
     );
     ~Connector() override;
 

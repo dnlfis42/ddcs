@@ -135,6 +135,8 @@ scripts/demo.sh all        # 네 시나리오 순차 실행
 | `transport.port`                    | both       | `8080`      | `DDCS_TRANSPORT_PORT`  | Controller listen / Agent connect 포트 |
 | `transport.bind_address`            | controller | `0.0.0.0`   | --                     | wire listen 바인드 주소                |
 | `transport.accept_backlog`          | controller | `128`       | --                     | listen backlog                         |
+| `transport.reconnect_base_delay_ms` | agent      | `1000`      | --                     | 재연결 backoff 시작값(지수 증가)       |
+| `transport.reconnect_max_delay_ms`  | agent      | `30000`     | --                     | 재연결 backoff 상한(cap)               |
 | `prometheus.port`                   | controller | `9000`      | `DDCS_PROMETHEUS_PORT` | 메트릭 포트                            |
 | `prometheus.bind_address`           | controller | `0.0.0.0`   | --                     | 메트릭 listen 바인드 주소              |
 | `controller.sweep_interval_ms`      | controller | `1000`      | --                     | 주기 sweep(재전송/축출/정책 평가) 간격 |

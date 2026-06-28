@@ -19,6 +19,9 @@ public:
     struct Config {
         std::string controller_host = "127.0.0.1";
         std::uint16_t controller_port = 8080;
+        // 재연결 backoff (base * 2^attempt 를 max로 cap). 미지정이면 1s/30s.
+        std::chrono::nanoseconds reconnect_base_delay = std::chrono::seconds{1};
+        std::chrono::nanoseconds reconnect_max_delay = std::chrono::seconds{30};
         // device 신원(Device::id())이 부팅마다 새로 생성된 random이면 true이고,
         // controller의 kick-old/identity persistence가 의미를 잃으므로
         // ctor가 LOG_WARN으로 운영자에게 알린다.

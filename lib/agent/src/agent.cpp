@@ -44,7 +44,10 @@ Agent::Impl::Impl(Config cfg)
     : device_(std::move(cfg.device)),
       signal_source_(reactor_, {SIGINT, SIGTERM}, [this](int) { stop(); }),
       timer_scheduler_(reactor_),
-      connector_(reactor_, timer_scheduler_, cfg.controller_host, cfg.controller_port),
+      connector_(
+          reactor_, timer_scheduler_, cfg.controller_host, cfg.controller_port,
+          cfg.reconnect_base_delay, cfg.reconnect_max_delay
+      ),
       session_(*device_, connector_, cfg.session) {
     auto& lg = logger::Logger::instance();
     lg.set_level(cfg.log_level);
