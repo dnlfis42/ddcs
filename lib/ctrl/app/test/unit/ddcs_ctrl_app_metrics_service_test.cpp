@@ -101,7 +101,8 @@ struct Fixture {
     HandshakeMonitor handshake{sessions, disconnector, 3s};
     LivenessMonitor liveness{sessions, disconnector, 3s};
     ddcs::ctrl::domain::GroupPolicy policy;
-    MetricsService metrics{sessions, devices, commands, liveness, handshake, policy};
+    ddcs::ctrl::app::metrics::SweepStats sweep;
+    MetricsService metrics{sessions, devices, commands, liveness, handshake, policy, sweep};
 
     ddcs::ctrl::domain::DeviceId activate(std::uint64_t conn, std::uint8_t seed) {
         ConnectionId const id{conn};
@@ -134,6 +135,20 @@ TEST(MetricsServiceTest, ScrapeReportsGauges) {
     EXPECT_TRUE(contains(text, "ddcs_commands_pending 0"));
 }
 
+TEST(MetricsServiceTest, ScrapeReportsSweepDuration) {
+    Fixture f;
+    f.sweep.record(std::chrono::microseconds{1500});
+    f.sweep.record(std::chrono::microseconds{500});
+
+    auto const text = f.metrics.scrape();
+
+    EXPECT_TRUE(contains(text, "# TYPE ddcs_sweep_duration_us gauge"));
+    EXPECT_TRUE(contains(text, "ddcs_sweep_duration_us 500"));      // 직전 tick
+    EXPECT_TRUE(contains(text, "ddcs_sweep_duration_us_max 1500")); // 시작 후 최대
+    EXPECT_TRUE(contains(text, "ddcs_sweep_duration_us_sum 2000")); // 1500+500
+    EXPECT_TRUE(contains(text, "ddcs_sweep_ticks_total 2"));
+}
+
 TEST(MetricsServiceTest, ScrapeReportsCommandCounters) {
     Fixture f;
     auto const device = f.activate(1, 0xAA);
@@ -149,8 +164,34 @@ TEST(MetricsServiceTest, ScrapeReportsCommandCounters) {
     EXPECT_TRUE(contains(text, "ddcs_commands_completed_total 1"));
     EXPECT_TRUE(contains(text, "ddcs_commands_timed_out_total 0"));
     EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_sum 100"));
+    EXPECT_TRUE(contains(text, "# TYPE ddcs_command_rtt_ms histogram"));
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"50\"} 0"));  // 100ms > 50
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"100\"} 1")); // 100ms <= 100
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"+Inf\"} 1"));
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_count 1"));
     EXPECT_TRUE(contains(text, "ddcs_commands_superseded_total 0"));
     EXPECT_TRUE(contains(text, "ddcs_commands_stale_total 0"));
+}
+
+TEST(MetricsServiceTest, ScrapeRttHistogramCumulates) {
+    Fixture f;
+    auto const device = f.activate(1, 0xAA);
+    // 서로 다른 버킷에 떨어지는 3개 완료: 5ms / 30ms / 200ms
+    for (int ms : {5, 30, 200}) {
+        auto const id = f.send(device);
+        f.clock.advance(std::chrono::milliseconds{ms});
+        f.commands.settle(device, id, true, "", f.clock.now());
+    }
+
+    auto const text = f.metrics.scrape();
+
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"5\"} 1"));   // 5ms
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"20\"} 1"));  // 여전히 5ms만
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"50\"} 2"));  // +30ms
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"250\"} 3")); // +200ms
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"+Inf\"} 3"));
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_count 3"));
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_sum 235")); // 5+30+200
 }
 
 TEST(MetricsServiceTest, ScrapeReportsSupersedeAndStale) {

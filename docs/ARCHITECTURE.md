@@ -429,7 +429,9 @@ stateDiagram-v2
 Controller만 Prometheus 텍스트 익스포지션을 `:9000`(기본)에 노출한다. HTTP 서버는 리액터의 두 번째 게스트로 돌고 pull-only다. 집계 메트릭은 라벨 없는 `uint64`이고, group별 메트릭은 `group`(+`mode`) 라벨을 단다. 요청 라인을 파싱하지 않아 어떤 경로로 와도 전체 scrape를 반환한다.
 
 - **게이지**: `ddcs_connections`, `ddcs_devices_known`, `ddcs_commands_pending`
-- **카운터**: `ddcs_commands_dispatched_total`, `ddcs_commands_completed_total`, `ddcs_commands_timed_out_total`, `ddcs_command_rtt_ms_sum`(완료 명령 RTT 합; 평균 = /completed_total), `ddcs_commands_retried_total`, `ddcs_commands_superseded_total`, `ddcs_commands_stale_total`, `ddcs_commands_gave_up_total`, `ddcs_agents_evicted_total`, `ddcs_handshake_expired_total`
+- **카운터**: `ddcs_commands_dispatched_total`, `ddcs_commands_completed_total`, `ddcs_commands_timed_out_total`, `ddcs_commands_retried_total`, `ddcs_commands_superseded_total`, `ddcs_commands_stale_total`, `ddcs_commands_gave_up_total`, `ddcs_agents_evicted_total`, `ddcs_handshake_expired_total`
+- **히스토그램**: `ddcs_command_rtt_ms`(명령 dispatch->outcome 지연; `_bucket{le}` 누적 + `_sum` + `_count`). 평균 = sum/count, 꼬리 백분위 = `histogram_quantile(0.99, rate(..._bucket[5m]))`.
+- **sweep(단일 스레드 포화)**: `ddcs_sweep_duration_us`(직전 tick) / `ddcs_sweep_duration_us_max`(피크) 게이지, `ddcs_sweep_duration_us_sum` + `ddcs_sweep_ticks_total`(평균 = sum/ticks) 카운터. tick 작업 시간이 sweep 주기에 근접하면 한 코어가 포화 -- 루트 README "성능" 절 참고.
 - **group별(라벨)**: `ddcs_group_load_avg{group}`(평균 load), `ddcs_group_temp_avg{group}`(평균 온도), `ddcs_group_devices{group,mode}`(모드별 active device 수). 정책에 있는 group만 노출해 라벨 cardinality를 config로 한정한다.
 
 Agent는 메트릭 엔드포인트가 없다.

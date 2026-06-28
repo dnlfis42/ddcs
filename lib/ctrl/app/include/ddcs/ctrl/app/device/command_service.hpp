@@ -6,6 +6,7 @@
 #include "ddcs/ctrl/app/device/port/command_sender.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -71,6 +72,15 @@ public:
 
     [[nodiscard]] std::uint64_t rtt_ms_sum() const noexcept {
         return rtt_ms_sum_;
+    }
+
+    // RTT 히스토그램 버킷 경계(ms, le). 평균이 숨기는 꼬리(p99 등)를 백분위로 보기 위함.
+    static constexpr std::array<std::uint64_t, 10> rtt_bucket_bounds_ms{1,  2,   5,   10,  20,
+                                                                        50, 100, 250, 500, 1000};
+
+    // 버킷별 관측 수(비누적, 성공 한정). 마지막(index 10)은 마지막 경계 초과(+Inf) 오버플로.
+    [[nodiscard]] std::array<std::uint64_t, 11> const& rtt_buckets() const noexcept {
+        return rtt_buckets_;
     }
 
     // 논리 명령 발송 + 슬롯 등록(deadline은 now + timeout). 같은 (device, type) 미결은 supersede
@@ -139,7 +149,8 @@ private:
     std::uint64_t gave_up_total_{};
     std::uint64_t superseded_total_{};
     std::uint64_t stale_total_{};
-    std::uint64_t rtt_ms_sum_{}; // dispatch에서 outcome까지 지연(ms) 합(성공 한정)
+    std::uint64_t rtt_ms_sum_{};                  // dispatch에서 outcome까지 지연(ms) 합(성공 한정)
+    std::array<std::uint64_t, 11> rtt_buckets_{}; // RTT 히스토그램(성공 한정, 경계 10 + 오버플로 1)
 };
 
 } // namespace ddcs::ctrl::app::device

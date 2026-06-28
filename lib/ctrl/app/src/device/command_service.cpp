@@ -128,10 +128,17 @@ void CommandService::settle(
     }
 
     auto const rtt = now - slot->dispatched_at;
-    rtt_ms_sum_ += static_cast<std::uint64_t>(
+    auto const rtt_ms = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::milliseconds>(rtt).count()
     );
+    rtt_ms_sum_ += rtt_ms;
     ++completed_total_;
+    // 히스토그램: rtt_ms 이상인 첫 경계 버킷에 1, 모든 경계 초과면 +Inf 오버플로 슬롯에 1
+    std::size_t bucket = 0;
+    while (bucket < rtt_bucket_bounds_ms.size() && rtt_ms > rtt_bucket_bounds_ms[bucket]) {
+        ++bucket;
+    }
+    ++rtt_buckets_[bucket];
     LOG_INFO("command.outcome", logger::kv("command", command_id.get()));
     close_slot(device, command_id); // 성공 확정 시 미결 종료
 }

@@ -70,6 +70,28 @@ cmake --workflow --preset asan
 ./scripts/coverage-report.sh
 ```
 
+## 성능
+
+컨트롤러는 단일 스레드 리액터다(한 코어). 주기 **sweep tick** 하나가 명령 재전송 + monitor sweep + 정책 평가를 모두 처리하므로, **tick 작업 시간이 sweep 주기(기본 1s)에 근접하면 그 코어가 포화**다. 이 시간은 `ddcs_sweep_duration_us`(직전 / `_max` 피크)와 `ddcs_sweep_duration_us_sum`/`ddcs_sweep_ticks_total`(평균)로 노출된다.
+
+`scripts/perf-ramp.sh`가 agent 수를 늘려가며 레벨별로 이 지표를 캡처한다:
+
+```sh
+DDCS_PERF_LEVELS="30 60 120" DDCS_PERF_SOAK=25 scripts/perf-ramp.sh
+```
+
+로컬 측정 예(컨테이너 agent, 단일 호스트):
+
+| agents | sweep_avg_us | sweep_max_us | cpu_pct | pending | rtt_ms |
+| ------ | ------------ | ------------ | ------- | ------- | ------ |
+| 30     | 189          | 343          | 0.6     | 0       | 3      |
+| 60     | 472          | 770          | 1.4     | 0       | 3      |
+| 120    | 902          | 1596         | 2.3     | 0       | 4      |
+
+sweep 작업은 agent 수에 거의 선형(약 8us/agent)이고, 120대에서도 1s 주기의 **0.1% 미만**(CPU ~2%)이다. 선형 외삽하면 sweep 포화는 코어당 10^4~10^5 대 규모라, 실제로는 그 전에 다른 한계(소켓 fd, 메모리, 네트워크)가 먼저 묶인다. 모든 레벨에서 `pending`/`evicted`가 0이고 RTT는 수 ms로, backpressure 없이 건강하다. RTT는 평균뿐 아니라 `ddcs_command_rtt_ms` **히스토그램**으로도 노출돼 `histogram_quantile`로 p99 꼬리까지 본다(평균만으론 꼬리가 안 드러남).
+
+> localhost loopback이라 RTT는 과소평가다(sub-ms~ms). latency를 사실적으로 보려면 netem 등으로 지연을 주입한다. CPU-bound 확장성은 이 측정으로 충분하다.
+
 ## Docker / 배포
 
 Controller 1 + Agent 3 + 관측 스택(Prometheus/Grafana)을 한 번에 띄운다. 각 Agent는 고정 `DDCS_DEVICE_ID`(= DeviceId)로 식별되어 kick-old 검증에 쓸 수 있다.
@@ -88,6 +110,20 @@ docker compose -f docker/docker-compose.yml down
 # 단일 이미지만 빌드
 docker build -f docker/Dockerfile --target controller -t ddcs-controller .
 ```
+
+### 데모 시나리오
+
+`scripts/demo.sh`가 네 가지 핵심 동작을 각각 격리해 띄우고, 컨트롤러의 원시 출력(메트릭 `:9000` + 이벤트 로그)으로 단언한 뒤 PASS/FAIL과 종료코드를 낸다(관측 스택 없이 돌아 CI 친화적). 각 시나리오는 자기 스택을 띄웠다 정리한다.
+
+```sh
+scripts/demo.sh thermal    # per-device thermal: 같은 zone에서 과열된 device만 safe로 빠진다
+scripts/demo.sh eviction   # 재접속(리부트)한 device를 재명령 (stale 명령 belief 고착 방지)
+scripts/demo.sh regime     # 부하 밴드 busy/idle 전환 (히스테리시스)
+scripts/demo.sh fault      # docker pause로 liveness 축출 -> 재개 시 재접속
+scripts/demo.sh all        # 네 시나리오 순차 실행
+```
+
+각 시나리오가 검증하는 동작은 ARCHITECTURE의 "정책 엔진"/"세션 생명주기" 절과 1:1이다. 같은 동작을 Grafana로 눈으로 보려면 위 compose 스택을 직접 띄운다.
 
 ## 설정
 
@@ -158,7 +194,7 @@ lib/
   agent/         # agent 측 (domain / app / infra + facade)
 cmake/           # 빌드 옵션 / sanitizer / coverage / testing 모듈
 config/          # 런타임 JSON 설정 (controller / agent, 정책 인라인)
-scripts/         # coverage-report.sh (gcovr 커버리지 리포트)
+scripts/         # coverage-report.sh, demo.sh (데모), perf-ramp.sh (성능 램프)
 docker/          # Dockerfile + compose (core / scale / 관측 스택)
 docs/            # ARCHITECTURE / PROTOCOL / GLOSSARY
 test/e2e/        # Controller <-> Agent E2E

@@ -6,6 +6,7 @@
 #include "ddcs/ctrl/app/device/registration_service.hpp"
 #include "ddcs/ctrl/app/device/status_service.hpp"
 #include "ddcs/ctrl/app/metrics/metrics_service.hpp"
+#include "ddcs/ctrl/app/metrics/sweep_stats.hpp"
 #include "ddcs/ctrl/app/session/command_sender.hpp"
 #include "ddcs/ctrl/app/session/device_roster.hpp"
 #include "ddcs/ctrl/app/session/handshake_monitor.hpp"
@@ -84,6 +85,7 @@ private:
     app::session::LivenessMonitor liveness_monitor_;
     // transport_server_의 ConnectionListener + MessageReceiver
     app::session::SessionService session_service_;
+    app::metrics::SweepStats sweep_stats_; // metrics_service_ 보다 먼저 선언(참조 유효)
     app::metrics::MetricsService metrics_service_;
     // reactor의 2nd guest. Config.metrics_port 있을 때만 start()에서 emplace
     // metrics_service_ 뒤에 선언해 먼저 소멸 (MetricsSource& 참조가 dangling 되지 않도록)
@@ -113,7 +115,8 @@ Controller::Impl::Impl(Config cfg)
           registrar_, status_, commands_, policy_, policy_.policy()
       ),
       metrics_service_(
-          sessions_, devices_, commands_, liveness_monitor_, handshake_monitor_, policy_.policy()
+          sessions_, devices_, commands_, liveness_monitor_, handshake_monitor_, policy_.policy(),
+          sweep_stats_
       ) {
     auto& lg = logger::Logger::instance();
     lg.set_level(cfg_.log_level);
@@ -173,7 +176,8 @@ void Controller::Impl::on_expired(io::TimerId /*id*/) {
     handshake_monitor_.sweep(now); // 등록 미완 시한 초과 시 disconnect
     liveness_monitor_.sweep(now);  // active 침묵 시 evict(close)
     policy_.evaluate(now);         // 그룹 load 집계 후 임계 전환 시 SetMode 발신
-    schedule_sweep();              // 주기 재무장
+    sweep_stats_.record(clock_.now() - now); // tick 작업 소요(schedule 제외) 기록
+    schedule_sweep();                        // 주기 재무장
 }
 
 void Controller::Impl::schedule_sweep() {

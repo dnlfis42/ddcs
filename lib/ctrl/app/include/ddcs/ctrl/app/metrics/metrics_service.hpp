@@ -2,6 +2,7 @@
 
 #include "ddcs/ctrl/app/device/command_service.hpp"
 #include "ddcs/ctrl/app/metrics/port/prometheus_source.hpp"
+#include "ddcs/ctrl/app/metrics/sweep_stats.hpp"
 #include "ddcs/ctrl/app/session/handshake_monitor.hpp"
 #include "ddcs/ctrl/app/session/liveness_monitor.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
@@ -18,14 +19,16 @@ public:
     MetricsService(
         session::SessionRegistry const& sessions, domain::DeviceRegistry const& devices,
         device::CommandService const& commands, session::LivenessMonitor const& liveness,
-        session::HandshakeMonitor const& handshake, domain::GroupPolicy const& policy
+        session::HandshakeMonitor const& handshake, domain::GroupPolicy const& policy,
+        SweepStats const& sweep
     ) noexcept
         : sessions_(sessions),
           devices_(devices),
           commands_(commands),
           liveness_(liveness),
           handshake_(handshake),
-          policy_(policy) {}
+          policy_(policy),
+          sweep_(sweep) {}
 
     std::string scrape() override;
 
@@ -36,6 +39,7 @@ private:
     session::LivenessMonitor const& liveness_;
     session::HandshakeMonitor const& handshake_;
     domain::GroupPolicy const& policy_; // per-group 메트릭을 정책 group으로 한정 (cardinality)
+    SweepStats const& sweep_;           // sweep tick 작업 소요시간 통계
 };
 
 } // namespace ddcs::ctrl::app::metrics

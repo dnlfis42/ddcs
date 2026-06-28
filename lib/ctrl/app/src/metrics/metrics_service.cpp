@@ -4,8 +4,10 @@
 
 #include <array>
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
 #include <map>
+#include <span>
 #include <string>
 
 namespace ddcs::ctrl::app::metrics {
@@ -65,6 +67,34 @@ void append_group_gauge(
     out += '\n';
 }
 
+// command RTT를 Prometheus histogram으로 append (누적 le 버킷 + _sum + _count).
+void append_rtt_histogram(
+    std::string& out, std::span<std::uint64_t const> bounds_ms,
+    std::span<std::uint64_t const> buckets, std::uint64_t sum_ms
+) {
+    out += "# HELP ddcs_command_rtt_ms Command dispatch->outcome latency in milliseconds.\n";
+    out += "# TYPE ddcs_command_rtt_ms histogram\n";
+    std::uint64_t cum = 0;
+    for (std::size_t i = 0; i < bounds_ms.size(); ++i) {
+        cum += buckets[i];
+        out += "ddcs_command_rtt_ms_bucket{le=\"";
+        out += std::to_string(bounds_ms[i]);
+        out += "\"} ";
+        out += std::to_string(cum);
+        out += '\n';
+    }
+    cum += buckets[bounds_ms.size()]; // +Inf 오버플로 -> 누적이 곧 전체 관측 수(= count)
+    out += "ddcs_command_rtt_ms_bucket{le=\"+Inf\"} ";
+    out += std::to_string(cum);
+    out += '\n';
+    out += "ddcs_command_rtt_ms_sum ";
+    out += std::to_string(sum_ms);
+    out += '\n';
+    out += "ddcs_command_rtt_ms_count ";
+    out += std::to_string(cum);
+    out += '\n';
+}
+
 } // namespace
 
 std::string MetricsService::scrape() {
@@ -96,11 +126,6 @@ std::string MetricsService::scrape() {
         commands_.timed_out_total()
     );
     append_metric(
-        out, "ddcs_command_rtt_ms_sum",
-        "Sum of dispatch->outcome latency in ms (avg = /completed_total).", "counter",
-        commands_.rtt_ms_sum()
-    );
-    append_metric(
         out, "ddcs_commands_retried_total", "Command re-sends after timeout/NACK.", "counter",
         commands_.retried_total()
     );
@@ -126,6 +151,30 @@ std::string MetricsService::scrape() {
         out, "ddcs_handshake_expired_total",
         "Connections dropped for not completing registration in time.", "counter",
         handshake_.expired_total()
+    );
+
+    // command RTT 분포(histogram). 평균(sum/count)이 숨기는 꼬리(p99 등)를 백분위로 본다.
+    append_rtt_histogram(
+        out, device::CommandService::rtt_bucket_bounds_ms, commands_.rtt_buckets(),
+        commands_.rtt_ms_sum()
+    );
+
+    // sweep tick 작업 소요(us). 단일 스레드 포화 신호: max/avg가 sweep 주기에 근접하면 한계.
+    append_metric(
+        out, "ddcs_sweep_duration_us", "Work time of the latest sweep tick in microseconds.",
+        "gauge", sweep_.last_us()
+    );
+    append_metric(
+        out, "ddcs_sweep_duration_us_max", "Peak sweep tick work time in microseconds since start.",
+        "gauge", sweep_.max_us()
+    );
+    append_metric(
+        out, "ddcs_sweep_duration_us_sum",
+        "Cumulative sweep tick work time in us (avg = /ddcs_sweep_ticks_total).", "counter",
+        sweep_.sum_us()
+    );
+    append_metric(
+        out, "ddcs_sweep_ticks_total", "Number of sweep ticks executed.", "counter", sweep_.ticks()
     );
 
     // per-group 게이지. active device를 group으로 집계해 group{,mode} 라벨로 노출한다.
@@ -155,8 +204,7 @@ std::string MetricsService::scrape() {
     out += "# HELP ddcs_group_load_avg Average reported load across active devices in the group.\n";
     out += "# TYPE ddcs_group_load_avg gauge\n";
     for (auto const& [group, agg] : groups) {
-        double const avg =
-            agg.devices != 0 ? agg.load_sum / static_cast<double>(agg.devices) : 0.0;
+        double const avg = agg.devices != 0 ? agg.load_sum / static_cast<double>(agg.devices) : 0.0;
         append_group_gauge(out, "ddcs_group_load_avg", group, avg);
     }
 
@@ -164,8 +212,7 @@ std::string MetricsService::scrape() {
            "the group.\n";
     out += "# TYPE ddcs_group_temp_avg gauge\n";
     for (auto const& [group, agg] : groups) {
-        double const avg =
-            agg.devices != 0 ? agg.temp_sum / static_cast<double>(agg.devices) : 0.0;
+        double const avg = agg.devices != 0 ? agg.temp_sum / static_cast<double>(agg.devices) : 0.0;
         append_group_gauge(out, "ddcs_group_temp_avg", group, avg);
     }
 
