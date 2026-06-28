@@ -3,7 +3,11 @@
 #include "ddcs/logger/log.hpp"
 
 #include <chrono>
+#include <csignal>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <string_view>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -15,6 +19,20 @@
 namespace {
 
 using ddcs::ctrl::Controller;
+
+// 로그 라인을 모으는 sink. 핫리로드 발생/적용을 device 없이 관측한다.
+class CapturingSink final : public ddcs::logger::Sink {
+public:
+    std::string text;
+    void write(std::string_view line) noexcept override {
+        text.append(line);
+    }
+};
+
+void write_file(std::filesystem::path const& p, std::string_view content) {
+    std::ofstream out{p};
+    out << content;
+}
 
 // 127.0.0.1:port로 GET 후, controller를 구동하며 전체 응답을 read.
 std::string scrape_metrics(Controller& controller, std::uint16_t port) {
@@ -85,6 +103,45 @@ TEST(ControllerTest, ServesMetricsWhenEnabled) {
     EXPECT_NE(resp.find("# TYPE ddcs_connections gauge"), std::string::npos);
     EXPECT_NE(resp.find("ddcs_connections 0"), std::string::npos); // session 없음
     controller.stop();
+}
+
+// SIGHUP -> 정책 핫리로드: 새 파일을 다시 읽어 set_policy 한다(다른 설정은 부팅 시 고정).
+TEST(ControllerTest, SighupReloadsPolicy) {
+    auto const path = std::filesystem::temp_directory_path() / "ddcs_reload_test.json";
+    write_file(
+        path, R"({"policy":{"groups":{"alpha":{"high_load":80,"low_load":20,)"
+              R"("high_load_mode":"performance","low_load_mode":"normal"}}}})"
+    );
+
+    CapturingSink sink;
+    Controller::Config cfg{};
+    cfg.policy_path = path;
+    cfg.log_level = ddcs::logger::Level::info; // policy.load / policy.reload 가 보이게
+    cfg.log_sink = &sink;
+
+    Controller controller{cfg};
+    controller.start(); // policy A(group 1개) 로드 -> "policy.load" groups=1
+
+    // 파일을 group 2개로 교체 후 SIGHUP -> 핫리로드(재적용)
+    write_file(
+        path,
+        R"({"policy":{"groups":{)"
+        R"("alpha":{"high_load":80,"low_load":20,"high_load_mode":"performance","low_load_mode":"normal"},)"
+        R"("beta":{"high_load":60,"low_load":40,"high_load_mode":"performance","low_load_mode":"normal"}}}})"
+    );
+    ::raise(SIGHUP);
+    for (int i = 0; i < 10 && sink.text.find(R"("event":"policy.reload")") == std::string::npos;
+         ++i) {
+        controller.run_once(std::chrono::milliseconds{20}); // signalfd 처리 -> reload
+    }
+    controller.stop();
+
+    EXPECT_NE(sink.text.find(R"("event":"policy.reload")"), std::string::npos); // SIGHUP 트리거됨
+    EXPECT_NE(sink.text.find(R"("groups":2)"), std::string::npos); // 새 파일(group 2개) 적용됨
+
+    // 전역 logger가 stack-local sink를 가리키므로 파괴 전에 떼어낸다(dangling 방지).
+    ddcs::logger::Logger::instance().clear_sink(sink);
+    std::filesystem::remove(path);
 }
 
 } // namespace

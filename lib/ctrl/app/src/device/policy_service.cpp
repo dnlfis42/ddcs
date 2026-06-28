@@ -89,8 +89,9 @@ std::optional<domain::GroupPolicy> parse_policy(json::Value const& root) {
 
 void PolicyService::set_policy(domain::GroupPolicy policy) {
     policy_ = std::move(policy);
-    regime_.clear(); // 새 정책이면 재평가(이전 상태 전부 무효)
-    thermal_.clear();
+    // 새 정책으로 재명령하도록 발신 belief만 비운다. regime/thermal은 히스테리시스 latch라
+    // 핫리로드(SIGHUP)를 넘어 보존한다: thermal을 비우면 과열 latch가 resume_temp 전에 조기
+    // 해제되고, regime을 비우면 데드밴드(low<avg<high) group이 새 룰의 mode를 재적용하지 못한다.
     commanded_.clear();
 }
 
@@ -182,6 +183,10 @@ void PolicyService::evaluate(common::Clock::time_point now) {
             } else if (shadow->status.temp < rule.thermal()->resume_temp) {
                 thermal = Thermal::cool;
             }
+        } else {
+            // 룰에 thermal 없음(또는 reload로 제거됨): latch 해제 -> load 제어로 복귀.
+            // 아래 high_temp_mode deref는 thermal==hot일 때만 일어나므로 이로써 항상 안전하다.
+            thermal = Thermal::cool;
         }
         if (thermal == Thermal::hot && previous != Thermal::hot) {
             LOG_WARN(

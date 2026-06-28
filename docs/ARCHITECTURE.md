@@ -184,7 +184,7 @@ graph TD
 `io::Reactor`가 `epoll_wait`로 블록하고, 준비된 fd마다 소유 `Channel`의 핸들러를 호출한다. 리액터에는 여러 **게스트**가 등록된다.
 
 - `io::TimerScheduler` -- 하나의 timerfd에 다수 논리 타이머를 deadline 최소힙으로 멀티플렉싱.
-- `io::SignalSource` -- signalfd로 SIGINT/SIGTERM을 받아 `stop()` 콜백으로 변환.
+- `io::SignalSource` -- signalfd로 SIGINT/SIGTERM(=`stop()`)과 SIGHUP(=정책 핫리로드)을 reactor 콜백으로 변환.
 - 전송 서버/커넥터 -- controller는 `Acceptor` + N개 Connection, agent는 단일 Connection.
 - (controller만) Prometheus HTTP 서버 -- 같은 리액터의 "두 번째 게스트".
 
@@ -449,4 +449,4 @@ graph TD
 
 각 main은 `DDCS_CONFIG_PATH`(기본 `config/controller.json` / `config/agent.json`) 한 파일을 읽는다. 파일 없음은 비치명(기본값으로 가동 + stderr 경고), malformed JSON은 치명(throw -> `EXIT_FAILURE`), 타입 불일치는 키 기본값 + 경고다. 시간(ms) 키는 의도적으로 환경변수 override가 없다. 정책은 controller 파일의 `policy` 객체에 인라인되어 같은 파일에서 함께 로드된다.
 
-agent의 device 신원(`DDCS_DEVICE_ID` / `DDCS_DEVICE_ID_FILE`)은 Config가 아니라 main에서 직접 해석한다: env > 파일 읽기 > 생성+파일 기록(자가발급, persist 성공 시 비-ephemeral). 설정 핫리로드는 미구현이다(향후 과제) -- 설정은 부팅 시 1회만 읽는다. 전체 설정 키 레퍼런스(파일/기본값/환경변수)는 루트 `README.md`의 "설정" 절에 있다.
+agent의 device 신원(`DDCS_DEVICE_ID` / `DDCS_DEVICE_ID_FILE`)은 Config가 아니라 main에서 직접 해석한다: env > 파일 읽기 > 생성+파일 기록(자가발급, persist 성공 시 비-ephemeral). **정책은 `SIGHUP`으로 핫리로드된다**: controller 프로세스에 SIGHUP을 보내면 `load_policy`가 controller.json의 `policy`를 다시 읽어 `set_policy`로 재적용한다(malformed/없음이면 경고 후 옛 정책 유지 -- validate-before-apply). 재적용 시 발신 belief(commanded)만 비워 다음 sweep이 새 정책으로 재명령하고, regime/thermal 히스테리시스 latch는 reload를 넘어 보존한다(안 그러면 과열 보호가 조기 해제되거나 데드밴드 group의 mode 변경이 미적용된다). 나머지 설정(포트/타임아웃 등)은 부팅 시 1회만 읽는다. 전체 설정 키 레퍼런스(파일/기본값/환경변수)는 루트 `README.md`의 "설정" 절에 있다.

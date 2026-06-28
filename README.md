@@ -156,7 +156,7 @@ scripts/demo.sh all        # 네 시나리오 순차 실행
 
 > 신원은 Device의 것(**DeviceId**)이다. `DDCS_DEVICE_ID`는 그 DeviceId를 고정하는 수단일 뿐, agent 프로세스의 신원이 아니다.
 
-정책은 `controller.json`의 `policy.groups`에 인라인된다. Group별 규칙은 load 히스테리시스(`high_load`/`low_load` + `high_load_mode`/`low_load_mode`)와 선택적 **온도 override**(`high_temp`/`resume_temp`/`high_temp_mode`)다. busy/idle은 부하 밴드의 regime이고 각각이 Group의 목표 Mode로 매핑되며, **device별** 온도가 `high_temp`를 넘으면 그 device만 load와 무관하게 `high_temp_mode`로 빠진다 -- 자세한 동작은 ARCHITECTURE "정책 엔진" 절 참고.
+정책은 `controller.json`의 `policy.groups`에 인라인된다. Group별 규칙은 load 히스테리시스(`high_load`/`low_load` + `high_load_mode`/`low_load_mode`)와 선택적 **온도 override**(`high_temp`/`resume_temp`/`high_temp_mode`)다. busy/idle은 부하 밴드의 regime이고 각각이 Group의 목표 Mode로 매핑되며, **device별** 온도가 `high_temp`를 넘으면 그 device만 load와 무관하게 `high_temp_mode`로 빠진다 -- 자세한 동작은 ARCHITECTURE "정책 엔진" 절 참고. 정책은 `kill -HUP <controller-pid>`로 **핫리로드**된다(`controller.json`의 `policy`만 다시 읽어 재적용; 다른 설정은 부팅 고정, malformed면 경고만 남기고 옛 정책 유지).
 
 ## 운영 / 문제 해결
 

@@ -45,7 +45,8 @@ public:
           devices_{devices},
           commands_{commands} {}
 
-    void set_policy(domain::GroupPolicy policy);  // load-once/핫리로드 apply (regime 리셋)
+    void set_policy(domain::GroupPolicy policy
+    ); // load/핫리로드 apply: commanded만 비움, latch 보존
     void evaluate(common::Clock::time_point now); // 주기 호출(조립 루트 tick)
 
     // DeviceReleaseSink: device 세션 종료 시 그 device의 제어 belief(commanded/thermal) 폐기.

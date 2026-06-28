@@ -316,6 +316,56 @@ TEST(PolicyServiceTest, DeviceLeftClearsBeliefSoReconnectRecommands) {
     EXPECT_EQ(f.sender.sent[1].mode, Mode::safe);
 }
 
+// 핫리로드(set_policy 재적용)가 과열 latch를 보존: 데드밴드에서 식는 중 reload해도 조기 해제 X.
+TEST(PolicyServiceTest, ReloadPreservesThermalLatchInDeadband) {
+    PolicyFixture f;
+    DeviceId const id = f.enroll(0x01, "sensors", 90.0); // load busy(>80)
+    f.policy.set_policy(PolicyFixture::hot_policy()
+    ); // busy=safe / thermal hot->performance(high90/resume70)
+
+    // 과열 트립(temp 95 > high 90) -> high_temp_mode(performance)
+    f.devices.update_status(
+        id, ddcs::ctrl::domain::Status{.mode = Mode::performance, .load = 90.0, .temp = 95.0}
+    );
+    f.policy.evaluate(f.clock.now());
+    ASSERT_FALSE(f.sender.sent.empty());
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::performance);
+
+    // 데드밴드로 식힘(resume70 < temp80 < high90), load는 busy 유지
+    f.devices.update_status(
+        id, ddcs::ctrl::domain::Status{.mode = Mode::performance, .load = 90.0, .temp = 80.0}
+    );
+
+    auto const before = f.sender.sent.size();
+    f.policy.set_policy(PolicyFixture::hot_policy()); // 핫리로드(같은 정책)
+    f.policy.evaluate(f.clock.now());
+
+    ASSERT_GT(f.sender.sent.size(), before); // commanded clear로 재명령은 나감
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::performance); // latch 보존 -> 여전히 high_temp_mode
+}
+
+// 핫리로드가 regime latch를 보존: 부하가 데드밴드인 group의 mode 변경도 즉시 적용된다.
+TEST(PolicyServiceTest, ReloadAppliesNewModeToDeadbandGroup) {
+    PolicyFixture f;
+    DeviceId const id = f.enroll(0x01, "sensors", 90.0); // busy(>80) -> safe
+    f.policy.set_policy(PolicyFixture::sensors_policy());
+    f.policy.evaluate(f.clock.now());
+    ASSERT_FALSE(f.sender.sent.empty());
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::safe);
+
+    f.set_load(id, 50.0); // 데드밴드(20<50<80) -- regime은 busy로 latch 유지
+
+    // busy mode를 safe -> normal로 바꾼 정책으로 reload
+    GroupPolicy changed;
+    changed.set("sensors", GroupRule::try_make(80.0, 20.0, Mode::normal, Mode::normal).value());
+    auto const before = f.sender.sent.size();
+    f.policy.set_policy(std::move(changed));
+    f.policy.evaluate(f.clock.now());
+
+    ASSERT_GT(f.sender.sent.size(), before); // regime 보존이라 데드밴드에서도 재명령
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::normal); // 새 high_load_mode 적용
+}
+
 TEST(PolicyServiceTest, ParsePolicyBuildsGroupPolicy) {
     auto const j = json::parse(R"({"groups":{"sensors":{"high_load":80,"low_load":20,)"
                                R"("high_load_mode":"safe","low_load_mode":"normal"}}})");

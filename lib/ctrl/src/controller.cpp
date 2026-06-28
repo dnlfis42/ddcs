@@ -60,7 +60,8 @@ public:
 private:
     void on_expired(io::TimerId id) override;
     void schedule_sweep();
-    void load_policy(); // policy.json load-once (start에서). 파일/파싱 실패는 WARN 후 빈 정책
+    void load_policy(); // policy load (start + SIGHUP reload). 실패는 WARN 후 옛 정책 유지
+    void handle_signal(int sig); // SIGHUP=정책 핫리로드 / SIGINT,SIGTERM=stop
 
     logger::StdoutSink default_sink_;
     common::SteadyClock clock_;
@@ -96,7 +97,7 @@ private:
 
 Controller::Impl::Impl(Config cfg)
     : cfg_(std::move(cfg)),
-      signal_source_(reactor_, {SIGINT, SIGTERM}, [this](int) { stop(); }),
+      signal_source_(reactor_, {SIGINT, SIGTERM, SIGHUP}, [this](int sig) { handle_signal(sig); }),
       timer_scheduler_(reactor_),
       transport_server_(reactor_, cfg_.listen_port, cfg_.accept_backlog),
       command_sender_(sessions_, transport_server_.sender()),
@@ -215,6 +216,19 @@ void Controller::Impl::load_policy() {
         "policy.load", logger::kv("path", path.string()), logger::kv("groups", policy->size())
     );
     policy_.set_policy(std::move(*policy));
+}
+
+void Controller::Impl::handle_signal(int sig) {
+    if (sig == SIGHUP) {
+        // 정책만 핫리로드(재적용). 다른 설정(포트/타임아웃)은 부팅 시 고정한다.
+        // malformed/없음이면 load_policy가 옛 정책을 유지한다(validate-before-apply).
+        // set_policy가 발신 belief(commanded)를 비우므로 다음 sweep이 새 정책으로 재명령한다
+        // (regime/thermal 히스테리시스 latch는 reload를 넘어 보존된다).
+        LOG_INFO("policy.reload");
+        load_policy();
+        return;
+    }
+    stop(); // SIGINT / SIGTERM
 }
 
 Controller::Controller(Config cfg)
