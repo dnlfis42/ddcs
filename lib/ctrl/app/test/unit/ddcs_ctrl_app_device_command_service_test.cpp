@@ -281,4 +281,81 @@ TEST(CommandServiceTest, RetryGivesUpWhenSendRejected) {
     EXPECT_EQ(commands.retried_total(), 0u);
 }
 
+// NACK(settle success=false)인데 재시도 예산이 남으면 포기하지 말고 backoff 후 재전송해야 한다.
+// 기존 NACK 테스트는 전부 max_attempts=1이라 곧장 gave_up으로 단락되어 이 분기를 못 본다(timeout이
+// 아니라 NACK이 fail_attempt를 거쳐 재시도로 가는 경로).
+TEST(CommandServiceTest, NackWithRetryBudgetResendsInsteadOfGivingUp) {
+    ManualClock clock;
+    FakeCommandSender sender;
+    CommandService commands{sender, 5s, 2, 500ms}; // 재시도 1회 허용
+
+    auto buf = commands.make_command_buffer();
+    ASSERT_TRUE(buf->try_append(as_bytes("p")));
+    auto const id = commands.dispatch(make_device_id(0xAA), 0x01, std::move(buf), clock.now());
+    ASSERT_TRUE(id.valid());
+
+    // NACK: 예산이 남았으니 포기(gave_up) 대신 backoff 대기로 전환한다.
+    commands.settle(make_device_id(0xAA), id, false, "busy", clock.now());
+    EXPECT_EQ(commands.gave_up_total(), 0u); // 핵심: NACK이라도 예산 있으면 포기 X
+    EXPECT_EQ(commands.pending_count(), 1u); // 여전히 미결(backoff 대기)
+    EXPECT_EQ(sender.sent.size(), 1u);       // 아직 재전송 전
+
+    clock.advance(600ms); // backoff(500ms) 경과
+    commands.sweep(clock.now());
+
+    EXPECT_EQ(commands.retried_total(), 1u); // backoff 후 동일 id 재전송
+    ASSERT_EQ(sender.sent.size(), 2u);
+    EXPECT_EQ(sender.sent[1].command_id, id);
+    EXPECT_EQ(sender.sent[1].payload, "p"); // 보관본에서 복원
+}
+
+// 현실 설정(max_attempts=3)에서 예산을 모두 소진하면(재시도 2회 후) 포기한다. 또한 backoff가
+// attempt마다 2배로 자라는지(500ms -> 1000ms) 동일한 600ms 프로브로 확인한다.
+TEST(CommandServiceTest, ExhaustsRetryBudgetThenGivesUpWithBackoffDoubling) {
+    ManualClock clock;
+    FakeCommandSender sender;
+    CommandService commands{sender, 5s, 3, 500ms}; // 재시도 2회 (attempt 1 -> 2 -> 3)
+
+    auto buf = commands.make_command_buffer();
+    ASSERT_TRUE(buf->try_append(as_bytes("p")));
+    auto const id = commands.dispatch(make_device_id(0xAA), 0x01, std::move(buf), clock.now());
+    ASSERT_TRUE(id.valid());
+
+    // attempt 1 timeout -> backoff_for(1) = 500ms
+    clock.advance(6s);
+    commands.sweep(clock.now());
+    EXPECT_EQ(commands.timed_out_total(), 1u);
+
+    // 600ms 프로브: attempt 1 backoff(500ms)는 경과 -> 재전송(attempt 2).
+    clock.advance(600ms);
+    commands.sweep(clock.now());
+    EXPECT_EQ(commands.retried_total(), 1u);
+    ASSERT_EQ(sender.sent.size(), 2u);
+
+    // attempt 2 timeout -> backoff_for(2) = 1000ms (2배)
+    clock.advance(6s);
+    commands.sweep(clock.now());
+    EXPECT_EQ(commands.timed_out_total(), 2u);
+
+    // 동일한 600ms 프로브: 이번엔 backoff가 1000ms라 아직 미경과 -> 재전송 없음(= 2배로 자랐다는
+    // 증거).
+    clock.advance(600ms);
+    commands.sweep(clock.now());
+    EXPECT_EQ(commands.retried_total(), 1u);
+    EXPECT_EQ(sender.sent.size(), 2u);
+
+    // 추가 600ms(누적 1200ms > 1000ms) -> 재전송(attempt 3)
+    clock.advance(600ms);
+    commands.sweep(clock.now());
+    EXPECT_EQ(commands.retried_total(), 2u);
+    ASSERT_EQ(sender.sent.size(), 3u);
+
+    // attempt 3 timeout -> 예산 소진(attempts 3 >= max 3) -> 포기
+    clock.advance(6s);
+    commands.sweep(clock.now());
+    EXPECT_EQ(commands.timed_out_total(), 3u);
+    EXPECT_EQ(commands.gave_up_total(), 1u);
+    EXPECT_EQ(commands.pending_count(), 0u);
+}
+
 } // namespace

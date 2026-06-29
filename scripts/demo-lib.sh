@@ -65,12 +65,9 @@ assert_eq() { # desc actual expected
     if [ "${2:-x}" = "$3" ]; then _pass "$1 (=$2)"; else _fail "$1 (got '${2:-}', want '$3')"; fi
 }
 
+# 항상 빌드한다(소스 미변경이면 레이어 캐시로 수 초). stale 이미지로 데모가 옛 바이너리를 돌 일이 없다.
 ensure_images() {
-    if docker image inspect ddcs-controller:dev >/dev/null 2>&1 &&
-        docker image inspect ddcs-agent:dev >/dev/null 2>&1; then
-        return 0
-    fi
-    narrate "이미지 빌드 (최초 1회, 수 분 소요)..."
+    narrate "이미지 빌드 (미변경이면 캐시로 수 초)..."
     compose build
 }
 

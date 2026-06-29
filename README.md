@@ -1,8 +1,6 @@
-# DDCS -- Distributed Device Control System
+# DDCS --- Distributed Device Control System
 
 분산 장치 제어 시스템. 단일 **Controller**가 다수의 **Agent**를 조율하고, 각 Agent는 하나의 **Device**를 호스팅한다. 상태/신원의 진실의 원천은 Agent 쪽 Device에 있고, Controller는 그 투영인 **DeviceShadow**만 보관하며 Group 단위 **Policy**로 각 Device의 Mode를 자동 제어한다(사람이 직접 내리는 명령 API는 없다).
-
-> 용어는 [docs/GLOSSARY.md](docs/GLOSSARY.md), 구조/동작은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), 와이어 프로토콜은 [docs/PROTOCOL.md](docs/PROTOCOL.md)가 권위다.
 
 ## 주요 기능
 
@@ -16,9 +14,17 @@
 - 역할별 단일 JSON 런타임 설정, ObjectPool zero-copy 버퍼, RAII fd
 - ASan/UBSan preset, GoogleTest 단위 + E2E
 
+## 문서
+
+| 문서                                 | 내용                                                                              |
+| ------------------------------------ | --------------------------------------------------------------------------------- |
+| [GLOSSARY](docs/GLOSSARY.md)         | 도메인 어휘 (ubiquitous language)                                                 |
+| [ARCHITECTURE](docs/ARCHITECTURE.md) | 시스템 개관, 모듈 지도, 런타임 / 세션 / 정책 / 명령 / 재접속 / 관측성 + 설계 근거 |
+| [PROTOCOL](docs/PROTOCOL.md)         | wire 프로토콜 (frame/message 레이아웃, 메시지 타입, 의미론)                       |
+
 ## 빠른 시작
 
-요구: Ubuntu 24.04+ (x86_64), GCC 13+, CMake 3.25+, C++20.
+요구: Ubuntu 24.04+ (x86_64), GCC 13+, CMake 3.25+, C++20
 
 ```sh
 # configure + build + test 한 번에
@@ -113,14 +119,15 @@ docker build -f docker/Dockerfile --target controller -t ddcs-controller .
 
 ### 데모 시나리오
 
-`scripts/demo.sh`가 네 가지 핵심 동작을 각각 격리해 띄우고, 컨트롤러의 원시 출력(메트릭 `:9000` + 이벤트 로그)으로 단언한 뒤 PASS/FAIL과 종료코드를 낸다(관측 스택 없이 돌아 CI 친화적). 각 시나리오는 자기 스택을 띄웠다 정리한다.
+`scripts/demo.sh`가 다섯 가지 핵심 동작을 각각 격리해 띄우고, 컨트롤러의 원시 출력(메트릭 `:9000` + 이벤트 로그)으로 단언한 뒤 PASS/FAIL과 종료코드를 낸다(관측 스택 없이 돌아 CI 친화적). 각 시나리오는 자기 스택을 띄웠다 정리한다.
 
 ```sh
-scripts/demo.sh thermal    # per-device thermal: 같은 zone에서 과열된 device만 safe로 빠진다
+scripts/demo.sh thermal    # per-device thermal: 같은 zone에서 과열된 device만 safe로 빠지고, 식으면 회복
 scripts/demo.sh eviction   # 재접속(리부트)한 device를 재명령 (stale 명령 belief 고착 방지)
 scripts/demo.sh regime     # 부하 밴드 busy/idle 전환 (히스테리시스)
 scripts/demo.sh fault      # docker pause로 liveness 축출 -> 재개 시 재접속
-scripts/demo.sh all        # 네 시나리오 순차 실행
+scripts/demo.sh reload     # SIGHUP 정책 핫리로드: 재명령 + malformed 거부(옛 정책 유지)
+scripts/demo.sh all        # 다섯 시나리오 순차 실행
 ```
 
 각 시나리오가 검증하는 동작은 ARCHITECTURE의 "정책 엔진"/"세션 생명주기" 절과 1:1이다. 같은 동작을 Grafana로 눈으로 보려면 위 compose 스택을 직접 띄운다.
@@ -171,36 +178,28 @@ scripts/demo.sh all        # 네 시나리오 순차 실행
 
 관측 지점: 메트릭 `ddcs_agents_evicted_total`/`ddcs_handshake_expired_total`/`ddcs_commands_gave_up_total`/`ddcs_commands_stale_total`, group별 `ddcs_group_load_avg`/`ddcs_group_temp_avg`/`ddcs_group_devices`, 로그 `event` 키(`session.kick_old`, `policy.hot`, `device.status.non_finite` 등). 메트릭 전체 목록은 ARCHITECTURE "관측성과 설정" 절 참고.
 
-## 문서
-
-| 문서                                         | 내용                                                                              |
-| -------------------------------------------- | --------------------------------------------------------------------------------- |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 시스템 개관, 모듈 지도, 런타임 / 세션 / 정책 / 명령 / 재접속 / 관측성 + 설계 근거 |
-| [docs/PROTOCOL.md](docs/PROTOCOL.md)         | wire 프로토콜(frame/message 레이아웃, 메시지 타입, 의미론) -- 권위                |
-| [docs/GLOSSARY.md](docs/GLOSSARY.md)         | 도메인 어휘(ubiquitous language) -- 권위                                          |
-
 ## 디렉토리 구조
 
 ```
-apps/            # 실행 파일 (ctrl, agent)
+apps/     # 실행 파일 (ctrl, agent)
 lib/
-  common/        # 순수 C++ 값 타입 (strong id, uuid, 버퍼, object pool, clock, endian)
-  io/            # epoll 리액터, timerfd/signalfd, Fd RAII
-  net/           # 소켓 프리미티브 (stream_io, socket)
-  json/          # JSON 파싱/쓰기
-  logger/        # NDJSON 구조화 로거
-  config/        # 단일 파일 JSON 설정 로더
-  device/        # 공유 어휘 커널 (Mode)
-  wire/          # wire 프로토콜 (frame / message)
-  ctrl/          # controller 측 (domain / app / infra + facade)
-  agent/         # agent 측 (domain / app / infra + facade)
-cmake/           # 빌드 옵션 / sanitizer / coverage / testing 모듈
-config/          # 런타임 JSON 설정 (controller / agent, 정책 인라인)
-scripts/         # coverage-report.sh, demo.sh (데모), perf-ramp.sh (성능 램프)
-docker/          # Dockerfile + compose (core / scale / 관측 스택)
-docs/            # ARCHITECTURE / PROTOCOL / GLOSSARY
-test/e2e/        # Controller <-> Agent E2E
-data/            # agent UUID persist (런타임 생성, git 미추적)
+  common/ # 순수 C++ 값 타입 (strong id, uuid, 버퍼, object pool, clock, endian)
+  json/   # JSON 파싱/쓰기
+  logger/ # NDJSON 구조화 로거
+  io/     # epoll 리액터, timerfd/signalfd, Fd RAII
+  net/    # 소켓 프리미티브 (stream_io, socket)
+  config/ # 단일 파일 JSON 설정 로더
+  device/ # 공유 어휘 커널 (Mode)
+  wire/   # wire 프로토콜 (frame / message)
+  ctrl/   # controller 측 (domain / app / infra + facade)
+  agent/  # agent 측 (domain / app / infra + facade)
+cmake/    # 빌드 옵션 / sanitizer / coverage / testing 모듈
+config/   # 런타임 JSON 설정 (controller / agent, 정책 인라인)
+scripts/  # coverage-report.sh, demo.sh (데모), perf-ramp.sh (성능 램프)
+docker/   # Dockerfile + compose (core / scale / 관측 스택)
+docs/     # ARCHITECTURE / PROTOCOL / GLOSSARY
+test/e2e/ # Controller <-> Agent E2E
+data/     # agent UUID persist (런타임 생성, git 미추적)
 ```
 
 ## 라이선스

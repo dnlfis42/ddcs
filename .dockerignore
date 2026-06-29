@@ -1,5 +1,8 @@
+.*
+
 build/
-.git/
-.vscode/
-.cache/
-*.log
+data/
+docs/
+scripts/
+
+*.md

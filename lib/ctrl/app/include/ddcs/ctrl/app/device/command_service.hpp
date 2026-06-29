@@ -17,7 +17,7 @@
 namespace ddcs::ctrl::app::device {
 
 // 명령 전달 use-case. device 1급 장부에 계열(type)당 미결 슬롯 1개를 유지한다.
-// - 논리 명령 1개당 CommandId 1개, 재전송도 동일 id (agent 멱등 재실행, MQTT/CoAP 관례)
+// - 논리 명령 1개당 CommandId 1개, 재전송도 동일 id (agent는 depth-1 dedup으로 재적용 없이 캐시된 ack/outcome 회신, MQTT/CoAP 관례)
 // - 같은 (device, type) 재발송은 supersede: 옛 의도는 송신 성패와 무관하게 dispatch 순간 폐기
 // - 보관본은 헤더 미기록 상태로 슬롯에 상주, send는 매번 사본 소비 (전송 계층이 buffer 점유)
 // - 미지 id 응답(stale)은 재전송/supersede의 정상 부산물: 카운터 + DEBUG로만 관측
