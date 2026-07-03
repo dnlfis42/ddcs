@@ -85,15 +85,18 @@ public:
 
     void send(ConnectionId conn, MessageBuffer message) override {
         auto const readable = message->data_span();
-        sent.push_back(Sent{
-            .conn = conn,
-            .payload = std::vector<std::byte>{readable.begin(), readable.end()},
-        });
+        sent.push_back(
+            Sent{
+                .conn = conn,
+                .payload = std::vector<std::byte>{readable.begin(), readable.end()},
+            }
+        );
     }
 
 private:
-    ObjectPool<LinearBuffer> pool_{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256
-    })};
+    ObjectPool<LinearBuffer> pool_{
+        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256})
+    };
 };
 
 // infra처럼 disconnect가 동기로 on_disconnected를 되부르는 대역
@@ -419,9 +422,10 @@ TEST(SessionServiceTest, CommandAckAndOutcomeSettlePending) {
     ServiceFixture f;
     DeviceId const device = f.register_active(1, 0xAA);
 
-    auto payload = f.commands.make_command_buffer();
-    ASSERT_TRUE(payload->try_append(as_bytes("p")));
-    auto const command_id = f.commands.dispatch(device, 0x01, std::move(payload), f.clock.now());
+    auto const command_id = f.commands.dispatch(
+        device, ddcs::ctrl::app::device::port::SetMode{.mode = ddcs::device::Mode::performance},
+        f.clock.now()
+    );
     ASSERT_TRUE(command_id.valid());
 
     f.deliver(ConnectionId{1}, f.payload_command_ack(command_id.get()));
@@ -434,7 +438,7 @@ TEST(SessionServiceTest, CommandAckAndOutcomeSettlePending) {
     );
 
     EXPECT_EQ(f.commands.pending_count(), 0u);
-    EXPECT_EQ(f.commands.completed_total(), 1u);
+    EXPECT_EQ(f.commands.metrics().completed_total, 1u);
 }
 
 TEST(SessionServiceTest, BrokenActivePayloadKicks) {

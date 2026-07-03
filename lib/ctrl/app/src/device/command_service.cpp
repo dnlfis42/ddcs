@@ -3,7 +3,6 @@
 #include "ddcs/logger/log.hpp"
 
 #include <algorithm>
-#include <cassert>
 #include <chrono>
 #include <cstdint>
 #include <utility>
@@ -37,20 +36,17 @@ std::size_t CommandService::pending_count() const noexcept {
 }
 
 port::CommandId CommandService::dispatch(
-    domain::DeviceId device, std::uint8_t command_type, port::CommandBuffer payload,
-    common::Clock::time_point now
+    domain::DeviceId device, port::Command command, common::Clock::time_point now
 ) {
-    if (!payload) {
-        return {}; // 방어
-    }
     auto& device_commands = pending_[device];
     // supersede: 의도 교체는 송신 성패와 무관하게 dispatch 순간 일어난다.
+    auto const family = command.index();
     auto const old_slot = std::find_if(
         device_commands.slots.begin(), device_commands.slots.end(),
-        [command_type](Slot const& slot) { return slot.type == command_type; }
+        [family](Slot const& slot) { return slot.command.index() == family; }
     );
     if (old_slot != device_commands.slots.end()) {
-        ++superseded_total_;
+        ++metrics_.superseded_total;
         LOG_INFO(
             "command.superseded", logger::kv("command", old_slot->id.get()),
             logger::kv("device", device.to_string())
@@ -59,14 +55,7 @@ port::CommandId CommandService::dispatch(
     }
 
     port::CommandId const command_id{next_command_id_++};
-    port::CommandBuffer retained;
-    if (max_attempts_ > 1) {
-        retained = sender_.make_command_buffer(); // 보관본은 헤더 미기록 상태로 동결된다.
-        bool const copied = retained->try_append(payload->data_span());
-        assert(copied); // 동일 용량 + 동일 headroom이라 항상 들어간다.
-        (void)copied;
-    }
-    if (!sender_.try_send(device, command_id, command_type, std::move(payload))) {
+    if (!sender_.try_send(device, command_id, command)) {
         LOG_WARN("command.dispatch.fail", logger::kv("device", device.to_string()));
         if (device_commands.slots.empty()) {
             pending_.erase(device); // 빈 항목 잔류 방지
@@ -76,15 +65,14 @@ port::CommandId CommandService::dispatch(
     device_commands.slots.push_back(
         Slot{
             .id = command_id,
-            .type = command_type,
-            .retained = std::move(retained),
+            .command = std::move(command),
             .dispatched_at = now,
             .next_at = after(now, command_timeout_),
             .attempts = 1,
             .phase = Phase::in_flight,
         }
     );
-    ++dispatched_total_;
+    ++metrics_.dispatched_total;
 
     LOG_INFO(
         "command.dispatch", logger::kv("device", device.to_string()),
@@ -98,7 +86,7 @@ void CommandService::acknowledge(
 ) {
     Slot* const slot = find_slot(device, command_id);
     if (slot == nullptr) {
-        ++stale_total_;
+        ++metrics_.stale_total;
         LOG_DEBUG("command.stale", logger::kv("command", command_id.get()));
         return;
     }
@@ -114,7 +102,7 @@ void CommandService::settle(
 ) {
     Slot* const slot = find_slot(device, command_id);
     if (slot == nullptr) {
-        ++stale_total_;
+        ++metrics_.stale_total;
         LOG_DEBUG("command.stale", logger::kv("command", command_id.get()));
         return;
     }
@@ -131,14 +119,15 @@ void CommandService::settle(
     auto const rtt_ms = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::milliseconds>(rtt).count()
     );
-    rtt_ms_sum_ += rtt_ms;
-    ++completed_total_;
+    metrics_.rtt_ms_sum += rtt_ms;
+    ++metrics_.completed_total;
     // 히스토그램: rtt_ms 이상인 첫 경계 버킷에 1, 모든 경계 초과면 +Inf 오버플로 슬롯에 1
     std::size_t bucket = 0;
-    while (bucket < rtt_bucket_bounds_ms.size() && rtt_ms > rtt_bucket_bounds_ms[bucket]) {
+    while (bucket < Metrics::rtt_bucket_bounds_ms.size() &&
+           rtt_ms > Metrics::rtt_bucket_bounds_ms[bucket]) {
         ++bucket;
     }
-    ++rtt_buckets_[bucket];
+    ++metrics_.rtt_buckets[bucket];
     LOG_INFO("command.outcome", logger::kv("command", command_id.get()));
     close_slot(device, command_id); // 성공 확정 시 미결 종료
 }
@@ -160,7 +149,7 @@ void CommandService::sweep(common::Clock::time_point now) {
         }
 
         if (slot->phase == Phase::in_flight) {
-            ++timed_out_total_;
+            ++metrics_.timed_out_total;
             LOG_WARN(
                 "command.timeout", logger::kv("command", command_id.get()),
                 logger::kv("device", device.to_string())
@@ -181,7 +170,7 @@ void CommandService::fail_attempt(
     }
 
     if (slot->attempts >= max_attempts_) {
-        ++gave_up_total_;
+        ++metrics_.gave_up_total;
         LOG_WARN(
             "command.gave_up", logger::kv("command", command_id.get()),
             logger::kv("device", device.to_string()), logger::kv("attempts", slot->attempts)
@@ -202,13 +191,8 @@ void CommandService::resend(
         return;
     }
 
-    assert(slot->retained); // backoff 진입은 max_attempts > 1에서만이라 보관본 존재
-    auto copy = sender_.make_command_buffer(); // 보관본은 불변. 헤더는 사본이 받는다
-    bool const copied = copy->try_append(slot->retained->data_span());
-    assert(copied);
-    (void)copied;
-    if (!sender_.try_send(device, slot->id, slot->type, std::move(copy))) {
-        ++gave_up_total_;
+    if (!sender_.try_send(device, slot->id, slot->command)) {
+        ++metrics_.gave_up_total;
         LOG_WARN(
             "command.gave_up", logger::kv("command", command_id.get()),
             logger::kv("device", device.to_string()), logger::kv("reason", "send_fail")
@@ -217,7 +201,7 @@ void CommandService::resend(
         return;
     }
 
-    ++retried_total_;
+    ++metrics_.retried_total;
     slot->attempts += 1;
     slot->phase = Phase::in_flight;
     slot->next_at = after(now, command_timeout_);

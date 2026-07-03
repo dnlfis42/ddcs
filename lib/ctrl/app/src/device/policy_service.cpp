@@ -1,11 +1,10 @@
 #include "ddcs/ctrl/app/device/policy_service.hpp"
 
+#include "ddcs/ctrl/app/device/group_aggregate.hpp"
 #include "ddcs/ctrl/domain/device_shadow.hpp"
 #include "ddcs/device/mode.hpp"
 #include "ddcs/logger/log.hpp"
-#include "ddcs/wire/message/command.hpp"
 
-#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -13,8 +12,6 @@
 #include <utility>
 
 namespace ddcs::ctrl::app::device {
-
-namespace msg = ddcs::wire::message;
 
 std::optional<domain::GroupPolicy> parse_policy(json::Value const& root) {
     auto const* groups = root.find("groups");
@@ -108,21 +105,9 @@ void PolicyService::evaluate(common::Clock::time_point now) {
         return;
     }
 
-    // 1. group별 평균 load 집계 (load 정책은 그룹 단위; 끊긴 device의 stale Shadow 제외)
-    struct Agg {
-        double load_sum{};
-        int count{};
-    };
-    std::unordered_map<std::string, Agg> agg;
-    roster_.for_each_active([&](domain::DeviceId id) {
-        auto const* shadow = devices_.find(id);
-        if (shadow == nullptr || shadow->group.empty()) {
-            return;
-        }
-        auto& a = agg[shadow->group];
-        a.load_sum += shadow->status.load;
-        ++a.count;
-    });
+    // 1. group별 평균 load 집계 (load 정책은 그룹 단위; 끊긴 device의 stale Shadow 제외).
+    //    집계 규칙은 aggregate_groups가 소유하고 메트릭 노출과 공유한다.
+    auto const agg = aggregate_groups(roster_, devices_, policy_);
 
     // 2. group별 load regime -> base mode. regime 전환은 group 단위로 로그(1회).
     struct GroupState {
@@ -132,10 +117,10 @@ void PolicyService::evaluate(common::Clock::time_point now) {
     std::unordered_map<std::string, GroupState> gstate;
     policy_.for_each([&](std::string const& group, domain::GroupRule const& rule) {
         auto const it = agg.find(group);
-        if (it == agg.end() || it->second.count == 0) {
+        if (it == agg.end() || it->second.devices == 0) {
             return; // active device 없는 group은 skip
         }
-        double const avg = it->second.load_sum / static_cast<double>(it->second.count);
+        double const avg = it->second.load_sum / static_cast<double>(it->second.devices);
         Regime& regime = regime_[group];
         Regime const previous = regime;
         if (avg > rule.high_load()) {
@@ -225,17 +210,8 @@ void PolicyService::evaluate(common::Clock::time_point now) {
 void PolicyService::command_one(
     domain::DeviceId device, ddcs::device::Mode mode, common::Clock::time_point now
 ) {
-    auto buf = commands_.make_command_buffer();
-    auto const written =
-        msg::encode_set_mode(buf->tailroom_span(), ddcs::device::encode_mode(mode));
-    if (!written || !buf->try_commit(*written)) {
-        LOG_ERROR("policy.encode_fail", logger::kv("device", device.to_string())); // 버그 신호
-        return;
-    }
     // 미연결 등 송신 실패는 dispatch가 invalid 반환 + WARN. 다음 평가가 자연 보상.
-    commands_.dispatch(
-        device, static_cast<std::uint8_t>(msg::CommandType::set_mode), std::move(buf), now
-    );
+    commands_.dispatch(device, port::SetMode{.mode = mode}, now);
 }
 
 } // namespace ddcs::ctrl::app::device

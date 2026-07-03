@@ -1,13 +1,12 @@
 #include "ddcs/ctrl/app/metrics/metrics_service.hpp"
 
 #include "ddcs/common/clock.hpp"
-#include "ddcs/common/linear_buffer.hpp"
-#include "ddcs/common/object_pool.hpp"
 #include "ddcs/common/uuid.hpp"
 #include "ddcs/ctrl/app/device/command_service.hpp"
-#include "ddcs/ctrl/app/device/port/command_buffer.hpp"
+#include "ddcs/ctrl/app/device/port/command.hpp"
 #include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/device/port/command_sender.hpp"
+#include "ddcs/ctrl/app/session/device_roster.hpp"
 #include "ddcs/ctrl/app/session/handshake_monitor.hpp"
 #include "ddcs/ctrl/app/session/liveness_monitor.hpp"
 #include "ddcs/ctrl/app/session/session.hpp"
@@ -22,23 +21,19 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <span>
 #include <string>
-#include <string_view>
-#include <utility>
 
 #include <gtest/gtest.h>
 
 namespace {
 
-using ddcs::common::LinearBuffer;
 using ddcs::common::ManualClock;
-using ddcs::common::ObjectPool;
 using ddcs::common::Uuid;
 using ddcs::ctrl::app::device::CommandService;
-using ddcs::ctrl::app::device::port::CommandBuffer;
+using ddcs::ctrl::app::device::port::Command;
 using ddcs::ctrl::app::device::port::CommandId;
 using ddcs::ctrl::app::device::port::CommandSender;
+using ddcs::ctrl::app::device::port::SetMode;
 using ddcs::ctrl::app::metrics::MetricsService;
 using ddcs::ctrl::app::session::HandshakeMonitor;
 using ddcs::ctrl::app::session::LivenessMonitor;
@@ -54,10 +49,6 @@ Uuid make_uuid(std::uint8_t seed) {
     return Uuid{b};
 }
 
-std::span<std::byte const> as_bytes(std::string_view s) {
-    return {reinterpret_cast<std::byte const*>(s.data()), s.size()};
-}
-
 bool contains(std::string const& s, char const* sub) {
     return s.find(sub) != std::string::npos;
 }
@@ -65,17 +56,9 @@ bool contains(std::string const& s, char const* sub) {
 class FakeCommandSender final : public CommandSender {
 public:
     bool accept = true;
-    CommandBuffer make_command_buffer() override {
-        return pool_.acquire();
-    }
-    bool try_send(ddcs::ctrl::domain::DeviceId, CommandId, std::uint8_t, CommandBuffer) override {
+    bool try_send(ddcs::ctrl::domain::DeviceId, CommandId, Command const&) override {
         return accept;
     }
-
-private:
-    ObjectPool<LinearBuffer> pool_{
-        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{64})
-    };
 };
 
 // infra처럼 disconnect가 동기로 registry erase까지 끝내는 대역
@@ -100,9 +83,10 @@ struct Fixture {
     CommandService commands{sender, 5s, 1, 500ms};
     HandshakeMonitor handshake{sessions, disconnector, 3s};
     LivenessMonitor liveness{sessions, disconnector, 3s};
+    ddcs::ctrl::app::session::DeviceRoster roster{sessions};
     ddcs::ctrl::domain::GroupPolicy policy;
     ddcs::ctrl::app::metrics::SweepStats sweep;
-    MetricsService metrics{sessions, devices, commands, liveness, handshake, policy, sweep};
+    MetricsService metrics{sessions, devices, roster, commands, liveness, handshake, policy, sweep};
 
     ddcs::ctrl::domain::DeviceId activate(std::uint64_t conn, std::uint8_t seed) {
         ConnectionId const id{conn};
@@ -113,9 +97,9 @@ struct Fixture {
     }
 
     CommandId send(ddcs::ctrl::domain::DeviceId device) {
-        auto buf = commands.make_command_buffer();
-        EXPECT_TRUE(buf->try_append(as_bytes("p")));
-        return commands.dispatch(device, 0x01, std::move(buf), clock.now());
+        return commands.dispatch(
+            device, SetMode{.mode = ddcs::device::Mode::performance}, clock.now()
+        );
     }
 };
 

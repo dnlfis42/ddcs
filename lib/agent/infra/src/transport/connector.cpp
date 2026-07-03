@@ -5,6 +5,7 @@
 #include "ddcs/logger/log.hpp"
 #include "ddcs/wire/frame/extract.hpp"
 #include "ddcs/wire/frame/frame.hpp"
+#include "ddcs/wire/frame/seal.hpp"
 
 #include <cassert>
 #include <cerrno>
@@ -68,8 +69,7 @@ void Connector::start() {
 
 common::PoolHandle<common::LinearBuffer> Connector::payload_buffer() {
     auto buf = payload_pool_.acquire();
-    bool const reserved =
-        buf->try_grow_headroom(wire::frame::header_size); // frame header 자리 확보
+    bool const reserved = wire::frame::reserve_header_room(*buf); // frame header 자리 확보
     assert(reserved);
     (void)reserved;
     return buf;
@@ -80,13 +80,8 @@ void Connector::send(common::PoolHandle<common::LinearBuffer> message) {
         return; // 미연결이면 드롭
     }
     // message는 메시지 통째(`[type][body]`). frame은 length만 싣는다.
-    if (message->size() > wire::frame::max_payload_length) {
-        assert(false && "payload length exceeds max_payload_length");
-        return;
-    }
-    auto const hdr = wire::frame::encode(static_cast<std::uint16_t>(message->size()));
-    if (!message->try_prepend({hdr.data(), hdr.size()})) {
-        assert(false && "payload_buffer() 로 받지 않은 버퍼 - headroom 없음");
+    if (!wire::frame::seal(*message)) {
+        assert(false && "payload 상한 초과 또는 payload_buffer()를 거치지 않은 버퍼");
         return;
     }
     connection_.tx_enqueue(std::move(message));

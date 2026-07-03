@@ -3,7 +3,7 @@
 #include "ddcs/common/clock.hpp"
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
-#include "ddcs/ctrl/app/device/port/command_buffer.hpp"
+#include "ddcs/ctrl/app/device/port/command.hpp"
 #include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/session/session.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
@@ -11,16 +11,14 @@
 #include "ddcs/ctrl/app/transport/port/message_buffer.hpp"
 #include "ddcs/ctrl/app/transport/port/message_sender.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
+#include "ddcs/device/mode.hpp"
 #include "ddcs/wire/frame/frame.hpp"
+#include "ddcs/wire/message/command.hpp"
 #include "ddcs/wire/message/message.hpp"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <span>
-#include <string>
-#include <string_view>
-#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -32,21 +30,19 @@ namespace frame = ddcs::wire::frame;
 
 using ddcs::common::ManualClock;
 using ddcs::ctrl::app::device::port::CommandId;
+using ddcs::ctrl::app::device::port::SetMode;
 using ddcs::ctrl::app::session::CommandSender;
 using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::app::transport::port::ConnectionId;
 using ddcs::ctrl::app::transport::port::MessageBuffer;
 using ddcs::ctrl::app::transport::port::MessageSender;
 using ddcs::ctrl::domain::DeviceId;
+using ddcs::device::Mode;
 
 DeviceId make_device_id(std::uint8_t seed) {
     std::array<std::byte, 16> bytes{};
     bytes[0] = std::byte{seed};
     return DeviceId{bytes};
-}
-
-std::span<std::byte const> as_bytes(std::string_view s) {
-    return {reinterpret_cast<std::byte const*>(s.data()), s.size()};
 }
 
 // 송신된 command_request를 decode해 기록하는 대역. frame 헤더 자리가 보존됐는지도 검사한다.
@@ -56,7 +52,7 @@ public:
         ConnectionId conn;
         std::uint64_t command_id;
         std::uint8_t type;
-        std::string payload;
+        Mode mode;
         bool frame_headroom_ok;
     };
 
@@ -75,16 +71,15 @@ public:
         EXPECT_EQ(msg::message_type(bytes), msg::MessageType::command_request);
         auto const cmd = msg::decode_command_request(bytes.subspan(1));
         ASSERT_TRUE(cmd.has_value());
-        std::string payload_copy{
-            reinterpret_cast<char const*>(cmd->payload.data()), cmd->payload.size()
-        };
+        auto const set_mode = msg::decode_set_mode(cmd->payload);
+        ASSERT_TRUE(set_mode.has_value());
         std::array<std::byte, frame::header_size> const frame_stub{}; // frame 헤더 자리 검증
         sent.push_back(
             Sent{
                 .conn = conn,
                 .command_id = cmd->command_id,
                 .type = cmd->command_type,
-                .payload = std::move(payload_copy),
+                .mode = ddcs::device::decode_mode(set_mode->mode).value_or(Mode::safe),
                 .frame_headroom_ok = message->try_prepend(frame_stub),
             }
         );
@@ -109,32 +104,30 @@ struct SenderFixture {
         EXPECT_TRUE(sessions.find(id)->confirm(clock.now()));
         return id;
     }
-
-    ddcs::ctrl::app::device::port::CommandBuffer payload(std::string_view s) {
-        auto buf = sender.make_command_buffer();
-        EXPECT_TRUE(buf->try_append(as_bytes(s)));
-        return buf;
-    }
 };
 
 TEST(CommandSenderTest, SendsEncodedCommandToActiveConnection) {
     SenderFixture f;
     ConnectionId const conn = f.activate(1, 0xAA);
 
-    EXPECT_TRUE(f.sender.try_send(make_device_id(0xAA), CommandId{42}, 0x01, f.payload("payload")));
+    EXPECT_TRUE(
+        f.sender.try_send(make_device_id(0xAA), CommandId{42}, SetMode{.mode = Mode::performance})
+    );
 
     ASSERT_EQ(f.outbox.sent.size(), 1u);
     EXPECT_EQ(f.outbox.sent[0].conn, conn);
     EXPECT_EQ(f.outbox.sent[0].command_id, 42u);
-    EXPECT_EQ(f.outbox.sent[0].type, 0x01);
-    EXPECT_EQ(f.outbox.sent[0].payload, "payload");
+    EXPECT_EQ(f.outbox.sent[0].type, static_cast<std::uint8_t>(msg::CommandType::set_mode));
+    EXPECT_EQ(f.outbox.sent[0].mode, Mode::performance);
     EXPECT_TRUE(f.outbox.sent[0].frame_headroom_ok); // command 헤더 기록 후에도 frame 자리 보존
 }
 
 TEST(CommandSenderTest, ReturnsFalseWhenDeviceUnknown) {
     SenderFixture f;
 
-    EXPECT_FALSE(f.sender.try_send(make_device_id(0xAA), CommandId{42}, 0x01, f.payload("p")));
+    EXPECT_FALSE(
+        f.sender.try_send(make_device_id(0xAA), CommandId{42}, SetMode{.mode = Mode::normal})
+    );
     EXPECT_TRUE(f.outbox.sent.empty());
 }
 
@@ -142,7 +135,9 @@ TEST(CommandSenderTest, ReturnsFalseWhenDeviceNotActive) {
     SenderFixture f;
     ASSERT_TRUE(f.sessions.add(ConnectionId{1}, f.clock.now())); // handshaking. bind 전
 
-    EXPECT_FALSE(f.sender.try_send(make_device_id(0xAA), CommandId{42}, 0x01, f.payload("p")));
+    EXPECT_FALSE(
+        f.sender.try_send(make_device_id(0xAA), CommandId{42}, SetMode{.mode = Mode::normal})
+    );
     EXPECT_TRUE(f.outbox.sent.empty());
 }
 
@@ -152,20 +147,10 @@ TEST(CommandSenderTest, ReturnsFalseWhenDeviceConfirming) {
     // RegisterAck 전
     ASSERT_TRUE(f.sessions.bind(ConnectionId{1}, make_device_id(0xAA), f.clock.now()));
 
-    EXPECT_FALSE(f.sender.try_send(make_device_id(0xAA), CommandId{42}, 0x01, f.payload("p")));
+    EXPECT_FALSE(
+        f.sender.try_send(make_device_id(0xAA), CommandId{42}, SetMode{.mode = Mode::normal})
+    );
     EXPECT_TRUE(f.outbox.sent.empty()); // 등록 미확인 연결에는 명령 금지
-}
-
-TEST(CommandSenderTest, ReturnsFalseWithoutHeaderHeadroom) {
-    SenderFixture f;
-    f.activate(1, 0xAA);
-
-    // make_command_buffer를 거치지 않은 buffer. command headroom 없음
-    auto raw = f.outbox.make_message_buffer();
-    ASSERT_TRUE(raw->try_append(as_bytes("p")));
-
-    EXPECT_FALSE(f.sender.try_send(make_device_id(0xAA), CommandId{42}, 0x01, std::move(raw)));
-    EXPECT_TRUE(f.outbox.sent.empty());
 }
 
 } // namespace

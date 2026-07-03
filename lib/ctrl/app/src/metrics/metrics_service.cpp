@@ -1,12 +1,12 @@
 #include "ddcs/ctrl/app/metrics/metrics_service.hpp"
 
+#include "ddcs/ctrl/app/device/group_aggregate.hpp"
 #include "ddcs/device/mode.hpp"
 
 #include <array>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
-#include <map>
 #include <span>
 #include <string>
 
@@ -114,34 +114,34 @@ std::string MetricsService::scrape() {
     // counter. 누적. 실패율 = gave_up/dispatched, 평균 RTT = rtt_ms_sum/completed.
     append_metric(
         out, "ddcs_commands_dispatched_total", "Commands sent to sessions.", "counter",
-        commands_.dispatched_total()
+        commands_.metrics().dispatched_total
     );
     append_metric(
         out, "ddcs_commands_completed_total", "Commands that received a success outcome.",
-        "counter", commands_.completed_total()
+        "counter", commands_.metrics().completed_total
     );
     append_metric(
         out, "ddcs_commands_timed_out_total",
         "Command attempts dropped after no outcome (timeout).", "counter",
-        commands_.timed_out_total()
+        commands_.metrics().timed_out_total
     );
     append_metric(
         out, "ddcs_commands_retried_total", "Command re-sends after timeout/NACK.", "counter",
-        commands_.retried_total()
+        commands_.metrics().retried_total
     );
     append_metric(
         out, "ddcs_commands_superseded_total",
         "Commands replaced by a newer intent (same device and type).", "counter",
-        commands_.superseded_total()
+        commands_.metrics().superseded_total
     );
     append_metric(
         out, "ddcs_commands_stale_total", "Late responses to closed/superseded commands (ignored).",
-        "counter", commands_.stale_total()
+        "counter", commands_.metrics().stale_total
     );
     // 알람 counter. 명령 최종 실패 + session 건강 (operator가 rate로 알람)
     append_metric(
         out, "ddcs_commands_gave_up_total", "Commands abandoned after exhausting retries.",
-        "counter", commands_.gave_up_total()
+        "counter", commands_.metrics().gave_up_total
     );
     append_metric(
         out, "ddcs_agents_evicted_total", "Agents force-closed after liveness timeout (unhealthy).",
@@ -155,51 +155,32 @@ std::string MetricsService::scrape() {
 
     // command RTT 분포(histogram). 평균(sum/count)이 숨기는 꼬리(p99 등)를 백분위로 본다.
     append_rtt_histogram(
-        out, device::CommandService::rtt_bucket_bounds_ms, commands_.rtt_buckets(),
-        commands_.rtt_ms_sum()
+        out, device::CommandService::Metrics::rtt_bucket_bounds_ms, commands_.metrics().rtt_buckets,
+        commands_.metrics().rtt_ms_sum
     );
 
     // sweep tick 작업 소요(us). 단일 스레드 포화 신호: max/avg가 sweep 주기에 근접하면 한계.
     append_metric(
         out, "ddcs_sweep_duration_us", "Work time of the latest sweep tick in microseconds.",
-        "gauge", sweep_.last_us()
+        "gauge", sweep_.last_us
     );
     append_metric(
         out, "ddcs_sweep_duration_us_max", "Peak sweep tick work time in microseconds since start.",
-        "gauge", sweep_.max_us()
+        "gauge", sweep_.max_us
     );
     append_metric(
         out, "ddcs_sweep_duration_us_sum",
         "Cumulative sweep tick work time in us (avg = /ddcs_sweep_ticks_total).", "counter",
-        sweep_.sum_us()
+        sweep_.sum_us
     );
     append_metric(
-        out, "ddcs_sweep_ticks_total", "Number of sweep ticks executed.", "counter", sweep_.ticks()
+        out, "ddcs_sweep_ticks_total", "Number of sweep ticks executed.", "counter", sweep_.ticks
     );
 
     // per-group 게이지. active device를 group으로 집계해 group{,mode} 라벨로 노출한다.
-    // 정책이 group 단위라(평균 load -> regime -> mode) group별 동작을 분리 관측한다.
-    struct GroupAgg {
-        std::uint64_t devices{};
-        double load_sum{};
-        double temp_sum{};
-        std::array<std::uint64_t, 3> by_mode{}; // index = encode_mode (safe/normal/performance)
-    };
-    std::map<std::string, GroupAgg> groups; // label 출력 순서 안정 위해 ordered
-    sessions_.for_each([&](session::Session const& s) {
-        if (s.state() != session::Session::State::active) {
-            return; // 등록 미완 세션은 정책 대상 아님
-        }
-        auto const* shadow = devices_.find(s.device());
-        if (shadow == nullptr || shadow->group.empty() || !policy_.contains(shadow->group)) {
-            return; // 정책 밖 group은 제외 -- label cardinality를 config group으로 한정
-        }
-        auto& a = groups[shadow->group];
-        a.devices += 1;
-        a.load_sum += shadow->status.load;
-        a.temp_sum += shadow->status.temp;
-        a.by_mode[ddcs::device::encode_mode(shadow->status.mode)] += 1;
-    });
+    // 정책이 group 단위라(평균 load -> regime -> mode) group별 동작을 분리 관측하고,
+    // 집계 규칙은 정책 평가와 같은 aggregate_groups를 공유한다(관측 규칙 = 정책 입력 규칙).
+    auto const groups = device::aggregate_groups(roster_, devices_, policy_);
 
     out += "# HELP ddcs_group_load_avg Average reported load across active devices in the group.\n";
     out += "# TYPE ddcs_group_load_avg gauge\n";

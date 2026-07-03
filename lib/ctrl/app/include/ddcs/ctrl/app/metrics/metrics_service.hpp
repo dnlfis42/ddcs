@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ddcs/ctrl/app/device/command_service.hpp"
+#include "ddcs/ctrl/app/device/port/device_roster.hpp"
 #include "ddcs/ctrl/app/metrics/port/prometheus_source.hpp"
 #include "ddcs/ctrl/app/metrics/sweep_stats.hpp"
 #include "ddcs/ctrl/app/session/handshake_monitor.hpp"
@@ -18,12 +19,13 @@ class MetricsService final : public port::PrometheusSource {
 public:
     MetricsService(
         session::SessionRegistry const& sessions, domain::DeviceRegistry const& devices,
-        device::CommandService const& commands, session::LivenessMonitor const& liveness,
-        session::HandshakeMonitor const& handshake, domain::GroupPolicy const& policy,
-        SweepStats const& sweep
+        device::port::DeviceRoster& roster, device::CommandService const& commands,
+        session::LivenessMonitor const& liveness, session::HandshakeMonitor const& handshake,
+        domain::GroupPolicy const& policy, SweepStats const& sweep
     ) noexcept
         : sessions_(sessions),
           devices_(devices),
+          roster_(roster),
           commands_(commands),
           liveness_(liveness),
           handshake_(handshake),
@@ -35,6 +37,7 @@ public:
 private:
     session::SessionRegistry const& sessions_;
     domain::DeviceRegistry const& devices_;
+    device::port::DeviceRoster& roster_; // group 집계 입력. 정책 평가와 같은 active 집합
     device::CommandService const& commands_;
     session::LivenessMonitor const& liveness_;
     session::HandshakeMonitor const& handshake_;

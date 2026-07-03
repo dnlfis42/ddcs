@@ -1,10 +1,8 @@
 #include "ddcs/ctrl/app/device/policy_service.hpp"
 
 #include "ddcs/common/clock.hpp"
-#include "ddcs/common/linear_buffer.hpp"
-#include "ddcs/common/object_pool.hpp"
 #include "ddcs/ctrl/app/device/command_service.hpp"
-#include "ddcs/ctrl/app/device/port/command_buffer.hpp"
+#include "ddcs/ctrl/app/device/port/command.hpp"
 #include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/device/port/command_sender.hpp"
 #include "ddcs/ctrl/app/device/port/device_roster.hpp"
@@ -14,7 +12,6 @@
 #include "ddcs/ctrl/domain/status.hpp"
 #include "ddcs/device/mode.hpp"
 #include "ddcs/json/value.hpp"
-#include "ddcs/wire/message/command.hpp"
 
 #include <array>
 #include <chrono>
@@ -22,25 +19,24 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 namespace {
 
-namespace msg = ddcs::wire::message;
 namespace json = ddcs::json;
 
-using ddcs::common::LinearBuffer;
 using ddcs::common::ManualClock;
-using ddcs::common::ObjectPool;
 using ddcs::ctrl::app::device::CommandService;
 using ddcs::ctrl::app::device::parse_policy;
 using ddcs::ctrl::app::device::PolicyService;
-using ddcs::ctrl::app::device::port::CommandBuffer;
+using ddcs::ctrl::app::device::port::Command;
 using ddcs::ctrl::app::device::port::CommandId;
 using ddcs::ctrl::app::device::port::CommandSender;
 using ddcs::ctrl::app::device::port::DeviceRoster;
+using ddcs::ctrl::app::device::port::SetMode;
 using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::domain::DeviceRegistry;
 using ddcs::ctrl::domain::GroupPolicy;
@@ -73,34 +69,21 @@ public:
     struct Sent {
         DeviceId device;
         CommandId command_id;
-        std::uint8_t type;
-        Mode mode; // SetMode payload decode 결과
+        Mode mode; // SetMode 명령 값
     };
 
     std::vector<Sent> sent;
 
-    CommandBuffer make_command_buffer() override {
-        return pool_.acquire();
-    }
-
-    bool try_send(
-        DeviceId device, CommandId command_id, std::uint8_t command_type, CommandBuffer message
-    ) override {
-        auto const set_mode = msg::decode_set_mode(message->data_span());
-        EXPECT_TRUE(set_mode.has_value());
-        sent.push_back(Sent{
-            .device = device,
-            .command_id = command_id,
-            .type = command_type,
-            .mode = ddcs::device::decode_mode(set_mode.value_or(msg::SetMode{}).mode)
-                        .value_or(Mode::safe),
-        });
+    bool try_send(DeviceId device, CommandId command_id, Command const& command) override {
+        sent.push_back(
+            Sent{
+                .device = device,
+                .command_id = command_id,
+                .mode = std::get<SetMode>(command).mode,
+            }
+        );
         return true;
     }
-
-private:
-    ObjectPool<LinearBuffer> pool_{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128
-    })};
 };
 
 // 재진입 회귀용 대역. for_each_active의 순회 창(iterating)을 노출한다.
@@ -130,11 +113,7 @@ public:
     int sent_count = 0;
     bool dispatched_during_iteration = false;
 
-    CommandBuffer make_command_buffer() override {
-        return pool_.acquire();
-    }
-
-    bool try_send(DeviceId, CommandId, std::uint8_t, CommandBuffer) override {
+    bool try_send(DeviceId, CommandId, Command const&) override {
         if (roster_.iterating) {
             dispatched_during_iteration = true;
         }
@@ -144,8 +123,6 @@ public:
 
 private:
     WindowedDeviceRoster& roster_;
-    ObjectPool<LinearBuffer> pool_{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{128
-    })};
 };
 
 struct PolicyFixture {
@@ -218,8 +195,7 @@ TEST(PolicyServiceTest, TransitionsToBusyAboveHighLoad) {
 
     ASSERT_EQ(f.sender.sent.size(), 2u); // sensors 멤버 전원, pumps 제외
     for (auto const& s : f.sender.sent) {
-        EXPECT_EQ(s.type, static_cast<std::uint8_t>(msg::CommandType::set_mode));
-        EXPECT_EQ(s.mode, Mode::safe);
+        EXPECT_EQ(s.mode, Mode::safe); // 계열이 SetMode인 것은 typed 명령이 보장
     }
     EXPECT_EQ(f.commands.pending_count(), 2u); // 전달 추적은 CommandService로 넘어갔다.
 }
@@ -320,7 +296,8 @@ TEST(PolicyServiceTest, DeviceLeftClearsBeliefSoReconnectRecommands) {
 TEST(PolicyServiceTest, ReloadPreservesThermalLatchInDeadband) {
     PolicyFixture f;
     DeviceId const id = f.enroll(0x01, "sensors", 90.0); // load busy(>80)
-    f.policy.set_policy(PolicyFixture::hot_policy()
+    f.policy.set_policy(
+        PolicyFixture::hot_policy()
     ); // busy=safe / thermal hot->performance(high90/resume70)
 
     // 과열 트립(temp 95 > high 90) -> high_temp_mode(performance)
@@ -340,7 +317,7 @@ TEST(PolicyServiceTest, ReloadPreservesThermalLatchInDeadband) {
     f.policy.set_policy(PolicyFixture::hot_policy()); // 핫리로드(같은 정책)
     f.policy.evaluate(f.clock.now());
 
-    ASSERT_GT(f.sender.sent.size(), before); // commanded clear로 재명령은 나감
+    ASSERT_GT(f.sender.sent.size(), before);                 // commanded clear로 재명령은 나감
     EXPECT_EQ(f.sender.sent.back().mode, Mode::performance); // latch 보존 -> 여전히 high_temp_mode
 }
 
@@ -362,13 +339,15 @@ TEST(PolicyServiceTest, ReloadAppliesNewModeToDeadbandGroup) {
     f.policy.set_policy(std::move(changed));
     f.policy.evaluate(f.clock.now());
 
-    ASSERT_GT(f.sender.sent.size(), before); // regime 보존이라 데드밴드에서도 재명령
+    ASSERT_GT(f.sender.sent.size(), before);            // regime 보존이라 데드밴드에서도 재명령
     EXPECT_EQ(f.sender.sent.back().mode, Mode::normal); // 새 high_load_mode 적용
 }
 
 TEST(PolicyServiceTest, ParsePolicyBuildsGroupPolicy) {
-    auto const j = json::parse(R"({"groups":{"sensors":{"high_load":80,"low_load":20,)"
-                               R"("high_load_mode":"safe","low_load_mode":"normal"}}})");
+    auto const j = json::parse(
+        R"({"groups":{"sensors":{"high_load":80,"low_load":20,)"
+        R"("high_load_mode":"safe","low_load_mode":"normal"}}})"
+    );
     ASSERT_TRUE(j.has_value());
 
     auto const p = parse_policy(*j);
@@ -390,19 +369,22 @@ TEST(PolicyServiceTest, ParsePolicyRejectsInvalidInput) {
     EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":80}}})")).has_value());
 
     // 미지 mode
-    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":80,"low_load":20,)"
-                                           R"("high_load_mode":"warp","low_load_mode":"normal"}}})")
-    )
+    EXPECT_FALSE(parse_policy(*json::parse(
+                                  R"({"groups":{"s":{"high_load":80,"low_load":20,)"
+                                  R"("high_load_mode":"warp","low_load_mode":"normal"}}})"
+                              ))
                      .has_value());
     // 임계 역전 시 발진
-    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":20,"low_load":80,)"
-                                           R"("high_load_mode":"safe","low_load_mode":"normal"}}})")
-    )
+    EXPECT_FALSE(parse_policy(*json::parse(
+                                  R"({"groups":{"s":{"high_load":20,"low_load":80,)"
+                                  R"("high_load_mode":"safe","low_load_mode":"normal"}}})"
+                              ))
                      .has_value());
     // 밴드 없음
-    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":50,"low_load":50,)"
-                                           R"("high_load_mode":"safe","low_load_mode":"normal"}}})")
-    )
+    EXPECT_FALSE(parse_policy(*json::parse(
+                                  R"({"groups":{"s":{"high_load":50,"low_load":50,)"
+                                  R"("high_load_mode":"safe","low_load_mode":"normal"}}})"
+                              ))
                      .has_value());
 }
 
@@ -483,7 +465,7 @@ TEST(PolicyServiceTest, ThermalReleasesToBaselineWhenLoadInBand) {
 
     ASSERT_EQ(f.sender.sent.size(), 2u);
     EXPECT_EQ(f.sender.sent[0].mode, Mode::performance); // hot
-    EXPECT_EQ(f.sender.sent[1].mode, Mode::normal); // low_load_mode 복귀 (비상모드 latch 해제)
+    EXPECT_EQ(f.sender.sent[1].mode, Mode::normal);      // low_load_mode 복귀 (비상모드 latch 해제)
 
     f.policy.evaluate(f.clock.now());
     EXPECT_EQ(f.sender.sent.size(), 2u); // 해제 후 재발신 없음

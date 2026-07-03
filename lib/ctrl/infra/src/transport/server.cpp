@@ -13,6 +13,7 @@
 #include "ddcs/logger/log.hpp"
 #include "ddcs/wire/frame/extract.hpp"
 #include "ddcs/wire/frame/frame.hpp"
+#include "ddcs/wire/frame/seal.hpp"
 
 #include <cassert>
 #include <cstddef>
@@ -78,7 +79,7 @@ public:
     [[nodiscard]] port::MessageBuffer make_message_buffer() override {
         auto message = message_pool_.acquire();
         bool const reserved =
-            message->try_grow_headroom(wire::frame::header_size); // frame header 자리 미리 확보
+            wire::frame::reserve_header_room(*message); // frame header 자리 미리 확보
         assert(reserved);
         (void)reserved;
         return message;
@@ -94,13 +95,8 @@ public:
             return;
         }
 
-        if (message->size() > wire::frame::max_payload_length) {
-            assert(false); // make_message_buffer 용량 계약 위반. 버그 신호
-            return;
-        }
-        auto const header = wire::frame::encode(static_cast<std::uint16_t>(message->size()));
-        if (!message->try_prepend(header)) {
-            assert(false);
+        if (!wire::frame::seal(*message)) {
+            assert(false); // make_message_buffer 용량/headroom 계약 위반. 버그 신호
             return;
         }
 

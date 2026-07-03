@@ -5,6 +5,7 @@ target_sources(
     ddcs_ctrl_app
     PRIVATE
         src/device/command_service.cpp
+        src/device/group_aggregate.cpp
         src/device/policy_service.cpp
         src/device/registration_service.cpp
         src/device/status_service.cpp
@@ -18,12 +19,13 @@ target_sources(
         FILE_SET HEADERS
             BASE_DIRS include
             FILES
-                include/ddcs/ctrl/app/device/port/command_buffer.hpp
+                include/ddcs/ctrl/app/device/port/command.hpp
                 include/ddcs/ctrl/app/device/port/command_id.hpp
                 include/ddcs/ctrl/app/device/port/command_sender.hpp
                 include/ddcs/ctrl/app/device/port/device_release_sink.hpp
                 include/ddcs/ctrl/app/device/port/device_roster.hpp
                 include/ddcs/ctrl/app/device/command_service.hpp
+                include/ddcs/ctrl/app/device/group_aggregate.hpp
                 include/ddcs/ctrl/app/device/policy_service.hpp
                 include/ddcs/ctrl/app/device/registration_service.hpp
                 include/ddcs/ctrl/app/device/status_service.hpp

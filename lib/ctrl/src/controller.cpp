@@ -60,7 +60,7 @@ public:
 private:
     void on_expired(io::TimerId id) override;
     void schedule_sweep();
-    void load_policy(); // policy load (start + SIGHUP reload). 실패는 WARN 후 옛 정책 유지
+    void load_policy();          // policy load (start + SIGHUP reload). 실패는 WARN 후 옛 정책 유지
     void handle_signal(int sig); // SIGHUP=정책 핫리로드 / SIGINT,SIGTERM=stop
 
     logger::StdoutSink default_sink_;
@@ -116,8 +116,8 @@ Controller::Impl::Impl(Config cfg)
           registrar_, status_, commands_, policy_, policy_.policy()
       ),
       metrics_service_(
-          sessions_, devices_, commands_, liveness_monitor_, handshake_monitor_, policy_.policy(),
-          sweep_stats_
+          sessions_, devices_, roster_, commands_, liveness_monitor_, handshake_monitor_,
+          policy_.policy(), sweep_stats_
       ) {
     auto& lg = logger::Logger::instance();
     lg.set_level(cfg_.log_level);
@@ -174,9 +174,9 @@ void Controller::Impl::on_expired(io::TimerId /*id*/) {
     // 이 핸들러로 오는 타이머는 주기 sweep 뿐이다. 한 tick의 now를 모든 호출에 공유한다.
     auto const now = clock_.now();
     commands_.sweep(now);
-    handshake_monitor_.sweep(now); // 등록 미완 시한 초과 시 disconnect
-    liveness_monitor_.sweep(now);  // active 침묵 시 evict(close)
-    policy_.evaluate(now);         // 그룹 load 집계 후 임계 전환 시 SetMode 발신
+    handshake_monitor_.sweep(now);           // 등록 미완 시한 초과 시 disconnect
+    liveness_monitor_.sweep(now);            // active 침묵 시 evict(close)
+    policy_.evaluate(now);                   // 그룹 load 집계 후 임계 전환 시 SetMode 발신
     sweep_stats_.record(clock_.now() - now); // tick 작업 소요(schedule 제외) 기록
     schedule_sweep();                        // 주기 재무장
 }

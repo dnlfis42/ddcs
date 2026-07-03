@@ -5,6 +5,12 @@ ddcs_add_unit_test(
 )
 
 ddcs_add_unit_test(
+    ddcs_ctrl_app_device_group_aggregate_test
+    SOURCES ddcs_ctrl_app_device_group_aggregate_test.cpp
+    LIBRARIES ddcs::device ddcs::ctrl::app
+)
+
+ddcs_add_unit_test(
     ddcs_ctrl_app_device_policy_service_test
     SOURCES ddcs_ctrl_app_device_policy_service_test.cpp
     LIBRARIES ddcs::device ddcs::ctrl::app
