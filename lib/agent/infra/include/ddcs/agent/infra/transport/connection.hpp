@@ -11,7 +11,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <queue>
-#include <span>
 #include <utility>
 
 namespace ddcs::agent::infra::transport {
@@ -74,22 +73,6 @@ public:
 
     IoResult receive();
     IoResult transmit();
-
-    std::size_t rx_size() const noexcept {
-        return rx_buffer_.size();
-    }
-
-    bool rx_peek(std::span<std::byte> dst) const noexcept {
-        return rx_buffer_.try_peek(dst);
-    }
-
-    bool rx_read(std::span<std::byte> dst) noexcept {
-        return rx_buffer_.try_read(dst);
-    }
-
-    bool rx_consume(std::size_t n) noexcept {
-        return rx_buffer_.try_consume(n);
-    }
 
     // framing 헬퍼(wire::frame::extract_frames)에 rx ring을 직접 넘기기 위한 접근자
     common::CircularBuffer& rx_buffer() noexcept {

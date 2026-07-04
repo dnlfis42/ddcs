@@ -12,7 +12,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <queue>
-#include <span>
 #include <utility>
 
 namespace ddcs::ctrl::infra::transport {
@@ -84,22 +83,6 @@ private:
     // syscall 결과만 보고하고 상태 전이는 Server가 결정한다.
     [[nodiscard]] IoResult receive();  // full | would_block | peer_closed | error
     [[nodiscard]] IoResult transmit(); // ok | would_block | error
-
-    [[nodiscard]] std::size_t rx_size() const noexcept {
-        return rx_buffer_.size();
-    }
-
-    [[nodiscard]] bool rx_peek(std::span<std::byte> dst) const noexcept {
-        return rx_buffer_.try_peek(dst);
-    }
-
-    [[nodiscard]] bool rx_read(std::span<std::byte> dst) noexcept {
-        return rx_buffer_.try_read(dst);
-    }
-
-    [[nodiscard]] bool rx_consume(std::size_t n) noexcept {
-        return rx_buffer_.try_consume(n);
-    }
 
     // framing 헬퍼(wire::frame::extract_frames)에 rx ring을 직접 넘기기 위한 접근자
     [[nodiscard]] common::CircularBuffer& rx_buffer() noexcept {

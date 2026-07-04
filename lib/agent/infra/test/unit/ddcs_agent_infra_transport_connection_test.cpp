@@ -39,9 +39,9 @@ TEST(AgentConnectionTest, ReceiveFillsRxBuffer) {
     ASSERT_EQ(::write(peer.get(), msg, 5), 5);
 
     EXPECT_EQ(conn.receive(), Connection::IoResult::would_block);
-    EXPECT_EQ(conn.rx_size(), 5u);
+    EXPECT_EQ(conn.rx_buffer().size(), 5u);
     std::array<std::byte, 5> buf{};
-    EXPECT_TRUE(conn.rx_read({buf.data(), buf.size()}));
+    EXPECT_TRUE(conn.rx_buffer().try_read({buf.data(), buf.size()}));
     EXPECT_EQ(std::memcmp(buf.data(), msg, 5), 0);
 }
 
@@ -87,7 +87,7 @@ TEST(AgentConnectionTest, ResetReturnsToIdle) {
 
     conn.reset();
     EXPECT_EQ(conn.state(), Connection::State::idle);
-    EXPECT_EQ(conn.rx_size(), 0u);
+    EXPECT_EQ(conn.rx_buffer().size(), 0u);
     EXPECT_TRUE(conn.tx_empty());
 }
 
