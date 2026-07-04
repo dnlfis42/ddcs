@@ -6,13 +6,17 @@
 #include "ddcs/ctrl/app/device/port/command.hpp"
 #include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/device/port/command_sender.hpp"
+#include "ddcs/ctrl/app/device/port/device_release_sink.hpp"
+#include "ddcs/ctrl/app/device/registration_service.hpp"
+#include "ddcs/ctrl/app/device/status_service.hpp"
 #include "ddcs/ctrl/app/session/device_roster.hpp"
-#include "ddcs/ctrl/app/session/handshake_monitor.hpp"
-#include "ddcs/ctrl/app/session/liveness_monitor.hpp"
 #include "ddcs/ctrl/app/session/session.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
+#include "ddcs/ctrl/app/session/session_service.hpp"
 #include "ddcs/ctrl/app/transport/port/connection_id.hpp"
 #include "ddcs/ctrl/app/transport/port/disconnector.hpp"
+#include "ddcs/ctrl/app/transport/port/message_buffer.hpp"
+#include "ddcs/ctrl/app/transport/port/message_sender.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/domain/group_policy.hpp"
 #include "ddcs/device/mode.hpp"
@@ -35,11 +39,12 @@ using ddcs::ctrl::app::device::port::CommandId;
 using ddcs::ctrl::app::device::port::CommandSender;
 using ddcs::ctrl::app::device::port::SetMode;
 using ddcs::ctrl::app::metrics::MetricsService;
-using ddcs::ctrl::app::session::HandshakeMonitor;
-using ddcs::ctrl::app::session::LivenessMonitor;
 using ddcs::ctrl::app::session::SessionRegistry;
+using ddcs::ctrl::app::session::SessionService;
 using ddcs::ctrl::app::transport::port::ConnectionId;
 using ddcs::ctrl::app::transport::port::Disconnector;
+using ddcs::ctrl::app::transport::port::MessageBuffer;
+using ddcs::ctrl::app::transport::port::MessageSender;
 using ddcs::ctrl::domain::DeviceRegistry;
 using namespace std::chrono_literals;
 
@@ -74,6 +79,20 @@ private:
     SessionRegistry& sessions_;
 };
 
+// sweep 구동용 최소 대역. 이 테스트는 메시지를 보내지 않는다.
+class NoopMessageSender final : public MessageSender {
+public:
+    MessageBuffer make_message_buffer() override {
+        return {}; // 호출되지 않는 경로
+    }
+    void send(ConnectionId, MessageBuffer) override {}
+};
+
+class NoopReleaseSink final : public ddcs::ctrl::app::device::port::DeviceReleaseSink {
+public:
+    void on_device_left(ddcs::ctrl::domain::DeviceId) override {}
+};
+
 struct Fixture {
     ManualClock clock;
     SessionRegistry sessions;
@@ -81,12 +100,17 @@ struct Fixture {
     FakeCommandSender sender;
     FakeDisconnector disconnector{sessions};
     CommandService commands{sender, 5s, 1, 500ms};
-    HandshakeMonitor handshake{sessions, disconnector, 3s};
-    LivenessMonitor liveness{sessions, disconnector, 3s};
-    ddcs::ctrl::app::session::DeviceRoster roster{sessions};
+    NoopMessageSender outbox;
+    NoopReleaseSink release_sink;
+    ddcs::ctrl::app::device::RegistrationService registration{devices};
+    ddcs::ctrl::app::device::StatusService status{devices};
     ddcs::ctrl::domain::GroupPolicy policy;
+    SessionService session_service{sessions,     disconnector, outbox,   clock,
+                                   registration, status,       commands, release_sink,
+                                   policy,       3s,           3s};
+    ddcs::ctrl::app::session::DeviceRoster roster{sessions};
     ddcs::ctrl::app::metrics::SweepStats sweep;
-    MetricsService metrics{sessions, devices, roster, commands, liveness, handshake, policy, sweep};
+    MetricsService metrics{sessions, devices, roster, commands, session_service, policy, sweep};
 
     ddcs::ctrl::domain::DeviceId activate(std::uint64_t conn, std::uint8_t seed) {
         ConnectionId const id{conn};
@@ -197,7 +221,7 @@ TEST(MetricsServiceTest, ScrapeReflectsEvictionAlarm) {
     f.activate(1, 0xAA);
 
     f.clock.advance(4s); // > liveness 3s 침묵
-    f.liveness.sweep(f.clock.now());
+    f.session_service.sweep(f.clock.now());
 
     auto const text = f.metrics.scrape();
     EXPECT_TRUE(contains(text, "ddcs_agents_evicted_total 1"));
@@ -208,7 +232,7 @@ TEST(MetricsServiceTest, ScrapeReflectsHandshakeExpiry) {
     EXPECT_TRUE(f.sessions.add(ConnectionId{1}, f.clock.now())); // handshaking, 등록 미완
 
     f.clock.advance(4s); // > handshake 3s
-    f.handshake.sweep(f.clock.now());
+    f.session_service.sweep(f.clock.now());
 
     auto const text = f.metrics.scrape();
     EXPECT_TRUE(contains(text, "ddcs_handshake_expired_total 1"));

@@ -4,9 +4,8 @@
 #include "ddcs/ctrl/app/device/port/device_roster.hpp"
 #include "ddcs/ctrl/app/metrics/port/prometheus_source.hpp"
 #include "ddcs/ctrl/app/metrics/sweep_stats.hpp"
-#include "ddcs/ctrl/app/session/handshake_monitor.hpp"
-#include "ddcs/ctrl/app/session/liveness_monitor.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
+#include "ddcs/ctrl/app/session/session_service.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/domain/group_policy.hpp"
 
@@ -20,15 +19,14 @@ public:
     MetricsService(
         session::SessionRegistry const& sessions, domain::DeviceRegistry const& devices,
         device::port::DeviceRoster& roster, device::CommandService const& commands,
-        session::LivenessMonitor const& liveness, session::HandshakeMonitor const& handshake,
-        domain::GroupPolicy const& policy, SweepStats const& sweep
+        session::SessionService const& session_service, domain::GroupPolicy const& policy,
+        SweepStats const& sweep
     ) noexcept
         : sessions_(sessions),
           devices_(devices),
           roster_(roster),
           commands_(commands),
-          liveness_(liveness),
-          handshake_(handshake),
+          session_service_(session_service),
           policy_(policy),
           sweep_(sweep) {}
 
@@ -39,8 +37,7 @@ private:
     domain::DeviceRegistry const& devices_;
     device::port::DeviceRoster& roster_; // group 집계 입력. 정책 평가와 같은 active 집합
     device::CommandService const& commands_;
-    session::LivenessMonitor const& liveness_;
-    session::HandshakeMonitor const& handshake_;
+    session::SessionService const& session_service_; // 시한 감시 카운터(evict/expired) 출처
     domain::GroupPolicy const& policy_; // per-group 메트릭을 정책 group으로 한정 (cardinality)
     SweepStats const& sweep_;           // sweep tick 작업 소요시간 통계
 };

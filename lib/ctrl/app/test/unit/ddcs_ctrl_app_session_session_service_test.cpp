@@ -137,8 +137,20 @@ struct ServiceFixture {
     FakeReleaseSink release_sink;
     ddcs::ctrl::domain::GroupPolicy
         policy; // 빈 정책: 모든 group이 unknown(soft warn은 no-op), 등록은 성공
-    SessionService service{sessions,       disconnector, outbox,       clock, registration_service,
-                           status_service, commands,     release_sink, policy};
+    // 시한 budget: handshake 3s / liveness 5s. sweep 테스트가 두 budget을 구별하도록 다르게 준다.
+    SessionService service{
+        sessions,
+        disconnector,
+        outbox,
+        clock,
+        registration_service,
+        status_service,
+        commands,
+        release_sink,
+        policy,
+        std::chrono::seconds{3},
+        std::chrono::seconds{5}
+    };
     ObjectPool<LinearBuffer> body_pool{
         ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256})
     };
@@ -469,6 +481,116 @@ TEST(SessionServiceTest, MessageFromUnknownConnectionIgnored) {
 
     EXPECT_TRUE(f.disconnector.disconnected.empty());
     EXPECT_TRUE(f.outbox.sent.empty());
+}
+
+// --- sweep(시한 감시): 등록 단계 budget과 active liveness budget ---
+
+TEST(SessionServiceTest, SweepEvictsSilentActive) {
+    ServiceFixture f;
+    f.register_active(1, 0xAA);
+
+    f.clock.advance(6s); // > liveness 5s 침묵
+    f.service.sweep(f.clock.now());
+
+    EXPECT_EQ(f.disconnector.disconnected.size(), 1u);
+    EXPECT_EQ(f.sessions.size(), 0u);
+    EXPECT_EQ(f.service.metrics().evicted_total, 1u);
+}
+
+TEST(SessionServiceTest, SweepKeepsActiveWithRecentTraffic) {
+    ServiceFixture f;
+    f.register_active(1, 0xAA);
+
+    f.clock.advance(4s);
+    f.deliver(ConnectionId{1}, f.payload_heartbeat()); // 정상 트래픽이 last_seen 갱신
+    f.clock.advance(4s);                               // 누적 8s지만 마지막 활동 기준 4s
+    f.service.sweep(f.clock.now());
+
+    EXPECT_TRUE(f.disconnector.disconnected.empty());
+}
+
+TEST(SessionServiceTest, SweepKeepsActiveAtExactBoundary) {
+    ServiceFixture f;
+    f.register_active(1, 0xAA);
+
+    f.clock.advance(5s); // 경계: now - last_seen == liveness budget
+    f.service.sweep(f.clock.now());
+
+    EXPECT_TRUE(f.disconnector.disconnected.empty());
+}
+
+TEST(SessionServiceTest, SweepAppliesLivenessBudgetToActive) {
+    ServiceFixture f;
+    f.register_active(1, 0xAA);
+
+    f.clock.advance(4s); // handshake 3s는 지났지만 active는 liveness 5s budget
+    f.service.sweep(f.clock.now());
+
+    EXPECT_TRUE(f.disconnector.disconnected.empty()); // 등록 시한은 active에 적용되지 않는다.
+}
+
+TEST(SessionServiceTest, SweepExpiresSilentHandshaking) {
+    ServiceFixture f;
+    f.service.on_connected(ConnectionId{1});
+
+    f.clock.advance(4s); // > handshake 3s (< liveness 5s: 등록 budget이 적용된다)
+    f.service.sweep(f.clock.now());
+
+    EXPECT_EQ(f.disconnector.disconnected.size(), 1u);
+    EXPECT_EQ(f.service.metrics().handshake_expired_total, 1u);
+}
+
+TEST(SessionServiceTest, SweepKeepsFreshHandshaking) {
+    ServiceFixture f;
+    f.service.on_connected(ConnectionId{1});
+
+    f.clock.advance(2s);
+    f.service.sweep(f.clock.now());
+
+    EXPECT_TRUE(f.disconnector.disconnected.empty());
+    EXPECT_NE(f.sessions.find(ConnectionId{1}), nullptr);
+}
+
+TEST(SessionServiceTest, SweepExpiresSilentConfirming) {
+    ServiceFixture f;
+    f.service.on_connected(ConnectionId{1});
+    f.deliver(ConnectionId{1}, f.payload_register_request(make_uuid(0xAA), "sensors"));
+
+    f.clock.advance(4s); // RegisterAck 미수신
+    f.service.sweep(f.clock.now());
+
+    EXPECT_EQ(f.disconnector.disconnected.size(), 1u);
+    EXPECT_EQ(f.service.metrics().handshake_expired_total, 1u);
+}
+
+TEST(SessionServiceTest, SweepGrantsConfirmingItsOwnBudget) {
+    ServiceFixture f;
+    f.service.on_connected(ConnectionId{1});
+
+    f.clock.advance(2s); // 접속 2s 뒤 등록 요청 도착. bind가 last_seen을 갱신한다
+    f.deliver(ConnectionId{1}, f.payload_register_request(make_uuid(0xAA), "sensors"));
+
+    f.clock.advance(2s); // 접속 기준 4s지만 bind 기준 2s
+    f.service.sweep(f.clock.now());
+
+    EXPECT_TRUE(f.disconnector.disconnected.empty()); // ack 대기 구간은 자기 budget을 받는다.
+}
+
+TEST(SessionServiceTest, SweepSurvivesSynchronousErase) {
+    // 처형(disconnect)이 동기로 on_disconnected/erase를 되불러도 수집 단계 덕에 순회가 안전해야
+    // 한다. active와 등록 단계가 한 sweep에 섞여도 각자 카운터로 간다.
+    ServiceFixture f;
+    f.register_active(1, 0xAA);
+    f.register_active(2, 0xBB);
+    f.service.on_connected(ConnectionId{3}); // handshaking
+
+    f.clock.advance(6s); // 두 budget 모두 초과
+    f.service.sweep(f.clock.now());
+
+    EXPECT_EQ(f.disconnector.disconnected.size(), 3u);
+    EXPECT_EQ(f.sessions.size(), 0u);
+    EXPECT_EQ(f.service.metrics().evicted_total, 2u);
+    EXPECT_EQ(f.service.metrics().handshake_expired_total, 1u);
 }
 
 } // namespace

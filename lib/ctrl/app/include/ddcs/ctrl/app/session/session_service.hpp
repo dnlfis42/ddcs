@@ -17,9 +17,12 @@
 #include "ddcs/ctrl/domain/group_policy.hpp"
 #include "ddcs/wire/message/message.hpp"
 
+#include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace ddcs::ctrl::app::session {
 
@@ -34,18 +37,34 @@ namespace msg = ddcs::wire::message;
 // - active: Heartbeat/Status/CommandAck/CommandOutcome를 의미 동사로 위임
 //           정상 처리된 메시지만 update_seen
 // - 단계별 비기대 메시지와 decode 실패는 프로토콜 위반으로 즉시 종료. 등록 실패도 판정 송신 후 종료
+// - 시한 감시: 주기 sweep이 등록 단계 budget 초과와 active 침묵을 끊는다
 class SessionService final : public port::ConnectionListener, public port::MessageReceiver {
 public:
     SessionService(
         SessionRegistry& sessions, port::Disconnector& disconnector, port::MessageSender& sender,
         common::Clock& clock, device::RegistrationService& registration_service,
         device::StatusService& status_service, device::CommandService& command_service,
-        device::port::DeviceReleaseSink& release_sink, domain::GroupPolicy const& group_policy
+        device::port::DeviceReleaseSink& release_sink, domain::GroupPolicy const& group_policy,
+        std::chrono::nanoseconds handshake_timeout, std::chrono::nanoseconds liveness_timeout
     ) noexcept;
 
     void on_connected(port::ConnectionId conn) override;
     void on_message(port::ConnectionId conn, port::MessageBuffer payload) override;
     void on_disconnected(port::ConnectionId conn, port::DisconnectReason reason) override;
+
+    // 시한 초과 세션을 끊는다. 등록 단계(handshaking/confirming)는 handshake budget을,
+    // active는 liveness budget을 받는다. last_seen 갱신 규약은 클래스 주석 참고.
+    void sweep(common::Clock::time_point now);
+
+    // 누적 메트릭(monotonic, 알람)
+    struct Metrics {
+        std::uint64_t handshake_expired_total{}; // 등록 단계 시한 초과
+        std::uint64_t evicted_total{};           // active 침묵 evict
+    };
+
+    [[nodiscard]] Metrics const& metrics() const noexcept {
+        return metrics_;
+    }
 
 private:
     void handle_register_request(
@@ -73,7 +92,12 @@ private:
     device::StatusService& status_service_;
     device::CommandService& command_service_;
     device::port::DeviceReleaseSink& release_sink_; // 세션 종료 device의 제어 상태 폐기 통지
-    domain::GroupPolicy const& group_policy_; // 등록 시 미지 그룹 경고용(읽기 전용)
+    domain::GroupPolicy const& group_policy_;       // 등록 시 미지 그룹 경고용 (읽기 전용)
+    std::chrono::nanoseconds handshake_timeout_;
+    std::chrono::nanoseconds liveness_timeout_;
+    std::vector<port::ConnectionId> stale_registering_; // PERF: sweep 재사용 버퍼
+    std::vector<port::ConnectionId> stale_active_;      // PERF: sweep 재사용 버퍼
+    Metrics metrics_;
 };
 
 } // namespace ddcs::ctrl::app::session

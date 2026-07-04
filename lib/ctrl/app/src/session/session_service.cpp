@@ -15,7 +15,8 @@ SessionService::SessionService(
     SessionRegistry& sessions, port::Disconnector& disconnector, port::MessageSender& sender,
     common::Clock& clock, device::RegistrationService& registration_service,
     device::StatusService& status_service, device::CommandService& command_service,
-    device::port::DeviceReleaseSink& release_sink, domain::GroupPolicy const& group_policy
+    device::port::DeviceReleaseSink& release_sink, domain::GroupPolicy const& group_policy,
+    std::chrono::nanoseconds handshake_timeout, std::chrono::nanoseconds liveness_timeout
 ) noexcept
     : sessions_(sessions),
       disconnector_(disconnector),
@@ -25,7 +26,9 @@ SessionService::SessionService(
       status_service_(status_service),
       command_service_(command_service),
       release_sink_(release_sink),
-      group_policy_(group_policy) {}
+      group_policy_(group_policy),
+      handshake_timeout_(handshake_timeout),
+      liveness_timeout_(liveness_timeout) {}
 
 void SessionService::on_connected(port::ConnectionId conn) {
     if (!sessions_.add(conn, clock_.now())) {
@@ -52,6 +55,35 @@ void SessionService::on_disconnected(port::ConnectionId conn, port::DisconnectRe
             "session.disconnected", logger::kv("conn", conn.get()),
             logger::kv("reason", static_cast<std::uint64_t>(reason))
         );
+    }
+}
+
+void SessionService::sweep(common::Clock::time_point now) {
+    // CAUTION: disconnect는 동기로 on_disconnected 후 erase를 되부른다. 수집과 처형을 분리한다.
+    stale_registering_.clear();
+    stale_active_.clear();
+    sessions_.for_each([&](Session const& session) {
+        if (session.state() == Session::State::active) {
+            if (now - session.last_seen() > liveness_timeout_) {
+                stale_active_.push_back(session.conn());
+            }
+            return;
+        }
+        // 등록 단계: last_seen은 단계 전이에서만 갱신되므로 단계마다 budget을 한 번씩 받는다.
+        if (now - session.last_seen() > handshake_timeout_) {
+            stale_registering_.push_back(session.conn());
+        }
+    });
+
+    for (auto const conn : stale_registering_) {
+        LOG_WARN("session.handshake_timeout", logger::kv("conn", conn.get()));
+        disconnector_.disconnect(conn);
+        ++metrics_.handshake_expired_total;
+    }
+    for (auto const conn : stale_active_) {
+        LOG_WARN("session.liveness_timeout", logger::kv("conn", conn.get()));
+        disconnector_.disconnect(conn);
+        ++metrics_.evicted_total;
     }
 }
 

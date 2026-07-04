@@ -50,18 +50,6 @@ ddcs_add_unit_test(
 )
 
 ddcs_add_unit_test(
-    ddcs_ctrl_app_session_handshake_monitor_test
-    SOURCES ddcs_ctrl_app_session_handshake_monitor_test.cpp
-    LIBRARIES ddcs::ctrl::app
-)
-
-ddcs_add_unit_test(
-    ddcs_ctrl_app_session_liveness_monitor_test
-    SOURCES ddcs_ctrl_app_session_liveness_monitor_test.cpp
-    LIBRARIES ddcs::ctrl::app
-)
-
-ddcs_add_unit_test(
     ddcs_ctrl_app_session_registry_test
     SOURCES ddcs_ctrl_app_session_registry_test.cpp
     LIBRARIES ddcs::ctrl::app

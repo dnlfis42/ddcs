@@ -9,8 +9,6 @@
 #include "ddcs/ctrl/app/metrics/sweep_stats.hpp"
 #include "ddcs/ctrl/app/session/command_sender.hpp"
 #include "ddcs/ctrl/app/session/device_roster.hpp"
-#include "ddcs/ctrl/app/session/handshake_monitor.hpp"
-#include "ddcs/ctrl/app/session/liveness_monitor.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
 #include "ddcs/ctrl/app/session/session_service.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
@@ -82,9 +80,7 @@ private:
     app::device::StatusService status_;
     app::session::DeviceRoster roster_;
     app::device::PolicyService policy_;
-    app::session::HandshakeMonitor handshake_monitor_;
-    app::session::LivenessMonitor liveness_monitor_;
-    // transport_server_의 ConnectionListener + MessageReceiver
+    // transport_server_의 ConnectionListener + MessageReceiver. 시한 감시(sweep)도 소유
     app::session::SessionService session_service_;
     app::metrics::SweepStats sweep_stats_; // metrics_service_ 보다 먼저 선언(참조 유효)
     app::metrics::MetricsService metrics_service_;
@@ -109,15 +105,13 @@ Controller::Impl::Impl(Config cfg)
       status_(devices_),
       roster_(sessions_),
       policy_(roster_, devices_, commands_),
-      handshake_monitor_(sessions_, transport_server_.disconnector(), cfg_.handshake_timeout),
-      liveness_monitor_(sessions_, transport_server_.disconnector(), cfg_.liveness_timeout),
       session_service_(
           sessions_, transport_server_.disconnector(), transport_server_.sender(), clock_,
-          registrar_, status_, commands_, policy_, policy_.policy()
+          registrar_, status_, commands_, policy_, policy_.policy(), cfg_.handshake_timeout,
+          cfg_.liveness_timeout
       ),
       metrics_service_(
-          sessions_, devices_, roster_, commands_, liveness_monitor_, handshake_monitor_,
-          policy_.policy(), sweep_stats_
+          sessions_, devices_, roster_, commands_, session_service_, policy_.policy(), sweep_stats_
       ) {
     auto& lg = logger::Logger::instance();
     lg.set_level(cfg_.log_level);
@@ -174,8 +168,7 @@ void Controller::Impl::on_expired(io::TimerId /*id*/) {
     // 이 핸들러로 오는 타이머는 주기 sweep 뿐이다. 한 tick의 now를 모든 호출에 공유한다.
     auto const now = clock_.now();
     commands_.sweep(now);
-    handshake_monitor_.sweep(now);           // 등록 미완 시한 초과 시 disconnect
-    liveness_monitor_.sweep(now);            // active 침묵 시 evict(close)
+    session_service_.sweep(now);             // 등록 시한 초과 disconnect + active 침묵 evict
     policy_.evaluate(now);                   // 그룹 load 집계 후 임계 전환 시 SetMode 발신
     sweep_stats_.record(clock_.now() - now); // tick 작업 소요(schedule 제외) 기록
     schedule_sweep();                        // 주기 재무장

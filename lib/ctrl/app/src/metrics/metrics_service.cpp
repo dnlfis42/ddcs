@@ -145,12 +145,12 @@ std::string MetricsService::scrape() {
     );
     append_metric(
         out, "ddcs_agents_evicted_total", "Agents force-closed after liveness timeout (unhealthy).",
-        "counter", liveness_.evicted_total()
+        "counter", session_service_.metrics().evicted_total
     );
     append_metric(
         out, "ddcs_handshake_expired_total",
         "Connections dropped for not completing registration in time.", "counter",
-        handshake_.expired_total()
+        session_service_.metrics().handshake_expired_total
     );
 
     // command RTT 분포(histogram). 평균(sum/count)이 숨기는 꼬리(p99 등)를 백분위로 본다.

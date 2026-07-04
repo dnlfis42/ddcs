@@ -12,8 +12,6 @@ target_sources(
         src/metrics/metrics_service.cpp
         src/session/command_sender.cpp
         src/session/device_roster.cpp
-        src/session/handshake_monitor.cpp
-        src/session/liveness_monitor.cpp
         src/session/session_service.cpp
     PUBLIC
         FILE_SET HEADERS
@@ -34,8 +32,6 @@ target_sources(
                 include/ddcs/ctrl/app/metrics/sweep_stats.hpp
                 include/ddcs/ctrl/app/session/command_sender.hpp
                 include/ddcs/ctrl/app/session/device_roster.hpp
-                include/ddcs/ctrl/app/session/handshake_monitor.hpp
-                include/ddcs/ctrl/app/session/liveness_monitor.hpp
                 include/ddcs/ctrl/app/session/session.hpp
                 include/ddcs/ctrl/app/session/session_registry.hpp
                 include/ddcs/ctrl/app/session/session_service.hpp
