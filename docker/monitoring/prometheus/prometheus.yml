@@ -1,5 +1,5 @@
-# DDCS controller metrics scrape config.
-# controller 는 같은 compose 네트워크에서 controller:9090 으로 Prometheus text 를 노출한다.
+# DDCS controller metrics scrape config
+# controller는 같은 compose 네트워크에서 controller:9000으로 Prometheus text를 노출한다.
 global:
   scrape_interval: 1s
   evaluation_interval: 1s
