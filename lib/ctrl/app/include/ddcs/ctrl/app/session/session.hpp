@@ -11,22 +11,15 @@ namespace ddcs::ctrl::app::session {
 namespace port = ddcs::ctrl::app::transport::port;
 
 // 한 연결과 device의 바인딩 (ConnectionId와 DeviceId)
-// - SessionRegistry가 conn으로 키잉해 소유한다.
-//
-// - 수명 = 연결의 수명:
-//   - on_connected에서 생성되고 on_disconnected에서 파괴된다.
-//   - 재접속은 새 Session이다.
 class Session {
 public:
     enum class State : std::uint8_t {
-        idle,        // 미사용 초깃값 (null 표지)
-        handshaking, // 연결됨, RegisterRequest 대기. HandshakeMonitor가 감시
-        confirming,  // 등록 판정(RegisterOutcome) 송신됨, RegisterAck 대기. HandshakeMonitor가 감시
-        active,      // 등록 확인 완료, 운영 중. LivenessMonitor가 last_seen 침묵을 감시
+        handshaking, // 연결됨, RegisterRequest 대기
+        confirming,  // 등록 판정(RegisterOutcome) 송신됨, RegisterAck 대기
+        active,      // 등록 확인 완료, 운영 중. sweep이 last_seen 침묵을 감시
     };
 
 public:
-    Session() = default;
     Session(port::ConnectionId conn, common::Clock::time_point now) noexcept
         : conn_(conn),
           state_(State::handshaking),
@@ -45,17 +38,15 @@ public:
         return state_;
     }
 
+    [[nodiscard]] bool active() const noexcept {
+        return state_ == State::active;
+    }
+
     [[nodiscard]] common::Clock::time_point last_seen() const noexcept {
         return last_seen_;
     }
 
-    [[nodiscard]] bool valid() const noexcept {
-        return state_ != State::idle;
-    }
-
     // 등록 확정: handshaking에서 confirming으로 전이 + device 점유
-    // - 요청 수신도 활동이므로 last_seen을 갱신한다.
-    // - RegisterAck 대기 구간이 자기 timeout budget을 새로 받는다.
     [[nodiscard]] bool bind(domain::DeviceId device, common::Clock::time_point now) noexcept {
         if (state_ != State::handshaking || !device.valid()) {
             return false;
@@ -84,11 +75,9 @@ public:
 private:
     port::ConnectionId conn_;
     domain::DeviceId device_;
-    State state_ = State::idle;
-    // NOTE:
-    // - active 전에는 update_seen이 없다.
-    // - last_seen은 단계 전이에서만 갱신되며 HandshakeMonitor가 단계별 deadline 기준으로 쓴다.
-    // - 임의 메시지로는 연장되지 않는다.
+    State state_;
+    // 단계 전이와 active 정상 수신(update_seen)에서만 갱신된다.
+    // sweep이 사용한다.
     common::Clock::time_point last_seen_;
 };
 

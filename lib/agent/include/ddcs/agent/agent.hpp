@@ -2,39 +2,36 @@
 
 #include "ddcs/agent/app/session/session_service.hpp"
 #include "ddcs/agent/domain/device.hpp"
-#include "ddcs/logger/log.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
 
 namespace ddcs::agent {
 
-// Agent 조립 루트 facade
-// - 외부(main, 통합 테스트)는 이 Agent와 주입할 Device(Config.device)만 다룬다.
-// - transport/session 내부는 facade가 가린다.
+// Agent 조립 루트 facade. transport/session 내부를 가린다.
+// 외부(main, 통합 테스트)는 이 Agent와 주입할 Device만 다룬다.
 class Agent {
 public:
+    // 멤버 순서는 agent.json 절 순서(transport/session)를 따른다. log 절은 프로세스 로깅
+    // 부트스트랩이라 main 몫이다.
     struct Config {
         std::string controller_host = "127.0.0.1";
         std::uint16_t controller_port = 8080;
-        // 재연결 backoff (base * 2^attempt 를 max로 cap). 미지정이면 1s/30s.
+        // per-connection rx ring 용량(byte). frame 최대 크기 미만이면 조립 시 하한으로 보정
+        std::size_t rx_buffer_size = 1 << 12;
+        // 재연결 backoff (base * 2^attempt 를 max로 cap)
         std::chrono::nanoseconds reconnect_base_delay = std::chrono::seconds{1};
         std::chrono::nanoseconds reconnect_max_delay = std::chrono::seconds{30};
-        // device 신원(Device::id())이 부팅마다 새로 생성된 random이면 true이고,
-        // controller의 kick-old/identity persistence가 의미를 잃으므로
-        // ctor가 LOG_WARN으로 운영자에게 알린다.
-        bool device_id_is_ephemeral = false;
-        std::unique_ptr<domain::Device> device; // 필수
 
         app::session::SessionService::Config session;
-
-        logger::Level log_level = logger::Level::info;
-        logger::Sink* log_sink = nullptr; // nullptr이면 내부 StdoutSink
     };
 
-    explicit Agent(Config cfg);
+    // device는 필수 의존이라 인자로 강제한다. 로깅은 프로세스 관심사라 여기서 다루지 않는다.
+    // 호출자(main, 테스트)가 전역 로거를 먼저 세워 두면 조립 중 경고부터 그 sink에 잡힌다.
+    Agent(Config cfg, std::unique_ptr<domain::Device> device);
     ~Agent();
 
     Agent(Agent const&) = delete;

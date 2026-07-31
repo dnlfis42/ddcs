@@ -5,6 +5,7 @@ ddcs_add_unit_test(
         ddcs::common
         ddcs::device
         ddcs::wire::message
+        ddcs::wire::command
         ddcs::agent::domain
         ddcs::agent::app
 )

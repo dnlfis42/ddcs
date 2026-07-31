@@ -3,13 +3,11 @@ add_library(ddcs::wire::message ALIAS ddcs_wire_message)
 
 target_sources(
     ddcs_wire_message
-    PRIVATE src/command.cpp src/message.cpp
+    PRIVATE src/message.cpp
     PUBLIC
         FILE_SET HEADERS
             BASE_DIRS include
-            FILES
-                include/ddcs/wire/message/command.hpp
-                include/ddcs/wire/message/message.hpp
+            FILES include/ddcs/wire/message/message.hpp
 )
 target_link_libraries(
     ddcs_wire_message

@@ -8,13 +8,13 @@ namespace ddcs::common {
 namespace detail::endian {
 
 template <typename T>
-concept byteswappable_unsigned =
+concept unsigned_byteswappable =
     std::unsigned_integral<T> && !std::same_as<T, bool> &&
     (sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8);
 
 } // namespace detail::endian
 
-template <detail::endian::byteswappable_unsigned T>
+template <detail::endian::unsigned_byteswappable T>
 [[nodiscard]] constexpr T byteswap(T v) noexcept {
     if constexpr (sizeof(T) == 1) {
         return v;
@@ -35,7 +35,7 @@ template <detail::endian::byteswappable_unsigned T>
     }
 }
 
-template <detail::endian::byteswappable_unsigned T>
+template <detail::endian::unsigned_byteswappable T>
 [[nodiscard]] constexpr T to_be(T v) noexcept {
     if constexpr (std::endian::native == std::endian::big) {
         return v;
@@ -44,7 +44,7 @@ template <detail::endian::byteswappable_unsigned T>
     }
 }
 
-template <detail::endian::byteswappable_unsigned T>
+template <detail::endian::unsigned_byteswappable T>
 [[nodiscard]] constexpr T to_le(T v) noexcept {
     if constexpr (std::endian::native == std::endian::little) {
         return v;
@@ -53,12 +53,12 @@ template <detail::endian::byteswappable_unsigned T>
     }
 }
 
-template <detail::endian::byteswappable_unsigned T>
+template <detail::endian::unsigned_byteswappable T>
 [[nodiscard]] constexpr T from_be(T v) noexcept {
     return to_be(v);
 }
 
-template <detail::endian::byteswappable_unsigned T>
+template <detail::endian::unsigned_byteswappable T>
 [[nodiscard]] constexpr T from_le(T v) noexcept {
     return to_le(v);
 }

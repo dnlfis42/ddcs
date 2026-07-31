@@ -1,11 +1,11 @@
 #include "ddcs/ctrl/app/device/command_service.hpp"
 
 #include "ddcs/common/clock.hpp"
-#include "ddcs/ctrl/app/device/port/command.hpp"
 #include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/device/port/command_sender.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/device/mode.hpp"
+#include "ddcs/wire/command/command.hpp"
 
 #include <array>
 #include <chrono>
@@ -20,12 +20,13 @@ namespace {
 
 using ddcs::common::ManualClock;
 using ddcs::ctrl::app::device::CommandService;
-using ddcs::ctrl::app::device::port::Command;
 using ddcs::ctrl::app::device::port::CommandId;
 using ddcs::ctrl::app::device::port::CommandSender;
-using ddcs::ctrl::app::device::port::SetMode;
+using ddcs::ctrl::app::device::port::SendResult;
 using ddcs::ctrl::domain::DeviceId;
 using ddcs::device::Mode;
+using ddcs::wire::command::Command;
+using ddcs::wire::command::SetMode;
 using namespace std::chrono_literals;
 
 DeviceId make_device_id(std::uint8_t seed) {
@@ -35,7 +36,7 @@ DeviceId make_device_id(std::uint8_t seed) {
 }
 
 Mode sent_mode(Command const& command) {
-    return std::get<SetMode>(command).mode;
+    return ddcs::device::decode_mode(std::get<SetMode>(command).mode).value_or(Mode::safe);
 }
 
 // 송신 의뢰를 기록하는 대역. accept = false면 송신 거부 (미연결 등가)
@@ -50,12 +51,12 @@ public:
     std::vector<Sent> sent;
     bool accept = true;
 
-    bool try_send(DeviceId device, CommandId command_id, Command const& command) override {
+    SendResult send(DeviceId device, CommandId command_id, Command const& command) override {
         if (!accept) {
-            return false;
+            return SendResult::offline;
         }
         sent.push_back(Sent{.device = device, .command_id = command_id, .command = command});
-        return true;
+        return SendResult::ok;
     }
 };
 
@@ -65,7 +66,9 @@ struct CommandFixture {
     CommandService commands{sender, 5s, 1, 500ms};
 
     CommandId send(Mode mode, std::uint8_t seed = 0xAA) {
-        return commands.dispatch(make_device_id(seed), SetMode{.mode = mode}, clock.now());
+        return commands.dispatch(
+            make_device_id(seed), SetMode{.mode = ddcs::device::encode_mode(mode)}, clock.now()
+        );
     }
 };
 
@@ -105,11 +108,11 @@ TEST(CommandServiceTest, SupersedeReplacesSameFamilyCommand) {
     EXPECT_NE(new_id, old_id);
 
     // 대체된 명령의 늦은 응답
-    f.commands.settle(make_device_id(0xAA), old_id, true, "", f.clock.now());
+    f.commands.settle(make_device_id(0xAA), old_id, true, 0, f.clock.now());
     EXPECT_EQ(f.commands.metrics().completed_total, 0u);
     EXPECT_EQ(f.commands.metrics().stale_total, 1u);
 
-    f.commands.settle(make_device_id(0xAA), new_id, true, "", f.clock.now());
+    f.commands.settle(make_device_id(0xAA), new_id, true, 0, f.clock.now());
     EXPECT_EQ(f.commands.metrics().completed_total, 1u);
     EXPECT_EQ(f.commands.pending_count(), 0u);
 }
@@ -145,7 +148,7 @@ TEST(CommandServiceTest, SettleSuccessClosesSlotAndRecordsRtt) {
     auto const id = f.send(Mode::performance);
 
     f.clock.advance(2s);
-    f.commands.settle(make_device_id(0xAA), id, true, "", f.clock.now());
+    f.commands.settle(make_device_id(0xAA), id, true, 0, f.clock.now());
 
     EXPECT_EQ(f.commands.pending_count(), 0u);
     EXPECT_EQ(f.commands.metrics().completed_total, 1u);
@@ -156,7 +159,7 @@ TEST(CommandServiceTest, SettleFailureGivesUpWhenNoRetry) {
     CommandFixture f;
     auto const id = f.send(Mode::performance);
 
-    f.commands.settle(make_device_id(0xAA), id, false, "busy", f.clock.now());
+    f.commands.settle(make_device_id(0xAA), id, false, 2, f.clock.now());
 
     EXPECT_EQ(f.commands.pending_count(), 0u);
     EXPECT_EQ(f.commands.metrics().gave_up_total, 1u);
@@ -168,7 +171,7 @@ TEST(CommandServiceTest, StaleResponseCountedQuietly) {
     ASSERT_TRUE(f.send(Mode::performance).valid());
 
     f.commands.acknowledge(make_device_id(0xAA), CommandId{999}, f.clock.now());
-    f.commands.settle(make_device_id(0xAA), CommandId{999}, true, "", f.clock.now());
+    f.commands.settle(make_device_id(0xAA), CommandId{999}, true, 0, f.clock.now());
 
     EXPECT_EQ(f.commands.metrics().stale_total, 2u); // 정상 부산물. 카운터로만 관측
     EXPECT_EQ(f.commands.pending_count(), 1u);
@@ -192,8 +195,10 @@ TEST(CommandServiceTest, RetryResendsSameIdWithRetainedCommand) {
     FakeCommandSender sender;
     CommandService commands{sender, 5s, 2, 500ms}; // 재시도 1회 허용
 
-    auto const id =
-        commands.dispatch(make_device_id(0xAA), SetMode{.mode = Mode::performance}, clock.now());
+    auto const id = commands.dispatch(
+        make_device_id(0xAA), SetMode{.mode = ddcs::device::encode_mode(Mode::performance)},
+        clock.now()
+    );
     ASSERT_TRUE(id.valid());
 
     clock.advance(6s);
@@ -210,7 +215,7 @@ TEST(CommandServiceTest, RetryResendsSameIdWithRetainedCommand) {
     EXPECT_EQ(sent_mode(sender.sent[1].command), Mode::performance); // 보관본에서 복원
     EXPECT_EQ(sender.sent[1].device, make_device_id(0xAA));
 
-    commands.settle(make_device_id(0xAA), id, true, "", clock.now());
+    commands.settle(make_device_id(0xAA), id, true, 0, clock.now());
     EXPECT_EQ(commands.pending_count(), 0u);
     EXPECT_EQ(commands.metrics().completed_total, 1u);
 }
@@ -221,7 +226,10 @@ TEST(CommandServiceTest, RetryGivesUpWhenSendRejected) {
     CommandService commands{sender, 5s, 2, 500ms};
 
     ASSERT_TRUE(commands
-                    .dispatch(make_device_id(0xAA), SetMode{.mode = Mode::performance}, clock.now())
+                    .dispatch(
+                        make_device_id(0xAA),
+                        SetMode{.mode = ddcs::device::encode_mode(Mode::performance)}, clock.now()
+                    )
                     .valid());
 
     clock.advance(6s);
@@ -244,12 +252,14 @@ TEST(CommandServiceTest, NackWithRetryBudgetResendsInsteadOfGivingUp) {
     FakeCommandSender sender;
     CommandService commands{sender, 5s, 2, 500ms}; // 재시도 1회 허용
 
-    auto const id =
-        commands.dispatch(make_device_id(0xAA), SetMode{.mode = Mode::performance}, clock.now());
+    auto const id = commands.dispatch(
+        make_device_id(0xAA), SetMode{.mode = ddcs::device::encode_mode(Mode::performance)},
+        clock.now()
+    );
     ASSERT_TRUE(id.valid());
 
     // NACK: 예산이 남았으니 포기(gave_up) 대신 backoff 대기로 전환한다.
-    commands.settle(make_device_id(0xAA), id, false, "busy", clock.now());
+    commands.settle(make_device_id(0xAA), id, false, 2, clock.now());
     EXPECT_EQ(commands.metrics().gave_up_total, 0u); // 핵심: NACK이라도 예산 있으면 포기 X
     EXPECT_EQ(commands.pending_count(), 1u);         // 여전히 미결(backoff 대기)
     EXPECT_EQ(sender.sent.size(), 1u);               // 아직 재전송 전
@@ -270,8 +280,10 @@ TEST(CommandServiceTest, ExhaustsRetryBudgetThenGivesUpWithBackoffDoubling) {
     FakeCommandSender sender;
     CommandService commands{sender, 5s, 3, 500ms}; // 재시도 2회 (attempt 1 -> 2 -> 3)
 
-    auto const id =
-        commands.dispatch(make_device_id(0xAA), SetMode{.mode = Mode::performance}, clock.now());
+    auto const id = commands.dispatch(
+        make_device_id(0xAA), SetMode{.mode = ddcs::device::encode_mode(Mode::performance)},
+        clock.now()
+    );
     ASSERT_TRUE(id.valid());
 
     // attempt 1 timeout -> backoff_for(1) = 500ms

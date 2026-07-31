@@ -3,7 +3,7 @@
 #include "ddcs/ctrl/app/metrics/port/prometheus_source.hpp"
 #include "ddcs/io/fd.hpp"
 #include "ddcs/io/reactor.hpp"
-#include "ddcs/logger/log.hpp"
+#include "ddcs/logger/event.hpp"
 #include "ddcs/net/socket.hpp"
 
 #include <cerrno>
@@ -46,27 +46,27 @@ Server::Server(
       source_(source),
       listen_port_(listen_port),
       backlog_(backlog),
-      pool_(common::ObjectPool<Connection>::create<pool_chunk>()) {}
+      connection_pool_(common::ObjectPool<Connection>::create<pool_chunk>()) {}
 
 Server::~Server() {
     close();
 }
 
-bool Server::init() noexcept {
-    if (state_ != State::idle) {
-        return false;
+io::SysResult Server::init() noexcept {
+    if (listen_channel_.valid()) {
+        return io::SysResult::fail(); // 이중 init
     }
 
+    // init 실패는 여기서 알리지 않는다. Acceptor::init 과 같이 errno 를 얹어 올려보내고,
+    // 부팅을 세우는 쪽이 한 번만 알린다.
     io::Fd fd{::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)};
     if (!fd.valid()) {
-        LOG_WARN("prometheus.socket_fail", logger::kv("errno", errno));
-        return false;
+        return io::SysResult::fail(errno);
     }
 
     int const yes = 1;
     if (::setsockopt(fd.get(), SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0) {
-        LOG_WARN("prometheus.setsockopt_fail", logger::kv("errno", errno));
-        return false;
+        return io::SysResult::fail(errno);
     }
 
     sockaddr_in addr{};
@@ -74,44 +74,41 @@ bool Server::init() noexcept {
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(listen_port_);
     if (::bind(fd.get(), reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        LOG_WARN(
-            "prometheus.bind_fail", logger::kv("port", listen_port_), logger::kv("errno", errno)
-        );
-        return false;
+        return io::SysResult::fail(errno);
     }
 
     if (::listen(fd.get(), backlog_) < 0) {
-        LOG_WARN("prometheus.listen_fail", logger::kv("errno", errno));
-        return false;
+        return io::SysResult::fail(errno);
     }
 
-    bound_port_ = net::bound_port(fd.get());
-    if (!listen_channel_.init(std::move(fd), read_interest, *this)) {
-        return false;
+    auto const bound_port = net::bound_port(fd.get());
+    if (!bound_port) {
+        return io::SysResult::fail(errno); // getsockname 실패의 errno가 남아 있다
     }
+    bound_port_ = *bound_port;
+    listen_channel_.init(std::move(fd), read_interest, *this);
 
-    state_ = State::ready;
-    return true;
+    return io::SysResult::success();
 }
 
-bool Server::start() {
-    if (state_ == State::active) {
-        return true;
+io::SysResult Server::start() {
+    if (listen_channel_.registered()) {
+        return io::SysResult::success();
     }
-    if (state_ != State::ready) {
-        return false;
-    }
-    if (!reactor_.add(listen_channel_)) {
-        return false;
+    if (!listen_channel_.valid()) {
+        return io::SysResult::fail(); // init 전 start
     }
 
-    state_ = State::active;
-    LOG_INFO("prometheus.server.start", logger::kv("port", bound_port_));
-    return true;
+    if (auto const result = reactor_.add(listen_channel_); !result) {
+        return result;
+    }
+
+    LOG_PROMETHEUS_LISTEN(bound_port_);
+    return io::SysResult::success();
 }
 
 void Server::stop() noexcept {
-    if (state_ != State::active) {
+    if (!listen_channel_.registered()) {
         return;
     }
 
@@ -122,19 +119,17 @@ void Server::stop() noexcept {
         }
     }
     connections_.clear(); // 핸들 drop 시 reset 후 fd close
-    pending_close_.clear();
-    state_ = State::ready;
+    reap_queue_.clear();
 }
 
 void Server::close() noexcept {
-    if (state_ == State::idle) {
+    if (!listen_channel_.valid()) {
         return;
     }
 
     stop();
-    listen_channel_.reset();
+    listen_channel_.close();
     bound_port_ = 0;
-    state_ = State::idle;
 }
 
 void Server::on_ready(io::Channel& channel, io::ChannelEvents events) {
@@ -143,17 +138,18 @@ void Server::on_ready(io::Channel& channel, io::ChannelEvents events) {
     }
 
     if (contains(events, io::ChannelEvents::error) || contains(events, io::ChannelEvents::hangup)) {
-        LOG_ERROR("prometheus.listener_error", logger::kv("events", io::to_underlying(events)));
+        LOG_PROMETHEUS_LISTEN_FAIL(io::to_underlying(events));
+        close(); // 리스닝 fd 고장
         return;
     }
 
     if (contains(events, io::ChannelEvents::readable)) {
-        drain_accepts();
+        accept_connections();
     }
-    reap();
+    reap_scheduled();
 }
 
-void Server::drain_accepts() {
+void Server::accept_connections() {
     for (;;) {
         io::Fd fd{::accept4(listen_channel_.fd(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC)};
         if (!fd.valid()) {
@@ -164,14 +160,15 @@ void Server::drain_accepts() {
             if (err == EINTR || err == ECONNABORTED) {
                 continue;
             }
-            return; // EMFILE 등. 스크레이프는 best-effort (shed 안 함)
+            // EMFILE 등. 스크레이프는 best-effort(shed 안 함)지만, 조용히 멈추면
+            // 메트릭이 꺼진 이유가 어디에도 안 남는다.
+            LOG_TRANSPORT_ACCEPT_FAIL(err);
+            return;
         }
 
-        auto conn = pool_.acquire();
+        auto conn = connection_pool_.acquire();
         int const cfd = fd.get();
-        if (!conn->assign(*this, std::move(fd), read_interest)) {
-            continue; // 방어. 핸들 드롭 시 reset
-        }
+        conn->init(*this, std::move(fd), read_interest);
 
         auto const [it, inserted] = connections_.try_emplace(cfd, std::move(conn));
         if (!inserted) {
@@ -179,87 +176,82 @@ void Server::drain_accepts() {
         }
 
         Connection* const p = it->second.get();
-        if (!reactor_.add(p->channel())) {
+        if (auto const result = reactor_.add(p->channel()); !result) {
+            LOG_TRANSPORT_REACTOR_ADD_FAIL(result.err);
             connections_.erase(cfd); // 등록 실패 시 드롭(핸들 drop 시 reset 후 fd close)
         }
     }
 }
 
-void Server::handle_connection_ready(Connection& conn, io::ChannelEvents events) {
-    dispatch(conn, events);
-    reap();
-}
-
-void Server::dispatch(Connection& conn, io::ChannelEvents events) {
-    if (conn.state() == Connection::State::done) {
-        return; // 이미 reap 예약
-    }
-
-    if (contains(events, io::ChannelEvents::error) || contains(events, io::ChannelEvents::hangup)) {
-        schedule_close(conn);
-        return;
-    }
-
-    if (conn.state() == Connection::State::reading) {
-        if (!contains(events, io::ChannelEvents::readable)) {
-            return;
+void Server::on_connection_event(Connection& conn, io::ChannelEvents events) {
+    do {
+        if (contains(events, io::ChannelEvents::error) ||
+            contains(events, io::ChannelEvents::hangup)) {
+            schedule_reap(conn);
+            break;
         }
-        auto const r = conn.receive();
-        if (r == Connection::IoResult::error) {
-            schedule_close(conn);
-            return;
-        }
-        if (!conn.request_complete()) {
-            if (r == Connection::IoResult::peer_closed) {
-                schedule_close(conn); // 미완 요청에 FIN 오면 포기
+
+        if (conn.state() == Connection::State::reading) {
+            if (!contains(events, io::ChannelEvents::readable)) {
+                break;
             }
-            return; // would_block: 더 읽기
-        }
-        respond(conn); // request 완료 시 응답 빌드(state=writing)
-    }
+            auto const r = conn.receive();
+            if (r.code == net::ReceiveResult::Code::error) {
+                LOG_TRANSPORT_RECEIVE_FAIL(r.err);
+                schedule_reap(conn);
+                break;
+            }
+            if (!conn.request_complete()) {
+                if (r.code == net::ReceiveResult::Code::peer_closed) {
+                    schedule_reap(conn); // 미완 요청에 FIN 오면 포기
+                }
+                break; // would_block: 더 읽기
+            }
 
-    if (conn.state() == Connection::State::writing) {
-        auto const r = conn.transmit();
-        if (r == Connection::IoResult::error) {
-            schedule_close(conn);
-            return;
+            conn.begin_response(http_ok(source_.scrape()));
         }
-        if (conn.state() == Connection::State::done) {
-            schedule_close(conn); // 응답 완송 후 close
-            return;
+
+        if (conn.state() == Connection::State::writing) {
+            auto const r = conn.transmit();
+            if (r.code == net::TransmitResult::Code::error) {
+                LOG_TRANSPORT_SEND_FAIL(r.err);
+                schedule_reap(conn);
+                break;
+            }
+            if (r.code == net::TransmitResult::Code::drained) {
+                schedule_reap(conn); // 응답 완송 후 close
+                break;
+            }
+            // would_block: writable 대기. 관심 전환 실패 시 좀비 방지를 위해 폐기
+            if (auto const result = reactor_.modify(conn.channel(), write_interest); !result) {
+                LOG_TRANSPORT_REACTOR_MODIFY_FAIL(result.err);
+                schedule_reap(conn);
+            }
         }
-        (void)reactor_.modify(conn.channel(), write_interest); // would_block 시 writable 대기
-    }
+    } while (false);
+
+    reap_scheduled();
 }
 
-void Server::respond(Connection& conn) {
-    conn.begin_response(http_ok(source_.scrape()));
+void Server::schedule_reap(Connection& conn) {
+    reap_queue_.push_back(conn.fd());
 }
 
-void Server::schedule_close(Connection& conn) {
-    pending_close_.push_back(conn.fd());
-}
-
-void Server::reap() {
+void Server::reap_scheduled() {
     // 인덱스 순회: 재진입 push 안전(반복자 무효화 없음).
-    for (std::size_t i = 0; i < pending_close_.size(); ++i) {
-        int const fd = pending_close_[i];
-        auto* conn = find(fd);
-        if (conn == nullptr) {
+    for (std::size_t i = 0; i < reap_queue_.size(); ++i) {
+        auto const it = connections_.find(reap_queue_[i]);
+        if (it == connections_.end()) {
             continue;
         }
 
-        if (conn->channel().registered()) {
-            reactor_.remove(conn->channel());
+        Connection& conn = *it->second;
+        if (conn.channel().registered()) {
+            reactor_.remove(conn.channel());
         }
-        connections_.erase(fd); // 핸들 drop 시 reset() 후 fd close
+        connections_.erase(it); // 핸들 drop 시 reset() 후 fd close
     }
-    pending_close_.clear();
-}
-
-Connection* Server::find(int fd) {
-    auto const it = connections_.find(fd);
-    return it == connections_.end() ? nullptr : it->second.get();
+    reap_queue_.clear();
 }
 
 } // namespace ddcs::ctrl::infra::prometheus

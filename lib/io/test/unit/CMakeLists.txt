@@ -47,8 +47,8 @@ ddcs_add_unit_test(
 )
 
 ddcs_add_unit_test(
-    ddcs_io_timer_registration_table_test
-    SOURCES ddcs_io_timer_registration_table_test.cpp
+    ddcs_io_timer_registry_test
+    SOURCES ddcs_io_timer_registry_test.cpp
     LIBRARIES ddcs::io
 )
 

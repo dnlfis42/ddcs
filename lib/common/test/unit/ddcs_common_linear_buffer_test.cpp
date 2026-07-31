@@ -53,7 +53,7 @@ TEST(LinearBufferTest, ReportsDataAndRoomSizesAfterAppend) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
 
-    ASSERT_TRUE(lb.try_append(head(pattern, 3)));
+    ASSERT_TRUE(lb.append(head(pattern, 3)));
 
     EXPECT_FALSE(lb.empty());
     EXPECT_EQ(lb.capacity(), test_capacity);
@@ -66,7 +66,7 @@ TEST(LinearBufferTest, ReturnsCurrentDataSpan) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
 
-    ASSERT_TRUE(lb.try_append(head(pattern, 4)));
+    ASSERT_TRUE(lb.append(head(pattern, 4)));
 
     expect_bytes_eq(lb.data_span(), head(pattern, 4));
     EXPECT_EQ(lb.size(), 4u);
@@ -78,7 +78,7 @@ TEST(LinearBufferTest, ReturnsCurrentTailroomSpan) {
 
     EXPECT_EQ(lb.tailroom_span().size(), test_capacity);
 
-    ASSERT_TRUE(lb.try_append(head(pattern, 5)));
+    ASSERT_TRUE(lb.append(head(pattern, 5)));
 
     EXPECT_EQ(lb.tailroom_span().size(), test_capacity - 5u);
 }
@@ -87,12 +87,12 @@ TEST(LinearBufferTest, PeeksWithoutConsumingData) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
 
-    ASSERT_TRUE(lb.try_append(head(pattern, 3)));
+    ASSERT_TRUE(lb.append(head(pattern, 3)));
 
     std::array<std::byte, 3> peeked1{};
     std::array<std::byte, 3> peeked2{};
-    ASSERT_TRUE(lb.try_peek(peeked1));
-    ASSERT_TRUE(lb.try_peek(peeked2));
+    ASSERT_TRUE(lb.peek(peeked1));
+    ASSERT_TRUE(lb.peek(peeked2));
 
     EXPECT_EQ(lb.size(), 3u);
     EXPECT_EQ(lb.headroom_size(), 0u);
@@ -104,10 +104,10 @@ TEST(LinearBufferTest, ExtractsDataAndConsumesIt) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
 
-    ASSERT_TRUE(lb.try_append(head(pattern, 4)));
+    ASSERT_TRUE(lb.append(head(pattern, 4)));
 
     std::array<std::byte, 3> dst{};
-    ASSERT_TRUE(lb.try_extract(dst));
+    ASSERT_TRUE(lb.extract(dst));
 
     EXPECT_EQ(lb.size(), 1u);
     EXPECT_EQ(lb.headroom_size(), 3u);
@@ -119,10 +119,10 @@ TEST(LinearBufferTest, RejectsExtractWhenDataIsInsufficient) {
     LinearBuffer lb{test_capacity};
     std::array<std::byte, 1> one{std::byte{0xab}};
 
-    ASSERT_TRUE(lb.try_append(one));
+    ASSERT_TRUE(lb.append(one));
 
     std::array<std::byte, 2> dst{};
-    EXPECT_FALSE(lb.try_extract(dst));
+    EXPECT_FALSE(lb.extract(dst));
 
     EXPECT_EQ(lb.size(), 1u);
     EXPECT_EQ(lb.headroom_size(), 0u);
@@ -133,9 +133,9 @@ TEST(LinearBufferTest, ConsumesDataWithoutCopying) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
 
-    ASSERT_TRUE(lb.try_append(head(pattern, 4)));
+    ASSERT_TRUE(lb.append(head(pattern, 4)));
 
-    ASSERT_TRUE(lb.try_consume(2));
+    ASSERT_TRUE(lb.consume(2));
 
     EXPECT_EQ(lb.size(), 2u);
     EXPECT_EQ(lb.headroom_size(), 2u);
@@ -147,9 +147,9 @@ TEST(LinearBufferTest, RejectsConsumeWhenDataIsInsufficient) {
     LinearBuffer lb{test_capacity};
     std::array<std::byte, 2> two{};
 
-    ASSERT_TRUE(lb.try_append(two));
+    ASSERT_TRUE(lb.append(two));
 
-    EXPECT_FALSE(lb.try_consume(3));
+    EXPECT_FALSE(lb.consume(3));
 
     EXPECT_EQ(lb.size(), 2u);
     EXPECT_EQ(lb.headroom_size(), 0u);
@@ -159,8 +159,8 @@ TEST(LinearBufferTest, AppendsDataToTail) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
 
-    ASSERT_TRUE(lb.try_append(head(pattern, 2)));
-    ASSERT_TRUE(lb.try_append(slice(pattern, 2, 2)));
+    ASSERT_TRUE(lb.append(head(pattern, 2)));
+    ASSERT_TRUE(lb.append(slice(pattern, 2, 2)));
 
     EXPECT_EQ(lb.size(), 4u);
     EXPECT_EQ(lb.tailroom_size(), test_capacity - 4u);
@@ -171,7 +171,7 @@ TEST(LinearBufferTest, RejectsAppendWhenTailroomIsInsufficient) {
     LinearBuffer lb{2};
     std::array<std::byte, 4> too_much{};
 
-    EXPECT_FALSE(lb.try_append(too_much));
+    EXPECT_FALSE(lb.append(too_much));
 
     EXPECT_TRUE(lb.empty());
     EXPECT_EQ(lb.headroom_size(), 0u);
@@ -185,7 +185,7 @@ TEST(LinearBufferTest, CommitsBytesWrittenToTailroom) {
     region[0] = std::byte{0xab};
     region[1] = std::byte{0xcd};
 
-    ASSERT_TRUE(lb.try_commit(2));
+    ASSERT_TRUE(lb.commit(2));
 
     EXPECT_EQ(lb.size(), 2u);
     EXPECT_EQ(lb.tailroom_size(), test_capacity - 2u);
@@ -197,7 +197,7 @@ TEST(LinearBufferTest, CommitsBytesWrittenToTailroom) {
 TEST(LinearBufferTest, RejectsCommitWhenTailroomIsInsufficient) {
     LinearBuffer lb{4};
 
-    EXPECT_FALSE(lb.try_commit(5));
+    EXPECT_FALSE(lb.commit(5));
 
     EXPECT_TRUE(lb.empty());
     EXPECT_EQ(lb.headroom_size(), 0u);
@@ -207,13 +207,13 @@ TEST(LinearBufferTest, RejectsCommitWhenTailroomIsInsufficient) {
 TEST(LinearBufferTest, PrependsDataIntoHeadroom) {
     LinearBuffer lb{test_capacity};
 
-    ASSERT_TRUE(lb.try_grow_headroom(2));
+    ASSERT_TRUE(lb.grow_headroom(2));
 
     std::array<std::byte, 3> body{std::byte{0xaa}, std::byte{0xbb}, std::byte{0xcc}};
-    ASSERT_TRUE(lb.try_append(body));
+    ASSERT_TRUE(lb.append(body));
 
     std::array<std::byte, 2> header{std::byte{0x01}, std::byte{0x02}};
-    ASSERT_TRUE(lb.try_prepend(header));
+    ASSERT_TRUE(lb.prepend(header));
 
     std::array<std::byte, 5> expected{
         std::byte{0x01}, std::byte{0x02}, std::byte{0xaa}, std::byte{0xbb}, std::byte{0xcc},
@@ -227,10 +227,10 @@ TEST(LinearBufferTest, RejectsPrependWhenHeadroomIsInsufficient) {
     LinearBuffer lb{test_capacity};
     std::array<std::byte, 3> body{std::byte{0xaa}, std::byte{0xbb}, std::byte{0xcc}};
 
-    ASSERT_TRUE(lb.try_append(body));
+    ASSERT_TRUE(lb.append(body));
 
     std::array<std::byte, 2> header{};
-    EXPECT_FALSE(lb.try_prepend(header));
+    EXPECT_FALSE(lb.prepend(header));
 
     EXPECT_EQ(lb.size(), body.size());
     EXPECT_EQ(lb.headroom_size(), 0u);
@@ -240,9 +240,9 @@ TEST(LinearBufferTest, RejectsPrependWhenHeadroomIsInsufficient) {
 TEST(LinearBufferTest, SetsHeadroomWhenEmpty) {
     LinearBuffer lb{test_capacity};
 
-    ASSERT_TRUE(lb.try_grow_headroom(2));
+    ASSERT_TRUE(lb.grow_headroom(2));
 
-    ASSERT_TRUE(lb.try_set_headroom(5));
+    ASSERT_TRUE(lb.set_headroom(5));
 
     EXPECT_TRUE(lb.empty());
     EXPECT_EQ(lb.size(), 0u);
@@ -253,8 +253,8 @@ TEST(LinearBufferTest, SetsHeadroomWhenEmpty) {
 TEST(LinearBufferTest, GrowsHeadroomWhenEmpty) {
     LinearBuffer lb{test_capacity};
 
-    ASSERT_TRUE(lb.try_grow_headroom(2));
-    ASSERT_TRUE(lb.try_grow_headroom(3));
+    ASSERT_TRUE(lb.grow_headroom(2));
+    ASSERT_TRUE(lb.grow_headroom(3));
 
     EXPECT_TRUE(lb.empty());
     EXPECT_EQ(lb.size(), 0u);
@@ -265,8 +265,8 @@ TEST(LinearBufferTest, GrowsHeadroomWhenEmpty) {
 TEST(LinearBufferTest, StacksHeadroomWhileEmpty) {
     LinearBuffer lb{32};
 
-    ASSERT_TRUE(lb.try_grow_headroom(5));
-    ASSERT_TRUE(lb.try_grow_headroom(9));
+    ASSERT_TRUE(lb.grow_headroom(5));
+    ASSERT_TRUE(lb.grow_headroom(9));
 
     EXPECT_EQ(lb.headroom_size(), 14u);
     EXPECT_EQ(lb.tailroom_size(), 32u - 14u);
@@ -275,23 +275,23 @@ TEST(LinearBufferTest, StacksHeadroomWhileEmpty) {
     std::array<std::byte, 9> const inner{};
     std::array<std::byte, 5> const outer{};
 
-    ASSERT_TRUE(lb.try_append(payload));
-    ASSERT_TRUE(lb.try_prepend(inner));
-    ASSERT_TRUE(lb.try_prepend(outer));
+    ASSERT_TRUE(lb.append(payload));
+    ASSERT_TRUE(lb.prepend(inner));
+    ASSERT_TRUE(lb.prepend(outer));
 
     EXPECT_EQ(lb.size(), 16u);
     EXPECT_EQ(lb.headroom_size(), 0u);
-    EXPECT_FALSE(lb.try_prepend(std::span<std::byte const>{outer.data(), 1}));
+    EXPECT_FALSE(lb.prepend(std::span<std::byte const>{outer.data(), 1}));
 }
 
 TEST(LinearBufferTest, RejectsHeadroomChangeWhenNotEmpty) {
     LinearBuffer lb{test_capacity};
     std::array<std::byte, 1> one{std::byte{0xff}};
 
-    ASSERT_TRUE(lb.try_append(one));
+    ASSERT_TRUE(lb.append(one));
 
-    EXPECT_FALSE(lb.try_set_headroom(4));
-    EXPECT_FALSE(lb.try_grow_headroom(4));
+    EXPECT_FALSE(lb.set_headroom(4));
+    EXPECT_FALSE(lb.grow_headroom(4));
 
     EXPECT_EQ(lb.size(), 1u);
     EXPECT_EQ(lb.headroom_size(), 0u);
@@ -301,8 +301,8 @@ TEST(LinearBufferTest, RejectsHeadroomChangeWhenNotEmpty) {
 TEST(LinearBufferTest, RejectsHeadroomBeyondCapacity) {
     LinearBuffer lb{4};
 
-    EXPECT_FALSE(lb.try_set_headroom(5));
-    EXPECT_FALSE(lb.try_grow_headroom(5));
+    EXPECT_FALSE(lb.set_headroom(5));
+    EXPECT_FALSE(lb.grow_headroom(5));
 
     EXPECT_TRUE(lb.empty());
     EXPECT_EQ(lb.headroom_size(), 0u);
@@ -313,26 +313,11 @@ TEST(LinearBufferTest, ClearsBufferState) {
     LinearBuffer lb{test_capacity};
     auto pattern = make_pattern();
 
-    ASSERT_TRUE(lb.try_grow_headroom(2));
-    ASSERT_TRUE(lb.try_append(head(pattern, 3)));
-    ASSERT_TRUE(lb.try_consume(1));
+    ASSERT_TRUE(lb.grow_headroom(2));
+    ASSERT_TRUE(lb.append(head(pattern, 3)));
+    ASSERT_TRUE(lb.consume(1));
 
     lb.clear();
-
-    EXPECT_TRUE(lb.empty());
-    EXPECT_EQ(lb.size(), 0u);
-    EXPECT_EQ(lb.headroom_size(), 0u);
-    EXPECT_EQ(lb.tailroom_size(), test_capacity);
-}
-
-TEST(LinearBufferTest, ResetsBufferState) {
-    LinearBuffer lb{test_capacity};
-    auto pattern = make_pattern();
-
-    ASSERT_TRUE(lb.try_set_headroom(4));
-    ASSERT_TRUE(lb.try_append(head(pattern, 2)));
-
-    lb.reset();
 
     EXPECT_TRUE(lb.empty());
     EXPECT_EQ(lb.size(), 0u);

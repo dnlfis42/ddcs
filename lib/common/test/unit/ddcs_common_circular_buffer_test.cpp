@@ -11,19 +11,6 @@ namespace {
 
 using ddcs::common::CircularBuffer;
 
-template <std::size_t... Values>
-consteval bool all_valid_capacities() {
-    return (CircularBuffer::valid_capacity(Values) && ...);
-}
-
-template <std::size_t... Values>
-consteval bool all_invalid_capacities() {
-    return ((!CircularBuffer::valid_capacity(Values)) && ...);
-}
-
-static_assert(all_valid_capacities<1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024>());
-static_assert(all_invalid_capacities<0, 3, 5, 6, 7, 9, 10>());
-
 constexpr std::size_t test_capacity = 8;
 
 std::array<std::byte, test_capacity> make_pattern() {
@@ -44,7 +31,7 @@ slice(std::array<std::byte, N> const& bytes, std::size_t offset, std::size_t n) 
     return {bytes.data() + offset, n};
 }
 
-void expect_bytes_eq(std::span<std::byte const> actual, std::span<std::byte const> expected) {
+void expect_bytes_equal(std::span<std::byte const> actual, std::span<std::byte const> expected) {
     ASSERT_EQ(actual.size(), expected.size());
 
     for (std::size_t i = 0; i < expected.size(); ++i) {
@@ -52,326 +39,325 @@ void expect_bytes_eq(std::span<std::byte const> actual, std::span<std::byte cons
     }
 }
 
-TEST(CircularBufferTest, RejectsInvalidCapacity) {
-    EXPECT_THROW(CircularBuffer{0}, std::invalid_argument);
-    EXPECT_THROW(CircularBuffer{3}, std::invalid_argument);
-    EXPECT_THROW(CircularBuffer{6}, std::invalid_argument);
+// 생성
+
+TEST(CircularBufferTest, AcceptsValidCapacity) {
+    ASSERT_NO_THROW(CircularBuffer{1});
+    ASSERT_NO_THROW(CircularBuffer{2});
+    ASSERT_NO_THROW(CircularBuffer{4});
+    ASSERT_NO_THROW(CircularBuffer{8});
+    ASSERT_NO_THROW(CircularBuffer{16});
+    ASSERT_NO_THROW(CircularBuffer{32});
+    ASSERT_NO_THROW(CircularBuffer{64});
+    ASSERT_NO_THROW(CircularBuffer{128});
+    ASSERT_NO_THROW(CircularBuffer{256});
+    ASSERT_NO_THROW(CircularBuffer{512});
+    ASSERT_NO_THROW(CircularBuffer{1024});
+    ASSERT_NO_THROW(CircularBuffer{2048});
+    ASSERT_NO_THROW(CircularBuffer{4096});
 }
+
+TEST(CircularBufferTest, RejectsInvalidCapacity) {
+    ASSERT_THROW(CircularBuffer{0}, std::logic_error);
+    ASSERT_THROW(CircularBuffer{3}, std::logic_error);
+    ASSERT_THROW(CircularBuffer{6}, std::logic_error);
+}
+
+// 초기 상태
 
 TEST(CircularBufferTest, StartsEmpty) {
-    CircularBuffer rb{test_capacity};
+    CircularBuffer cb{test_capacity};
 
-    EXPECT_EQ(rb.capacity(), test_capacity);
-    EXPECT_EQ(rb.size(), 0u);
-    EXPECT_TRUE(rb.empty());
-    EXPECT_FALSE(rb.full());
-    EXPECT_EQ(rb.writable_size(), test_capacity);
-    EXPECT_TRUE(rb.readable_span().empty());
-    EXPECT_EQ(rb.writable_span().size(), test_capacity);
+    EXPECT_EQ(cb.capacity(), test_capacity);
+    EXPECT_EQ(cb.size(), 0u);
+    EXPECT_TRUE(cb.empty());
+    EXPECT_FALSE(cb.full());
+    EXPECT_TRUE(cb.readable_span().empty());
+    EXPECT_EQ(cb.writable_span().size(), test_capacity);
 }
 
-TEST(CircularBufferTest, ReportsStateAfterWrite) {
-    CircularBuffer rb{test_capacity};
+// 기본 왕복
+
+TEST(CircularBufferTest, RoundTripsBytes) {
+    CircularBuffer cb{test_capacity};
+
     auto pattern = make_pattern();
 
-    ASSERT_TRUE(rb.try_write(head(pattern, 3)));
+    ASSERT_TRUE(cb.write(head(pattern, 4)));
+    EXPECT_EQ(cb.size(), 4u);
 
-    EXPECT_EQ(rb.capacity(), test_capacity);
-    EXPECT_EQ(rb.size(), 3u);
-    EXPECT_FALSE(rb.empty());
-    EXPECT_FALSE(rb.full());
-    EXPECT_EQ(rb.writable_size(), test_capacity - 3u);
+    std::array<std::byte, 4> out{};
+
+    ASSERT_TRUE(cb.read(out));
+    EXPECT_TRUE(cb.empty());
+
+    expect_bytes_equal(std::span<std::byte const>{out}, head(pattern, 4));
 }
 
-TEST(CircularBufferTest, ReportsStateAfterWrappedWrite) {
-    CircularBuffer rb{test_capacity};
-    auto pattern = make_pattern();
-    std::array<std::byte, 5> drained{};
+// 연산 계약
 
-    ASSERT_TRUE(rb.try_write(head(pattern, 5)));
-    ASSERT_TRUE(rb.try_read(drained));
-    ASSERT_TRUE(rb.try_write(head(pattern, 4)));
+TEST(CircularBufferTest, ConsumesWithoutCopying) {
+    CircularBuffer cb{test_capacity};
 
-    EXPECT_EQ(rb.capacity(), test_capacity);
-    EXPECT_EQ(rb.size(), 4u);
-    EXPECT_FALSE(rb.empty());
-    EXPECT_FALSE(rb.full());
-    EXPECT_EQ(rb.writable_size(), 4u);
-}
-
-TEST(CircularBufferTest, ReportsFullState) {
-    CircularBuffer rb{test_capacity};
     auto pattern = make_pattern();
 
-    ASSERT_TRUE(rb.try_write(head(pattern, test_capacity)));
+    ASSERT_TRUE(cb.write(head(pattern, 4)));
+    EXPECT_EQ(cb.size(), 4u);
 
-    EXPECT_EQ(rb.capacity(), test_capacity);
-    EXPECT_EQ(rb.size(), test_capacity);
-    EXPECT_FALSE(rb.empty());
-    EXPECT_TRUE(rb.full());
-    EXPECT_EQ(rb.writable_size(), 0u);
-}
+    ASSERT_TRUE(cb.consume(2));
+    EXPECT_EQ(cb.size(), 2u);
 
-TEST(CircularBufferTest, ReportsFullStateAfterWrappedWrite) {
-    CircularBuffer rb{test_capacity};
-    auto pattern = make_pattern();
-    std::array<std::byte, 3> drained{};
-
-    ASSERT_TRUE(rb.try_write(head(pattern, 3)));
-    ASSERT_TRUE(rb.try_read(drained));
-    ASSERT_TRUE(rb.try_write(head(pattern, test_capacity)));
-
-    EXPECT_EQ(rb.capacity(), test_capacity);
-    EXPECT_EQ(rb.size(), test_capacity);
-    EXPECT_FALSE(rb.empty());
-    EXPECT_TRUE(rb.full());
-    EXPECT_EQ(rb.writable_size(), 0u);
-}
-
-TEST(CircularBufferTest, ReturnsCurrentReadableSpan) {
-    CircularBuffer rb{test_capacity};
-    auto pattern = make_pattern();
-
-    ASSERT_TRUE(rb.try_write(head(pattern, 4)));
-
-    expect_bytes_eq(rb.readable_span(), head(pattern, 4));
-    EXPECT_EQ(rb.size(), 4u);
-}
-
-TEST(CircularBufferTest, ReturnsCurrentWritableSpan) {
-    CircularBuffer rb{test_capacity};
-    auto pattern = make_pattern();
-
-    EXPECT_EQ(rb.writable_span().size(), test_capacity);
-
-    ASSERT_TRUE(rb.try_write(head(pattern, 5)));
-
-    EXPECT_EQ(rb.writable_span().size(), test_capacity - 5u);
-}
-
-TEST(CircularBufferTest, ReturnsContiguousReadableSpanAfterWrap) {
-    CircularBuffer rb{test_capacity};
-    auto pattern = make_pattern();
-    std::array<std::byte, 5> drained{};
-
-    ASSERT_TRUE(rb.try_write(head(pattern, 5)));
-    ASSERT_TRUE(rb.try_read(drained));
-
-    std::array<std::byte, 6> payload{
-        std::byte{0xa1}, std::byte{0xa2}, std::byte{0xa3},
-        std::byte{0xa4}, std::byte{0xa5}, std::byte{0xa6},
-    };
-
-    ASSERT_TRUE(rb.try_write(payload));
-
-    EXPECT_EQ(rb.size(), payload.size());
-    expect_bytes_eq(rb.readable_span(), head(payload, 3));
-}
-
-TEST(CircularBufferTest, PeeksWithoutConsumingData) {
-    CircularBuffer rb{test_capacity};
-    auto pattern = make_pattern();
-
-    ASSERT_TRUE(rb.try_write(head(pattern, 3)));
-
-    std::array<std::byte, 3> peeked1{};
-    std::array<std::byte, 3> peeked2{};
-    ASSERT_TRUE(rb.try_peek(peeked1));
-    ASSERT_TRUE(rb.try_peek(peeked2));
-
-    EXPECT_EQ(rb.size(), 3u);
-    expect_bytes_eq(std::span<std::byte const>{peeked1}, head(pattern, 3));
-    expect_bytes_eq(std::span<std::byte const>{peeked2}, head(pattern, 3));
-}
-
-TEST(CircularBufferTest, ReadsDataAndConsumesIt) {
-    CircularBuffer rb{test_capacity};
-    auto pattern = make_pattern();
-
-    ASSERT_TRUE(rb.try_write(head(pattern, 4)));
-
-    std::array<std::byte, 3> dst{};
-    ASSERT_TRUE(rb.try_read(dst));
-
-    EXPECT_EQ(rb.size(), 1u);
-    EXPECT_EQ(rb.writable_size(), test_capacity - 1u);
-    expect_bytes_eq(std::span<std::byte const>{dst}, head(pattern, 3));
-    expect_bytes_eq(rb.readable_span(), slice(pattern, 3, 1));
-}
-
-TEST(CircularBufferTest, RejectsReadWhenDataIsInsufficient) {
-    CircularBuffer rb{test_capacity};
-    std::array<std::byte, 1> one{std::byte{0xab}};
-
-    ASSERT_TRUE(rb.try_write(one));
-
-    std::array<std::byte, 2> dst{};
-    EXPECT_FALSE(rb.try_read(dst));
-
-    EXPECT_EQ(rb.size(), 1u);
-    expect_bytes_eq(rb.readable_span(), std::span<std::byte const>{one});
-}
-
-TEST(CircularBufferTest, ConsumesDataWithoutCopying) {
-    CircularBuffer rb{test_capacity};
-    auto pattern = make_pattern();
-
-    ASSERT_TRUE(rb.try_write(head(pattern, 4)));
-
-    ASSERT_TRUE(rb.try_consume(2));
-
-    EXPECT_EQ(rb.size(), 2u);
-    EXPECT_EQ(rb.writable_size(), test_capacity - 2u);
-    expect_bytes_eq(rb.readable_span(), slice(pattern, 2, 2));
-}
-
-TEST(CircularBufferTest, RejectsConsumeWhenDataIsInsufficient) {
-    CircularBuffer rb{test_capacity};
-    std::array<std::byte, 2> two{};
-
-    ASSERT_TRUE(rb.try_write(two));
-
-    EXPECT_FALSE(rb.try_consume(3));
-
-    EXPECT_EQ(rb.size(), 2u);
-    EXPECT_EQ(rb.writable_size(), test_capacity - 2u);
-}
-
-TEST(CircularBufferTest, WritesDataToTail) {
-    CircularBuffer rb{test_capacity};
-    auto pattern = make_pattern();
-
-    ASSERT_TRUE(rb.try_write(head(pattern, 2)));
-    ASSERT_TRUE(rb.try_write(slice(pattern, 2, 2)));
-
-    EXPECT_EQ(rb.size(), 4u);
-    EXPECT_EQ(rb.writable_size(), test_capacity - 4u);
-    expect_bytes_eq(rb.readable_span(), head(pattern, 4));
-}
-
-TEST(CircularBufferTest, RejectsWriteWhenSpaceIsInsufficient) {
-    CircularBuffer rb{test_capacity};
-    std::array<std::byte, test_capacity + 1> too_much{};
-
-    EXPECT_FALSE(rb.try_write(too_much));
-
-    EXPECT_TRUE(rb.empty());
-    EXPECT_EQ(rb.writable_size(), test_capacity);
+    expect_bytes_equal(cb.readable_span(), slice(pattern, 2, 2));
 }
 
 TEST(CircularBufferTest, CommitsBytesWrittenToWritableSpan) {
-    CircularBuffer rb{test_capacity};
-    auto region = rb.writable_span();
+    CircularBuffer cb{test_capacity};
+
+    auto region = cb.writable_span();
+
     ASSERT_GE(region.size(), 2u);
     region[0] = std::byte{0xab};
     region[1] = std::byte{0xcd};
 
-    ASSERT_TRUE(rb.try_commit(2));
+    ASSERT_TRUE(cb.commit(2));
+    EXPECT_EQ(cb.size(), 2u);
 
     std::array<std::byte, 2> expected{std::byte{0xab}, std::byte{0xcd}};
-    EXPECT_EQ(rb.size(), expected.size());
-    EXPECT_EQ(rb.writable_size(), test_capacity - expected.size());
-    expect_bytes_eq(rb.readable_span(), std::span<std::byte const>{expected});
+
+    expect_bytes_equal(cb.readable_span(), std::span<std::byte const>{expected});
 }
 
-TEST(CircularBufferTest, CommitsBytesWrittenAtWrapBoundary) {
-    CircularBuffer rb{test_capacity};
+TEST(CircularBufferTest, PeeksWithoutConsuming) {
+    CircularBuffer cb{test_capacity};
+
     auto pattern = make_pattern();
-    std::array<std::byte, 5> drained{};
 
-    ASSERT_TRUE(rb.try_write(head(pattern, 5)));
-    ASSERT_TRUE(rb.try_read(drained));
+    ASSERT_TRUE(cb.write(head(pattern, 4)));
+    EXPECT_EQ(cb.size(), 4u);
 
-    auto region = rb.writable_span();
-    ASSERT_EQ(region.size(), 3u);
-    region[0] = std::byte{0xab};
-    region[1] = std::byte{0xcd};
-    region[2] = std::byte{0xef};
+    std::array<std::byte, 4> out{};
 
-    ASSERT_TRUE(rb.try_commit(region.size()));
+    ASSERT_TRUE(cb.peek(out));
+    EXPECT_EQ(cb.size(), 4u);
 
-    std::array<std::byte, 3> expected{std::byte{0xab}, std::byte{0xcd}, std::byte{0xef}};
-    EXPECT_EQ(rb.size(), expected.size());
-    expect_bytes_eq(rb.readable_span(), std::span<std::byte const>{expected});
+    expect_bytes_equal(std::span<std::byte const>{out}, head(pattern, 4));
+}
+
+TEST(CircularBufferTest, ReadsOldestBytesAndKeepsTheRest) {
+    CircularBuffer cb{test_capacity};
+
+    auto pattern = make_pattern();
+
+    ASSERT_TRUE(cb.write(head(pattern, 5)));
+    EXPECT_EQ(cb.size(), 5u);
+
+    std::array<std::byte, 4> out{};
+
+    ASSERT_TRUE(cb.read(out));
+    EXPECT_EQ(cb.size(), 1u);
+
+    expect_bytes_equal(std::span<std::byte const>{out}, head(pattern, 4));
+
+    expect_bytes_equal(cb.readable_span(), slice(pattern, 4, 1));
+}
+
+TEST(CircularBufferTest, WritesAppendToTail) {
+    CircularBuffer cb{test_capacity};
+
+    auto pattern = make_pattern();
+
+    ASSERT_TRUE(cb.write(head(pattern, 2)));
+    EXPECT_EQ(cb.size(), 2u);
+
+    ASSERT_TRUE(cb.write(slice(pattern, 2, 2)));
+    EXPECT_EQ(cb.size(), 4u);
+
+    expect_bytes_equal(cb.readable_span(), head(pattern, 4));
+}
+
+TEST(CircularBufferTest, ClearsToEmpty) {
+    CircularBuffer cb{test_capacity};
+
+    auto pattern = make_pattern();
+
+    ASSERT_TRUE(cb.write(head(pattern, 5)));
+
+    ASSERT_TRUE(cb.consume(2));
+
+    cb.clear();
+
+    EXPECT_EQ(cb.size(), 0u);
+    EXPECT_TRUE(cb.empty());
+    EXPECT_FALSE(cb.full());
+    EXPECT_TRUE(cb.readable_span().empty());
+}
+
+// 경계/거부
+
+TEST(CircularBufferTest, RejectsConsumeWhenDataIsInsufficient) {
+    CircularBuffer cb{test_capacity};
+
+    std::array<std::byte, 2> two{};
+
+    ASSERT_TRUE(cb.write(two));
+    EXPECT_EQ(cb.size(), 2u);
+
+    ASSERT_FALSE(cb.consume(3));
+    EXPECT_EQ(cb.size(), 2u);
 }
 
 TEST(CircularBufferTest, RejectsCommitWhenWritableSpaceIsInsufficient) {
-    CircularBuffer rb{test_capacity};
+    CircularBuffer cb{test_capacity};
 
-    EXPECT_FALSE(rb.try_commit(test_capacity + 1));
-
-    EXPECT_TRUE(rb.empty());
-    EXPECT_EQ(rb.writable_size(), test_capacity);
+    ASSERT_FALSE(cb.commit(test_capacity + 1));
+    EXPECT_TRUE(cb.empty());
 }
 
-TEST(CircularBufferTest, ClearsBufferState) {
-    CircularBuffer rb{test_capacity};
-    std::array<std::byte, 3> three{};
+TEST(CircularBufferTest, RejectsReadWhenDataIsInsufficient) {
+    CircularBuffer cb{test_capacity};
 
-    ASSERT_TRUE(rb.try_write(three));
-    ASSERT_TRUE(rb.try_consume(1));
+    std::array<std::byte, 1> one{std::byte{0xab}};
 
-    rb.clear();
+    ASSERT_TRUE(cb.write(one));
+    EXPECT_EQ(cb.size(), 1u);
 
-    EXPECT_TRUE(rb.empty());
-    EXPECT_FALSE(rb.full());
-    EXPECT_EQ(rb.size(), 0u);
-    EXPECT_EQ(rb.writable_size(), test_capacity);
+    std::array<std::byte, 2> out{};
+
+    ASSERT_FALSE(cb.read(out));
+    EXPECT_EQ(cb.size(), 1u);
+
+    expect_bytes_equal(cb.readable_span(), std::span<std::byte const>{one});
 }
 
-TEST(CircularBufferTest, ResetsBufferState) {
-    CircularBuffer rb{test_capacity};
-    std::array<std::byte, 3> three{};
+TEST(CircularBufferTest, RejectsWriteWhenSpaceIsInsufficient) {
+    CircularBuffer cb{test_capacity};
 
-    ASSERT_TRUE(rb.try_write(three));
+    std::array<std::byte, test_capacity + 1> too_much{};
 
-    rb.reset();
+    ASSERT_FALSE(cb.write(too_much));
+    EXPECT_TRUE(cb.empty());
+}
 
-    EXPECT_TRUE(rb.empty());
-    EXPECT_FALSE(rb.full());
-    EXPECT_EQ(rb.size(), 0u);
-    EXPECT_EQ(rb.writable_size(), test_capacity);
+// 상태 회계
+
+TEST(CircularBufferTest, ReportsFullState) {
+    CircularBuffer cb{test_capacity};
+
+    auto pattern = make_pattern();
+
+    ASSERT_TRUE(cb.write(pattern));
+    EXPECT_EQ(cb.capacity(), test_capacity);
+    EXPECT_EQ(cb.size(), test_capacity);
+    EXPECT_FALSE(cb.empty());
+    EXPECT_TRUE(cb.full());
+}
+
+// wrap
+
+void rotate(CircularBuffer& cb, std::span<std::byte const> filler) {
+    ASSERT_TRUE(cb.empty());
+    ASSERT_TRUE(cb.write(filler));
+    ASSERT_TRUE(cb.consume(filler.size()));
+    ASSERT_TRUE(cb.empty());
 }
 
 TEST(CircularBufferTest, RoundTripsBytesAcrossWrapBoundary) {
-    CircularBuffer rb{test_capacity};
+    CircularBuffer cb{test_capacity};
+
     auto pattern = make_pattern();
-    std::array<std::byte, 5> drained{};
 
-    ASSERT_TRUE(rb.try_write(head(pattern, 5)));
-    ASSERT_TRUE(rb.try_read(drained));
+    rotate(cb, head(pattern, 5));
 
-    std::array<std::byte, 6> payload{
+    std::array<std::byte, 6> in{
         std::byte{0xa1}, std::byte{0xa2}, std::byte{0xa3},
         std::byte{0xa4}, std::byte{0xa5}, std::byte{0xa6},
     };
 
-    ASSERT_TRUE(rb.try_write(payload));
+    ASSERT_TRUE(cb.write(in));
+    EXPECT_EQ(cb.size(), 6u);
 
-    std::array<std::byte, 6> dst{};
-    ASSERT_TRUE(rb.try_read(dst));
+    std::array<std::byte, 6> out{};
 
-    expect_bytes_eq(std::span<std::byte const>{dst}, std::span<std::byte const>{payload});
-    EXPECT_TRUE(rb.empty());
+    ASSERT_TRUE(cb.read(out));
+    EXPECT_TRUE(cb.empty());
+
+    expect_bytes_equal(std::span<std::byte const>{out}, std::span<std::byte const>{in});
 }
 
-TEST(CircularBufferTest, PreservesContentsAcrossRepeatedWraps) {
-    CircularBuffer rb{test_capacity};
-    std::array<std::byte, 3> chunk{
-        std::byte{0xa1},
-        std::byte{0xb2},
-        std::byte{0xc3},
+TEST(CircularBufferTest, ReturnsContiguousReadableSpanAfterWrap) {
+    CircularBuffer cb{test_capacity};
+
+    auto pattern = make_pattern();
+
+    rotate(cb, head(pattern, 5));
+
+    std::array<std::byte, 6> in{
+        std::byte{0xa1}, std::byte{0xa2}, std::byte{0xa3},
+        std::byte{0xa4}, std::byte{0xa5}, std::byte{0xa6},
     };
 
-    for (int i = 0; i < 100; ++i) {
-        ASSERT_TRUE(rb.try_write(chunk));
+    ASSERT_TRUE(cb.write(in));
+    EXPECT_EQ(cb.size(), 6u);
 
-        std::array<std::byte, 3> dst{};
-        ASSERT_TRUE(rb.try_read(dst));
-        expect_bytes_eq(std::span<std::byte const>{dst}, std::span<std::byte const>{chunk});
+    expect_bytes_equal(cb.readable_span(), head(in, 3));
+}
+
+TEST(CircularBufferTest, ClampsWritableSpanAtWrapBoundary) {
+    CircularBuffer cb{test_capacity};
+
+    auto pattern = make_pattern();
+
+    rotate(cb, head(pattern, 5));
+
+    auto region = cb.writable_span();
+
+    ASSERT_EQ(region.size(), 3u);
+
+    region[0] = std::byte{0xab};
+    region[1] = std::byte{0xcd};
+    region[2] = std::byte{0xef};
+
+    ASSERT_TRUE(cb.commit(3));
+
+    std::array<std::byte, 3> expected{std::byte{0xab}, std::byte{0xcd}, std::byte{0xef}};
+
+    expect_bytes_equal(cb.readable_span(), std::span<std::byte const>{expected});
+}
+
+// 왕복 스트레스
+
+std::byte stream_byte(std::size_t i) {
+    return static_cast<std::byte>(i & 0xFF);
+}
+
+TEST(CircularBufferTest, PreservesByteStreamAcrossArbitraryChunking) {
+    CircularBuffer cb{test_capacity};
+
+    std::size_t pos = 0;
+
+    for (std::size_t rep = 0; rep < 500; ++rep) {
+        std::size_t const chunk = rep % test_capacity + 1; // 1~8
+
+        std::array<std::byte, test_capacity> in{};
+
+        for (std::size_t i = 0; i < chunk; ++i) {
+            in[i] = stream_byte(pos + i);
+        }
+
+        ASSERT_TRUE(cb.write({in.data(), chunk}));
+
+        std::array<std::byte, test_capacity> out{};
+
+        ASSERT_TRUE(cb.read({out.data(), chunk}));
+
+        for (std::size_t i = 0; i < chunk; ++i) {
+            ASSERT_EQ(out[i], stream_byte(pos + i));
+        }
+
+        pos += chunk;
     }
 
-    EXPECT_TRUE(rb.empty());
+    EXPECT_TRUE(cb.empty());
 }
 
 } // namespace

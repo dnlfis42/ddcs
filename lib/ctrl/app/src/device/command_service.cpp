@@ -1,10 +1,11 @@
 #include "ddcs/ctrl/app/device/command_service.hpp"
 
-#include "ddcs/logger/log.hpp"
+#include "ddcs/logger/event.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -36,7 +37,7 @@ std::size_t CommandService::pending_count() const noexcept {
 }
 
 port::CommandId CommandService::dispatch(
-    domain::DeviceId device, port::Command command, common::Clock::time_point now
+    domain::DeviceId device, wire::command::Command command, common::Clock::time_point now
 ) {
     auto& device_commands = pending_[device];
     // supersede: 의도 교체는 송신 성패와 무관하게 dispatch 순간 일어난다.
@@ -47,37 +48,29 @@ port::CommandId CommandService::dispatch(
     );
     if (old_slot != device_commands.slots.end()) {
         ++metrics_.superseded_total;
-        LOG_INFO(
-            "command.superseded", logger::kv("command", old_slot->id.get()),
-            logger::kv("device", device.to_string())
-        );
+        LOG_COMMAND_SUPERSEDE(device.to_string(), old_slot->id.get());
         device_commands.slots.erase(old_slot);
     }
 
     port::CommandId const command_id{next_command_id_++};
-    if (!sender_.try_send(device, command_id, command)) {
-        LOG_WARN("command.dispatch.fail", logger::kv("device", device.to_string()));
+    if (auto const sent = sender_.send(device, command_id, command); sent != port::SendResult::ok) {
+        LOG_COMMAND_DISPATCH_FAIL(device.to_string(), command_id.get(), port::to_string(sent));
         if (device_commands.slots.empty()) {
             pending_.erase(device); // 빈 항목 잔류 방지
         }
         return {};
     }
-    device_commands.slots.push_back(
-        Slot{
-            .id = command_id,
-            .command = std::move(command),
-            .dispatched_at = now,
-            .next_at = after(now, command_timeout_),
-            .attempts = 1,
-            .phase = Phase::in_flight,
-        }
-    );
+    device_commands.slots.push_back(Slot{
+        .id = command_id,
+        .command = std::move(command),
+        .dispatched_at = now,
+        .next_at = after(now, command_timeout_),
+        .attempts = 1,
+        .phase = Phase::in_flight,
+    });
     ++metrics_.dispatched_total;
 
-    LOG_INFO(
-        "command.dispatch", logger::kv("device", device.to_string()),
-        logger::kv("command", command_id.get())
-    );
+    LOG_COMMAND_DISPATCH(device.to_string(), command_id.get());
     return command_id;
 }
 
@@ -87,31 +80,29 @@ void CommandService::acknowledge(
     Slot* const slot = find_slot(device, command_id);
     if (slot == nullptr) {
         ++metrics_.stale_total;
-        LOG_DEBUG("command.stale", logger::kv("command", command_id.get()));
+        LOG_COMMAND_STALE_RESPONSE(device.to_string(), command_id.get());
         return;
     }
 
     slot->phase = Phase::in_flight;
     slot->next_at = after(now, command_timeout_); // 작동 확인 후 outcome까지 연장
-    LOG_INFO("command.ack", logger::kv("command", command_id.get()));
+    LOG_COMMAND_ACK(device.to_string(), command_id.get(), slot->attempts);
 }
 
 void CommandService::settle(
-    domain::DeviceId device, port::CommandId command_id, bool success, std::string_view reason,
+    domain::DeviceId device, port::CommandId command_id, bool success, std::uint8_t code,
     common::Clock::time_point now
 ) {
     Slot* const slot = find_slot(device, command_id);
     if (slot == nullptr) {
         ++metrics_.stale_total;
-        LOG_DEBUG("command.stale", logger::kv("command", command_id.get()));
+        LOG_COMMAND_STALE_RESPONSE(device.to_string(), command_id.get());
         return;
     }
 
     if (!success) {
-        LOG_WARN(
-            "command.nack", logger::kv("command", command_id.get()), logger::kv("reason", reason)
-        );
-        fail_attempt(device, command_id, now); // NACK 시 재시도 또는 포기
+        LOG_COMMAND_REJECT(device.to_string(), command_id.get(), static_cast<std::uint64_t>(code));
+        fail_attempt(device, command_id, now, "reject"); // 거부면 재시도 또는 포기
         return;
     }
 
@@ -128,7 +119,7 @@ void CommandService::settle(
         ++bucket;
     }
     ++metrics_.rtt_buckets[bucket];
-    LOG_INFO("command.outcome", logger::kv("command", command_id.get()));
+    LOG_COMMAND_COMPLETE(device.to_string(), command_id.get(), rtt_ms);
     close_slot(device, command_id); // 성공 확정 시 미결 종료
 }
 
@@ -150,11 +141,8 @@ void CommandService::sweep(common::Clock::time_point now) {
 
         if (slot->phase == Phase::in_flight) {
             ++metrics_.timed_out_total;
-            LOG_WARN(
-                "command.timeout", logger::kv("command", command_id.get()),
-                logger::kv("device", device.to_string())
-            );
-            fail_attempt(device, command_id, now);
+            LOG_COMMAND_TIMEOUT(device.to_string(), command_id.get(), slot->attempts);
+            fail_attempt(device, command_id, now, "timeout");
         } else {
             resend(device, command_id, now); // backoff 경과 시 동일 id 재전송
         }
@@ -162,7 +150,8 @@ void CommandService::sweep(common::Clock::time_point now) {
 }
 
 void CommandService::fail_attempt(
-    domain::DeviceId device, port::CommandId command_id, common::Clock::time_point now
+    domain::DeviceId device, port::CommandId command_id, common::Clock::time_point now,
+    std::string_view reason
 ) {
     Slot* const slot = find_slot(device, command_id);
     if (slot == nullptr) {
@@ -171,10 +160,7 @@ void CommandService::fail_attempt(
 
     if (slot->attempts >= max_attempts_) {
         ++metrics_.gave_up_total;
-        LOG_WARN(
-            "command.gave_up", logger::kv("command", command_id.get()),
-            logger::kv("device", device.to_string()), logger::kv("attempts", slot->attempts)
-        );
+        LOG_COMMAND_FAIL(device.to_string(), command_id.get(), slot->attempts, reason);
         close_slot(device, command_id);
         return;
     }
@@ -191,11 +177,11 @@ void CommandService::resend(
         return;
     }
 
-    if (!sender_.try_send(device, slot->id, slot->command)) {
+    if (auto const sent = sender_.send(device, slot->id, slot->command);
+        sent != port::SendResult::ok) {
         ++metrics_.gave_up_total;
-        LOG_WARN(
-            "command.gave_up", logger::kv("command", command_id.get()),
-            logger::kv("device", device.to_string()), logger::kv("reason", "send_fail")
+        LOG_COMMAND_FAIL(
+            device.to_string(), command_id.get(), slot->attempts, port::to_string(sent)
         );
         close_slot(device, command_id);
         return;
@@ -205,10 +191,7 @@ void CommandService::resend(
     slot->attempts += 1;
     slot->phase = Phase::in_flight;
     slot->next_at = after(now, command_timeout_);
-    LOG_INFO(
-        "command.retry", logger::kv("command", command_id.get()),
-        logger::kv("device", device.to_string()), logger::kv("attempt", slot->attempts)
-    );
+    LOG_COMMAND_RETRY(device.to_string(), command_id.get(), slot->attempts);
 }
 
 std::chrono::nanoseconds CommandService::backoff_for(int attempt) const noexcept {

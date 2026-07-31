@@ -14,22 +14,42 @@
 
 namespace ddcs::net {
 
-// 비차단(edge-triggered) 소켓 스트림 I/O 결과. agent/ctrl transport Connection이 공유한다.
-// 상태 전이는 하지 않고 syscall 결과만 보고한다. (전이는 호출부 책임)
-enum class StreamResult : std::uint8_t {
-    ok,          // transmit: tx 큐를 모두 비움
-    full,        // receive: rx 버퍼가 가득 참 (framing으로 비운 뒤 재시도)
-    would_block, // EAGAIN/EWOULDBLOCK: 더 진행 불가, 정상
-    peer_closed, // receive: FIN (recv가 0)
-    error,       // 복구 불가
+// 비차단(edge-triggered) 소켓 수신 결과
+//
+// 방향마다 낼 수 있는 결과가 달라 타입을 나눠 둔다. 한 enum이 양방향을 겸하면 호출부가
+// 도달 불가한 case를 적게 되고, 그 분기를 지키는 런타임 검사까지 딸려 온다.
+struct ReceiveResult {
+    enum class Code : std::uint8_t {
+        would_block, // EAGAIN/EWOULDBLOCK: 더 읽을 것 없음, 정상 (커널 backpressure)
+        full,        // rx 버퍼가 가득 참 (앱 backpressure)
+        peer_closed, // FIN (recv가 0)
+        error,       // 복구 불가
+    };
+
+    Code code;
+    int err = 0; // code == error인 syscall 실패의 errno. 0이면 내부 오류
 };
 
-// ET: 더 읽을 게 없을 때(EAGAIN)까지 fd를 rx 버퍼로 소진한다.
-[[nodiscard]] inline StreamResult receive_into(int fd, common::CircularBuffer& rx) noexcept {
+// 비차단(edge-triggered) 소켓 송신 결과
+struct TransmitResult {
+    enum class Code : std::uint8_t {
+        drained,     // tx 큐를 모두 비움
+        would_block, // EAGAIN/EWOULDBLOCK: 커널 송신 버퍼 포화
+        error,       // 복구 불가
+    };
+
+    Code code;
+    int err = 0; // code == error인 syscall 실패의 errno. 0이면 내부 오류
+};
+
+// ET: 더 읽을 게 없을 때(EAGAIN)까지 fd를 buf로 소진한다.
+//
+// 상태 전이는 하지 않고 syscall 결과만 보고한다.
+[[nodiscard]] inline ReceiveResult receive_into(int fd, common::CircularBuffer& buf) noexcept {
     for (;;) {
-        auto dst = rx.writable_span();
+        auto dst = buf.writable_span();
         if (dst.empty()) {
-            return StreamResult::full;
+            return {.code = ReceiveResult::Code::full};
         }
 
         ssize_t n;
@@ -38,31 +58,33 @@ enum class StreamResult : std::uint8_t {
         } while (n < 0 && errno == EINTR);
 
         if (n > 0) {
-            if (!rx.try_commit(static_cast<std::size_t>(n))) {
-                return StreamResult::error;
+            if (!buf.commit(static_cast<std::size_t>(n))) {
+                return {.code = ReceiveResult::Code::error};
             }
             continue;
         }
         if (n == 0) {
-            return StreamResult::peer_closed; // FIN
+            return {.code = ReceiveResult::Code::peer_closed}; // FIN
         }
 
         int const err = errno;
         if (err == EAGAIN || err == EWOULDBLOCK) {
-            return StreamResult::would_block;
+            return {.code = ReceiveResult::Code::would_block};
         }
-        return StreamResult::error;
+        return {.code = ReceiveResult::Code::error, .err = err};
     }
 }
 
-// ET: 커널 송신 버퍼가 막힐 때(EAGAIN)까지 tx 큐를 비운다.
-[[nodiscard]] inline StreamResult
-transmit_from(int fd, std::queue<common::PoolHandle<common::LinearBuffer>>& tx) noexcept {
-    while (!tx.empty()) {
-        auto& buffer = *tx.front();
+// ET: 커널 송신 버퍼가 막힐 때(EAGAIN)까지 que를 비운다.
+//
+// 상태 전이는 하지 않고 syscall 결과만 보고한다.
+[[nodiscard]] inline TransmitResult
+transmit_from(int fd, std::queue<common::PoolHandle<common::LinearBuffer>>& que) noexcept {
+    while (!que.empty()) {
+        auto& buffer = *que.front();
         auto data = buffer.data_span();
         if (data.empty()) {
-            tx.pop();
+            que.pop();
             continue;
         }
 
@@ -72,27 +94,27 @@ transmit_from(int fd, std::queue<common::PoolHandle<common::LinearBuffer>>& tx) 
         } while (n < 0 && errno == EINTR);
 
         if (n > 0) {
-            if (!buffer.try_consume(static_cast<std::size_t>(n))) {
-                return StreamResult::error;
+            if (!buffer.consume(static_cast<std::size_t>(n))) {
+                return {.code = TransmitResult::Code::error};
             }
             if (buffer.size() == 0) {
-                tx.pop();
+                que.pop();
             }
             continue;
         }
         if (n == 0) {
             // send()가 0을 반환하는 경우는 사실상 없지만 errno가 설정되지 않으므로
             // 아래의 stale errno 판독을 막기 위해 명시적으로 처리한다.
-            return StreamResult::error;
+            return {.code = TransmitResult::Code::error};
         }
 
         int const err = errno;
         if (err == EAGAIN || err == EWOULDBLOCK) {
-            return StreamResult::would_block; // 커널 버퍼 포화 시 writable 무장
+            return {.code = TransmitResult::Code::would_block}; // 커널 버퍼 포화 시 writable 대기
         }
-        return StreamResult::error;
+        return {.code = TransmitResult::Code::error, .err = err};
     }
-    return StreamResult::ok;
+    return {.code = TransmitResult::Code::drained};
 }
 
 } // namespace ddcs::net

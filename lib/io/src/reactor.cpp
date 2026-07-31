@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <limits>
 #include <memory>
 
@@ -73,13 +74,8 @@ constexpr std::chrono::milliseconds wait_forever{-1};
 } // namespace
 
 struct Reactor::Impl {
-    enum class State : std::uint8_t {
-        ready = 0x01,
-        running = 0x02,
-    };
-
-    io::Fd epoll_fd;
-    State state = State::ready;
+    Fd epoll_fd;
+    bool running = false;
     detail::ChannelRegistry channel_registry;
 };
 
@@ -88,27 +84,37 @@ Reactor::Reactor()
     int const fd = ::epoll_create1(EPOLL_CLOEXEC);
     if (fd < 0) {
         int const err = errno;
-        io::throw_errno(err, "epoll_create1");
+        throw_errno(err, "epoll_create1");
     }
 
     impl_->epoll_fd.reset(fd);
-    impl_->state = Impl::State::ready;
 }
 
 Reactor::~Reactor() = default;
 
 void Reactor::run() {
-    assert(impl_->state == Impl::State::ready);
+    // 재진입하면 안쪽 run()이 끝날 때 ClearRunning이 플래그를 내려 바깥 루프까지 멈춘다.
+    // assert만 두면 release에서 그 오동작이 조용히 일어나므로 여기서 끝낸다.
+    if (impl_->running) {
+        assert(false && "run() is not reentrant");
+        std::terminate();
+    }
 
-    impl_->state = Impl::State::running;
-    while (impl_->state == Impl::State::running) {
+    impl_->running = true;
+    // 게스트 콜백 예외가 run_once를 관통해도 Reactor를 재사용 가능한 상태로 남긴다.
+    struct ClearRunning {
+        Impl* impl;
+        ~ClearRunning() {
+            impl->running = false;
+        }
+    } const clear_running{impl_.get()};
+
+    while (impl_->running) {
         run_once(wait_forever);
     }
 }
 
 void Reactor::run_once(std::chrono::milliseconds timeout) {
-    assert(impl_->state == Impl::State::ready || impl_->state == Impl::State::running);
-
     std::array<epoll_event, max_epoll_events> events{};
 
     int const n = ::epoll_wait(
@@ -120,12 +126,12 @@ void Reactor::run_once(std::chrono::milliseconds timeout) {
         if (err == EINTR) {
             return;
         }
-        io::throw_errno(err, "epoll_wait");
+        throw_errno(err, "epoll_wait");
     }
 
     for (std::size_t i = 0; i < static_cast<std::size_t>(n); ++i) {
         auto const& event = events[i];
-        // CAUTION: generation token이 어긋나면 fd 재사용 뒤의 stale 이벤트이므로 건너뛴다
+        // generation token이 어긋나면 fd 재사용 뒤의 stale 이벤트이므로 건너뛴다.
         if (auto* channel = impl_->channel_registry.resolve(event.data.u64)) {
             channel->handler().on_ready(*channel, to_channel_events(event.events));
         }
@@ -133,21 +139,19 @@ void Reactor::run_once(std::chrono::milliseconds timeout) {
 }
 
 void Reactor::stop() noexcept {
-    if (impl_->state == Impl::State::running) {
-        impl_->state = Impl::State::ready;
-    }
+    impl_->running = false;
 }
 
 bool Reactor::running() const noexcept {
-    return impl_->state == Impl::State::running;
+    return impl_->running;
 }
 
-bool Reactor::add(Channel& channel) {
+SysResult Reactor::add(Channel& channel) {
     if (channel.registered()) {
-        return true;
+        return SysResult::success();
     }
     if (!channel.valid()) {
-        return false;
+        return SysResult::fail();
     }
 
     epoll_event ev{};
@@ -155,17 +159,18 @@ bool Reactor::add(Channel& channel) {
     ev.data.u64 = impl_->channel_registry.insert(channel);
 
     if (::epoll_ctl(impl_->epoll_fd.get(), EPOLL_CTL_ADD, channel.fd(), &ev) != 0) {
+        auto const result = SysResult::fail(errno); // registry 정리 전에 캡처
         (void)impl_->channel_registry.erase(channel);
-        return false;
+        return result;
     }
 
     channel.mark_registered();
-    return true;
+    return SysResult::success();
 }
 
-bool Reactor::modify(Channel& channel, ChannelEvents interests) {
+SysResult Reactor::modify(Channel& channel, ChannelEvents interests) {
     if (!channel.registered()) {
-        return false;
+        return SysResult::fail();
     }
 
     epoll_event ev{};
@@ -173,11 +178,11 @@ bool Reactor::modify(Channel& channel, ChannelEvents interests) {
     ev.data.u64 = impl_->channel_registry.token(channel);
 
     if (::epoll_ctl(impl_->epoll_fd.get(), EPOLL_CTL_MOD, channel.fd(), &ev) != 0) {
-        return false;
+        return SysResult::fail(errno);
     }
 
     channel.set_interests(interests);
-    return true;
+    return SysResult::success();
 }
 
 void Reactor::remove(Channel& channel) noexcept {

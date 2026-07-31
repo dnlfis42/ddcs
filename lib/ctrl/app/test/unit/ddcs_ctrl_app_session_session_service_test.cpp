@@ -13,13 +13,13 @@
 #include "ddcs/ctrl/app/session/session_registry.hpp"
 #include "ddcs/ctrl/app/transport/port/connection_id.hpp"
 #include "ddcs/ctrl/app/transport/port/connection_listener.hpp"
-#include "ddcs/ctrl/app/transport/port/disconnect_reason.hpp"
 #include "ddcs/ctrl/app/transport/port/disconnector.hpp"
 #include "ddcs/ctrl/app/transport/port/message_buffer.hpp"
 #include "ddcs/ctrl/app/transport/port/message_sender.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/domain/group_policy.hpp"
+#include "ddcs/wire/command/command.hpp"
 #include "ddcs/wire/message/message.hpp"
 
 #include <array>
@@ -29,6 +29,7 @@
 #include <span>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -85,18 +86,15 @@ public:
 
     void send(ConnectionId conn, MessageBuffer message) override {
         auto const readable = message->data_span();
-        sent.push_back(
-            Sent{
-                .conn = conn,
-                .payload = std::vector<std::byte>{readable.begin(), readable.end()},
-            }
-        );
+        sent.push_back(Sent{
+            .conn = conn,
+            .payload = std::vector<std::byte>{readable.begin(), readable.end()},
+        });
     }
 
 private:
-    ObjectPool<LinearBuffer> pool_{
-        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256})
-    };
+    ObjectPool<LinearBuffer> pool_{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256
+    })};
 };
 
 // infra처럼 disconnect가 동기로 on_disconnected를 되부르는 대역
@@ -106,10 +104,10 @@ public:
 
     std::vector<ConnectionId> disconnected;
 
-    void disconnect(ConnectionId id) override {
+    void disconnect(ConnectionId id, DisconnectReason) override {
         disconnected.push_back(id);
         if (listener != nullptr) {
-            listener->on_disconnected(id, DisconnectReason::local_drop);
+            listener->on_disconnected(id, DisconnectReason::shutdown);
         }
     }
 };
@@ -117,10 +115,10 @@ public:
 // device 세션 종료 통지를 기록하는 대역
 class FakeReleaseSink final : public ddcs::ctrl::app::device::port::DeviceReleaseSink {
 public:
-    std::vector<DeviceId> left;
+    std::vector<DeviceId> released;
 
-    void on_device_left(DeviceId device) override {
-        left.push_back(device);
+    void on_device_released(DeviceId device) override {
+        released.push_back(device);
     }
 };
 
@@ -165,7 +163,7 @@ struct ServiceFixture {
         auto const w = msg::encode_register_request(buf->tailroom_span(), id, group);
         EXPECT_TRUE(w.has_value());
         if (w) {
-            EXPECT_TRUE(buf->try_commit(*w));
+            EXPECT_TRUE(buf->commit(*w));
         }
         return buf;
     }
@@ -174,7 +172,7 @@ struct ServiceFixture {
         auto const w = msg::encode_register_ack(buf->tailroom_span());
         EXPECT_TRUE(w.has_value());
         if (w) {
-            EXPECT_TRUE(buf->try_commit(*w));
+            EXPECT_TRUE(buf->commit(*w));
         }
         return buf;
     }
@@ -183,16 +181,16 @@ struct ServiceFixture {
         auto const w = msg::encode_heartbeat(buf->tailroom_span());
         EXPECT_TRUE(w.has_value());
         if (w) {
-            EXPECT_TRUE(buf->try_commit(*w));
+            EXPECT_TRUE(buf->commit(*w));
         }
         return buf;
     }
     MessageBuffer payload_status(std::uint8_t mode, double load, double temp) {
         auto buf = body_pool.acquire();
-        auto const w = msg::encode_status(buf->tailroom_span(), mode, load, temp);
+        auto const w = msg::encode_status_report(buf->tailroom_span(), mode, load, temp);
         EXPECT_TRUE(w.has_value());
         if (w) {
-            EXPECT_TRUE(buf->try_commit(*w));
+            EXPECT_TRUE(buf->commit(*w));
         }
         return buf;
     }
@@ -201,7 +199,7 @@ struct ServiceFixture {
         auto const w = msg::encode_command_ack(buf->tailroom_span(), command_id);
         EXPECT_TRUE(w.has_value());
         if (w) {
-            EXPECT_TRUE(buf->try_commit(*w));
+            EXPECT_TRUE(buf->commit(*w));
         }
         return buf;
     }
@@ -211,7 +209,7 @@ struct ServiceFixture {
         auto const w = msg::encode_command_outcome(buf->tailroom_span(), command_id, code);
         EXPECT_TRUE(w.has_value());
         if (w) {
-            EXPECT_TRUE(buf->try_commit(*w));
+            EXPECT_TRUE(buf->commit(*w));
         }
         return buf;
     }
@@ -219,9 +217,9 @@ struct ServiceFixture {
     MessageBuffer payload_raw(std::uint8_t type, std::string_view body) {
         auto buf = body_pool.acquire();
         std::array<std::byte, 1> const t{std::byte{type}};
-        EXPECT_TRUE(buf->try_append(t));
+        EXPECT_TRUE(buf->append(t));
         if (!body.empty()) {
-            EXPECT_TRUE(buf->try_append(as_bytes(body)));
+            EXPECT_TRUE(buf->append(as_bytes(body)));
         }
         return buf;
     }
@@ -245,11 +243,11 @@ struct ServiceFixture {
     msg::RegisterOutcome::Code last_outcome_code() {
         EXPECT_FALSE(outbox.sent.empty());
         auto const& p = outbox.sent.back().payload;
-        std::span<std::byte const> const bytes{p.data(), p.size()};
-        EXPECT_EQ(msg::message_type(bytes), msg::MessageType::register_outcome);
-        auto const outcome = msg::decode_register_outcome(bytes.subspan(1));
-        EXPECT_TRUE(outcome.has_value());
-        return outcome ? outcome->code : msg::RegisterOutcome::Code::failed;
+        auto const message = msg::decode_message({p.data(), p.size()});
+        EXPECT_TRUE(message.has_value());
+        auto const* outcome = message ? std::get_if<msg::RegisterOutcome>(&*message) : nullptr;
+        EXPECT_NE(outcome, nullptr);
+        return outcome != nullptr ? outcome->code : msg::RegisterOutcome::Code::failed;
     }
 };
 
@@ -279,8 +277,8 @@ TEST(SessionServiceTest, DisconnectOfBoundDeviceNotifiesReleaseSink) {
 
     f.service.on_disconnected(ConnectionId{1}, DisconnectReason::peer_closed);
 
-    ASSERT_EQ(f.release_sink.left.size(), 1u); // policy가 per-device 제어 상태를 폐기하도록
-    EXPECT_EQ(f.release_sink.left[0], device);
+    ASSERT_EQ(f.release_sink.released.size(), 1u); // policy가 per-device 제어 상태를 폐기하도록
+    EXPECT_EQ(f.release_sink.released[0], device);
 }
 
 TEST(SessionServiceTest, DisconnectOfUnboundConnectionDoesNotNotifyReleaseSink) {
@@ -289,7 +287,7 @@ TEST(SessionServiceTest, DisconnectOfUnboundConnectionDoesNotNotifyReleaseSink) 
 
     f.service.on_disconnected(ConnectionId{1}, DisconnectReason::peer_closed);
 
-    EXPECT_TRUE(f.release_sink.left.empty()); // 바인딩 안 된 세션은 폐기할 device가 없다
+    EXPECT_TRUE(f.release_sink.released.empty()); // 바인딩 안 된 세션은 폐기할 device가 없다
 }
 
 TEST(SessionServiceTest, KickOldNotifiesReleaseSinkForReplacedDevice) {
@@ -301,8 +299,8 @@ TEST(SessionServiceTest, KickOldNotifiesReleaseSinkForReplacedDevice) {
     f.service.on_connected(ConnectionId{2});
     f.deliver(ConnectionId{2}, f.payload_register_request(make_uuid(0xAA), "g"));
 
-    ASSERT_EQ(f.release_sink.left.size(), 1u);
-    EXPECT_EQ(f.release_sink.left[0], device);
+    ASSERT_EQ(f.release_sink.released.size(), 1u);
+    EXPECT_EQ(f.release_sink.released[0], device);
 }
 
 TEST(SessionServiceTest, RegisterRequestBindsAndSendsSuccessOutcome) {
@@ -425,9 +423,10 @@ TEST(SessionServiceTest, StatusUpdatesShadowAndLiveness) {
 
     EXPECT_EQ(f.sessions.find(ConnectionId{1})->last_seen(), f.clock.now());
     ASSERT_NE(f.devices.find(device), nullptr);
-    EXPECT_EQ(f.devices.find(device)->status.mode, ddcs::device::Mode::performance);
-    EXPECT_EQ(f.devices.find(device)->status.load, 75.5);
-    EXPECT_EQ(f.devices.find(device)->status.temp, 50.25);
+    ASSERT_TRUE(f.devices.find(device)->status.has_value());
+    EXPECT_EQ(f.devices.find(device)->status->mode, ddcs::device::Mode::performance);
+    EXPECT_EQ(f.devices.find(device)->status->load, 75.5);
+    EXPECT_EQ(f.devices.find(device)->status->temp, 50.25);
 }
 
 TEST(SessionServiceTest, CommandAckAndOutcomeSettlePending) {
@@ -435,7 +434,10 @@ TEST(SessionServiceTest, CommandAckAndOutcomeSettlePending) {
     DeviceId const device = f.register_active(1, 0xAA);
 
     auto const command_id = f.commands.dispatch(
-        device, ddcs::ctrl::app::device::port::SetMode{.mode = ddcs::device::Mode::performance},
+        device,
+        ddcs::wire::command::SetMode{
+            .mode = ddcs::device::encode_mode(ddcs::device::Mode::performance)
+        },
         f.clock.now()
     );
     ASSERT_TRUE(command_id.valid());
@@ -458,7 +460,7 @@ TEST(SessionServiceTest, BrokenActivePayloadKicks) {
     f.register_active(1, 0xAA);
 
     // Status schema(17B)에 못 미치는 본문
-    f.deliver(ConnectionId{1}, f.payload_raw(type_byte(msg::MessageType::status), "xx"));
+    f.deliver(ConnectionId{1}, f.payload_raw(type_byte(msg::MessageType::status_report), "xx"));
 
     ASSERT_EQ(f.disconnector.disconnected.size(), 1u);
     EXPECT_EQ(f.sessions.size(), 0u);

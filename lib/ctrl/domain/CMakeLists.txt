@@ -12,7 +12,6 @@ target_sources(
                 include/ddcs/ctrl/domain/device_registry.hpp
                 include/ddcs/ctrl/domain/device_shadow.hpp
                 include/ddcs/ctrl/domain/group_policy.hpp
-                include/ddcs/ctrl/domain/status.hpp
 )
 target_link_libraries(
     ddcs_ctrl_domain

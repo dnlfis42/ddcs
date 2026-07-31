@@ -9,7 +9,6 @@
 #include "ddcs/ctrl/app/session/session_registry.hpp"
 #include "ddcs/ctrl/app/transport/port/connection_id.hpp"
 #include "ddcs/ctrl/app/transport/port/connection_listener.hpp"
-#include "ddcs/ctrl/app/transport/port/disconnect_reason.hpp"
 #include "ddcs/ctrl/app/transport/port/disconnector.hpp"
 #include "ddcs/ctrl/app/transport/port/message_buffer.hpp"
 #include "ddcs/ctrl/app/transport/port/message_receiver.hpp"
@@ -18,9 +17,7 @@
 #include "ddcs/wire/message/message.hpp"
 
 #include <chrono>
-#include <cstddef>
 #include <cstdint>
-#include <span>
 #include <string_view>
 #include <vector>
 
@@ -31,13 +28,6 @@ namespace port = ddcs::ctrl::app::transport::port;
 namespace msg = ddcs::wire::message;
 
 // inbound 라우터. 메시지를 decode해 wire 어휘를 use-case 어휘로 번역한다.
-// - 연결 수명: on_connected가 SessionRegistry add, on_disconnected가 erase
-// - 등록 3-way: RegisterRequest 시 enroll + kick-old + bind + RegisterOutcome 송신,
-//   RegisterAck 시 confirm
-// - active: Heartbeat/Status/CommandAck/CommandOutcome를 의미 동사로 위임
-//           정상 처리된 메시지만 update_seen
-// - 단계별 비기대 메시지와 decode 실패는 프로토콜 위반으로 즉시 종료. 등록 실패도 판정 송신 후 종료
-// - 시한 감시: 주기 sweep이 등록 단계 budget 초과와 active 침묵을 끊는다
 class SessionService final : public port::ConnectionListener, public port::MessageReceiver {
 public:
     SessionService(
@@ -49,11 +39,13 @@ public:
     ) noexcept;
 
     void on_connected(port::ConnectionId conn) override;
-    void on_message(port::ConnectionId conn, port::MessageBuffer payload) override;
     void on_disconnected(port::ConnectionId conn, port::DisconnectReason reason) override;
 
-    // 시한 초과 세션을 끊는다. 등록 단계(handshaking/confirming)는 handshake budget을,
-    // active는 liveness budget을 받는다. last_seen 갱신 규약은 클래스 주석 참고.
+    void on_message(port::ConnectionId conn, port::MessageBuffer payload) override;
+
+    // 시한 초과 세션을 끊는다.
+    // 등록 단계(handshaking/confirming)는 handshake budget을 받는다.
+    // active는 liveness budget을 받는다.
     void sweep(common::Clock::time_point now);
 
     // 누적 메트릭(monotonic, 알람)
@@ -68,21 +60,19 @@ public:
 
 private:
     void handle_register_request(
-        port::ConnectionId conn, std::span<std::byte const> body, common::Clock::time_point now
+        port::ConnectionId conn, msg::RegisterRequest const& request, common::Clock::time_point now
     );
 
-    void handle_register_ack(
-        Session& session, std::span<std::byte const> body, common::Clock::time_point now
-    );
+    void handle_register_ack(Session& session, common::Clock::time_point now);
 
     void handle_active_message(
-        Session& session, msg::MessageType type, std::span<std::byte const> body,
-        common::Clock::time_point now
+        Session& session, msg::Message const& message, common::Clock::time_point now
     );
 
     bool send_register_outcome(port::ConnectionId conn, bool success);
+
     // 프로토콜 위반 시 즉시 종료
-    void kick(port::ConnectionId conn, std::string_view why);
+    void kick(port::ConnectionId conn, port::DisconnectReason reason);
 
     SessionRegistry& sessions_;
     port::Disconnector& disconnector_;
@@ -95,8 +85,8 @@ private:
     domain::GroupPolicy const& group_policy_;       // 등록 시 미지 그룹 경고용 (읽기 전용)
     std::chrono::nanoseconds handshake_timeout_;
     std::chrono::nanoseconds liveness_timeout_;
-    std::vector<port::ConnectionId> stale_registering_; // PERF: sweep 재사용 버퍼
-    std::vector<port::ConnectionId> stale_active_;      // PERF: sweep 재사용 버퍼
+    std::vector<port::ConnectionId> stale_registering_; // sweep 재사용 버퍼
+    std::vector<port::ConnectionId> stale_active_;      // sweep 재사용 버퍼
     Metrics metrics_;
 };
 

@@ -39,14 +39,9 @@ ddcs_add_unit_test(
     SOURCES ddcs_ctrl_app_session_command_sender_test.cpp
     LIBRARIES
         ddcs::wire::message
+        ddcs::wire::command
         ddcs::wire::frame
         ddcs::ctrl::app
-)
-
-ddcs_add_unit_test(
-    ddcs_ctrl_app_session_device_roster_test
-    SOURCES ddcs_ctrl_app_session_device_roster_test.cpp
-    LIBRARIES ddcs::ctrl::app
 )
 
 ddcs_add_unit_test(

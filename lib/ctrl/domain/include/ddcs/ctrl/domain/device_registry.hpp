@@ -2,6 +2,7 @@
 
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/ctrl/domain/device_shadow.hpp"
+#include "ddcs/device/status.hpp"
 
 #include <cstddef>
 #include <string>
@@ -9,9 +10,8 @@
 
 namespace ddcs::ctrl::domain {
 
-// DeviceShadow의 영속 저장소 (uuid = DeviceId 키)
-// - 동일 uuid 재등록 시 동일 DeviceShadow
-// - connection과의 binding은 app::session::SessionRegistry가 별도로 관리한다.
+// DeviceShadow 저장소 (uuid = DeviceId 키). Shadow는 재접속을 가로질러 유지된다.
+// connection과의 binding은 app::session::SessionRegistry가 별도로 관리한다.
 class DeviceRegistry {
 public:
     DeviceRegistry() = default;
@@ -22,20 +22,16 @@ public:
     DeviceRegistry(DeviceRegistry&&) noexcept = delete;
     DeviceRegistry& operator=(DeviceRegistry&&) noexcept = delete;
 
-    // 주어진 id(uuid)의 Device를 반환. 없으면 새로 생성
-    // unordered_map 요소는 rehash에도 안정적이므로 const& 반환 안전
-    DeviceShadow const& find_or_create(DeviceId id);
+    // 등록: 없으면 Shadow를 만들고, 있으면 보존(직전 관측 유지)하되 선언된 group은 갱신한다
+    void enroll(DeviceId id, std::string group);
 
-    // 등록 시 선언된 group 갱신. 미지의 id는 무시
-    void set_group(DeviceId id, std::string group);
-
-    // 최근 관측 상태(Status) 반영. 미지의 id는 무시
-    void update_status(DeviceId id, Status status);
+    // 최근 관측 상태(Status) 반영. 미지의 id면 false (등록 없이 온 보고는 버그 신호)
+    [[nodiscard]] bool update_status(DeviceId id, device::Status status);
 
     // 조회 (없으면 nullptr)
-    DeviceShadow const* find(DeviceId id) const;
+    [[nodiscard]] DeviceShadow const* find(DeviceId id) const;
 
-    std::size_t size() const noexcept {
+    [[nodiscard]] std::size_t size() const noexcept {
         return devices_.size();
     }
 

@@ -4,7 +4,6 @@
 
 namespace {
 
-using ddcs::io::any;
 using ddcs::io::ChannelEvents;
 using ddcs::io::contains;
 using ddcs::io::to_underlying;
@@ -39,11 +38,6 @@ TEST(ChannelEventsTest, RequiresAllBitsForContains) {
     EXPECT_TRUE(contains(events, ChannelEvents::readable | ChannelEvents::writable));
     EXPECT_FALSE(contains(events, ChannelEvents::readable | ChannelEvents::error));
     EXPECT_TRUE(contains(events, ChannelEvents::none));
-}
-
-TEST(ChannelEventsTest, ReturnsFalseOnlyForNoneWithAny) {
-    EXPECT_FALSE(any(ChannelEvents::none));
-    EXPECT_TRUE(any(ChannelEvents::hangup));
 }
 
 TEST(ChannelEventsTest, ReturnsMaskValueWithToUnderlying) {

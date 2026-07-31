@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -41,9 +42,9 @@ TEST(JsonValueTest, AccessorsReturnNulloptOnTypeMismatch) {
     EXPECT_EQ(Value{}.as_int64(), std::nullopt);
 }
 
-TEST(JsonValueTest, ObjectSetFindContainsPreservesOrder) {
+TEST(JsonValueTest, ObjectPutFindContainsPreservesOrder) {
     Value obj = Value::object();
-    obj.set("cpu", 42.5).set("mode", "perf").set("count", 7);
+    obj.put("cpu", 42.5).put("mode", "perf").put("count", 7);
 
     EXPECT_TRUE(obj.is_object());
     EXPECT_EQ(obj.size(), 3u);
@@ -59,34 +60,34 @@ TEST(JsonValueTest, ObjectSetFindContainsPreservesOrder) {
     EXPECT_EQ(obj.dump(), R"({"cpu":42.5,"mode":"perf","count":7})");
 }
 
-TEST(JsonValueTest, SetUpdatesInPlaceKeepingPosition) {
+TEST(JsonValueTest, PutUpdatesInPlaceKeepingPosition) {
     Value obj = Value::object();
-    obj.set("a", 1).set("b", 2).set("a", 99); // a 갱신, 위치 유지
+    obj.put("a", 1).put("b", 2).put("a", 99); // a 갱신, 위치 유지
 
     EXPECT_EQ(obj.size(), 2u);
     EXPECT_EQ(obj.find("a")->as_int64(), std::optional<std::int64_t>{99});
     EXPECT_EQ(obj.dump(), R"({"a":99,"b":2})");
 }
 
-TEST(JsonValueTest, SetOnNullPromotesToObject) {
+TEST(JsonValueTest, PutOnNullPromotesToObject) {
     Value v; // null
-    v.set("k", "x");
+    v.put("k", "x");
 
     EXPECT_TRUE(v.is_object());
     EXPECT_EQ(v.dump(), R"({"k":"x"})");
 }
 
-TEST(JsonValueTest, TrySetReturnsFalseOnNonObject) {
+TEST(JsonValueTest, PutThrowsOnNonObject) {
     Value v{"text"};
 
-    EXPECT_FALSE(v.try_set("k", "x"));
-    EXPECT_TRUE(v.is_string());
+    EXPECT_THROW(v.put("k", "x"), std::logic_error);
+    EXPECT_TRUE(v.is_string()); // 실패 시 값은 그대로다
     EXPECT_EQ(v.as_string(), std::optional<std::string_view>{"text"});
 }
 
 TEST(JsonValueTest, ForEachMemberIteratesObjectInInsertionOrder) {
     Value v = Value::object();
-    v.set("a", 1).set("b", "x").set("c", true);
+    v.put("a", 1).put("b", "x").put("c", true);
 
     std::vector<std::string> keys;
     v.for_each_member([&](std::string_view k, Value const&) { keys.emplace_back(k); });
@@ -103,9 +104,9 @@ TEST(JsonValueTest, ForEachMemberIteratesObjectInInsertionOrder) {
     EXPECT_EQ(n, 0);
 }
 
-TEST(JsonValueTest, ArrayPushBackAndIndex) {
+TEST(JsonValueTest, ArrayAppendAndIndex) {
     Value arr = Value::array();
-    arr.push_back(1).push_back("two").push_back(3.0);
+    arr.append(1).append("two").append(3.0);
 
     EXPECT_TRUE(arr.is_array());
     EXPECT_EQ(arr.size(), 3u);
@@ -115,19 +116,19 @@ TEST(JsonValueTest, ArrayPushBackAndIndex) {
     EXPECT_EQ(arr.at(3), nullptr); // 범위 밖
 }
 
-TEST(JsonValueTest, PushBackOnNullPromotesToArray) {
+TEST(JsonValueTest, AppendOnNullPromotesToArray) {
     Value v;
-    v.push_back(1);
+    v.append(1);
 
     EXPECT_TRUE(v.is_array());
     EXPECT_EQ(v.dump(), "[1]");
 }
 
-TEST(JsonValueTest, TryPushBackReturnsFalseOnNonArray) {
+TEST(JsonValueTest, AppendThrowsOnNonArray) {
     Value v{"text"};
 
-    EXPECT_FALSE(v.try_push_back(1));
-    EXPECT_TRUE(v.is_string());
+    EXPECT_THROW(v.append(1), std::logic_error);
+    EXPECT_TRUE(v.is_string()); // 실패 시 값은 그대로다
     EXPECT_EQ(v.as_string(), std::optional<std::string_view>{"text"});
 }
 
@@ -190,10 +191,10 @@ TEST(JsonWriterTest, AppendsNonFiniteDoublesAsNull) {
 TEST(JsonValueTest, DumpNestedStructure) {
     Value root = Value::object();
     Value inner = Value::object();
-    inner.set("threshold", 80);
+    inner.put("threshold", 80);
     Value groups = Value::array();
-    groups.push_back("a").push_back("b");
-    root.set("rule", std::move(inner)).set("groups", std::move(groups));
+    groups.append("a").append("b");
+    root.put("rule", std::move(inner)).put("groups", std::move(groups));
 
     EXPECT_EQ(root.dump(), R"({"rule":{"threshold":80},"groups":["a","b"]})");
 }
@@ -260,10 +261,10 @@ TEST(JsonValueTest, ParsesWhitespaceInContainers) {
 
 TEST(JsonValueTest, RoundTripsThroughDumpAndParse) {
     Value root = Value::object();
-    root.set("cpu", 42.5).set("mem", 60).set("mode", "perf").set("ok", true).set("note", nullptr);
+    root.put("cpu", 42.5).put("mem", 60).put("mode", "perf").put("ok", true).put("note", nullptr);
     Value tags = Value::array();
-    tags.push_back("x").push_back("y");
-    root.set("tags", std::move(tags));
+    tags.append("x").append("y");
+    root.put("tags", std::move(tags));
 
     auto reparsed = parse(root.dump());
     ASSERT_TRUE(reparsed.has_value());

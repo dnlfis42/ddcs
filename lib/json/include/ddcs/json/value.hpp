@@ -14,12 +14,10 @@
 namespace ddcs::json {
 
 // 재귀 JSON 값 DOM
-// - null, bool, number, string, array, object 6가지 JSON 값 종류를 표현한다.
-// - object는 삽입 순서를 보존한다.
 class Value {
 public:
     using Array = std::vector<Value>;
-    using Object = std::vector<std::pair<std::string, Value>>;
+    using Object = std::vector<std::pair<std::string, Value>>; // 삽입 순서 보존
 
     Value() noexcept;
     Value(std::nullptr_t) noexcept;
@@ -51,14 +49,15 @@ public:
     // array 원소를 조회한다. array가 아니거나 범위를 벗어나면 nullptr를 반환한다.
     [[nodiscard]] Value const* at(std::size_t index) const noexcept;
 
-    // array 끝에 원소를 추가한다. null이면 array로 승격한다. array/null이 아니면 false
-    [[nodiscard]] bool try_push_back(Value value);
-
-    // try_push_back과 같지만 체이닝용이다. array/null이 아니면 throw
-    Value& push_back(Value value);
+    // array 끝에 원소를 추가하고 체이닝용 자기 참조를 돌려준다. null이면 array로 승격하고,
+    // array/null이 아니면 값을 건드리지 않고 throw
+    Value& append(Value value);
 
     // object 멤버를 조회한다. object가 아니거나 키가 없으면 nullptr를 반환한다.
     [[nodiscard]] Value const* find(std::string_view key) const noexcept;
+
+    // 점 경로("a.b.c")로 중첩 object를 탐색한다. 없거나 중간이 object가 아니면 nullptr
+    [[nodiscard]] Value const* find_path(std::string_view path) const noexcept;
 
     [[nodiscard]] bool contains(std::string_view key) const noexcept;
 
@@ -73,11 +72,9 @@ public:
         }
     }
 
-    // null을 object로 승격하고, 기존 키는 위치를 유지한 채 갱신한다. object/null이 아니면 false
-    [[nodiscard]] bool try_set(std::string key, Value value);
-
-    // try_set과 같지만 체이닝용이다. object/null이 아니면 throw
-    Value& set(std::string key, Value value);
+    // object 멤버를 넣고 체이닝용 자기 참조를 돌려준다. null이면 object로 승격하고, 기존 키는
+    // 삽입 위치를 유지한 채 값만 갱신하며, object/null이 아니면 값을 건드리지 않고 throw
+    Value& put(std::string key, Value value);
 
     // 현재 값을 불필요한 공백 없이 compact JSON text로 직렬화해 반환한다.
     [[nodiscard]] std::string dump() const;
@@ -85,6 +82,10 @@ public:
     bool operator==(Value const&) const = default;
 
 private:
+    // 담긴 타입을 T로 보장해 돌려준다. null이면 T{}로 승격하고, 그 외 타입이면 message로 throw
+    template <typename T>
+    T& ensure(char const* message);
+
     // 현재 값을 compact JSON text로 out 뒤에 덧붙인다.
     void dump_to(std::string& out) const;
 

@@ -1,4 +1,4 @@
-#include "ddcs/wire/message/command.hpp"
+#include "ddcs/wire/command/command.hpp"
 
 #include <array>
 #include <cstddef>
@@ -9,9 +9,9 @@
 
 namespace {
 
-using ddcs::wire::message::CommandType;
-using ddcs::wire::message::decode_set_mode;
-using ddcs::wire::message::encode_set_mode;
+using ddcs::wire::command::CommandType;
+using ddcs::wire::command::decode_set_mode;
+using ddcs::wire::command::encode_set_mode;
 
 constexpr std::size_t buffer_capacity = 64;
 
@@ -40,7 +40,7 @@ TEST(CommandTest, RejectsOversizedPayload) {
 }
 
 TEST(CommandTest, CarriesRawModeByte) {
-    // wire::message는 raw u8만 싣는다. 어휘 검증은 수신측(device::decode_mode)이 한다.
+    // wire::command는 raw u8만 싣는다. 어휘 검증은 수신측(device::decode_mode)이 한다.
     std::array<std::byte, 1> const raw{std::byte{0xFF}};
     auto const out = decode_set_mode(raw);
     ASSERT_TRUE(out.has_value());

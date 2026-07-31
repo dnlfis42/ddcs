@@ -65,6 +65,10 @@ class Logger {
 public:
     static Logger& instance() noexcept;
 
+    Level level() {
+        return threshold_;
+    }
+
     bool enabled(Level level) const noexcept {
         return static_cast<std::uint8_t>(level) >= static_cast<std::uint8_t>(threshold_);
     }
@@ -78,10 +82,7 @@ public:
     }
 
     // 자신이 심은 sink를 떼어낸다.
-    // 현재 sink가 expected일 때만 nullptr로 되돌려
-    // (멀티 인스턴스에서 다른 인스턴스가 심은 sink는 건드리지 않는다)
-    // 이후 log()가 null guard로 no-op이 되게 한다.
-    // sink 소유자(Agent/Controller Impl)는 sink 파괴 전에 이걸 호출해 dangling을 막는다.
+    // sink 소유자는 sink 파괴 전에 이걸 호출해 dangling을 막는다.
     void clear_sink(Sink const& expected) noexcept {
         if (sink_ == &expected) {
             sink_ = nullptr;

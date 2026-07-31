@@ -2,7 +2,6 @@
 
 #include "ddcs/json/writer.hpp"
 
-#include <cassert>
 #include <stdexcept>
 #include <utility>
 
@@ -125,26 +124,21 @@ Value const* Value::at(std::size_t index) const noexcept {
     return &(*elements)[index];
 }
 
-bool Value::try_push_back(Value value) {
+template <typename T>
+T& Value::ensure(char const* message) {
     if (is_null()) {
-        data_ = Array{};
+        data_ = T{};
     }
 
-    auto* elements = std::get_if<Array>(&data_);
-    if (elements == nullptr) {
-        return false;
+    auto* held = std::get_if<T>(&data_);
+    if (held == nullptr) {
+        throw std::logic_error{message};
     }
-
-    elements->push_back(std::move(value));
-    return true;
+    return *held;
 }
 
-Value& Value::push_back(Value value) {
-    if (!try_push_back(std::move(value))) {
-        assert(false && "Value: push_back target must be array or null");
-        throw std::logic_error{"Value: push_back target must be array or null"};
-    }
-
+Value& Value::append(Value value) {
+    ensure<Array>("Value: append target must be array or null").push_back(std::move(value));
     return *this;
 }
 
@@ -163,38 +157,40 @@ Value const* Value::find(std::string_view key) const noexcept {
     return nullptr;
 }
 
+Value const* Value::find_path(std::string_view path) const noexcept {
+    Value const* cur = this;
+    std::size_t start = 0;
+    for (;;) {
+        std::size_t const dot = path.find('.', start);
+        std::string_view const seg =
+            (dot == std::string_view::npos) ? path.substr(start) : path.substr(start, dot - start);
+        cur = cur->find(seg);
+        if (cur == nullptr) {
+            return nullptr;
+        }
+        if (dot == std::string_view::npos) {
+            return cur;
+        }
+        start = dot + 1;
+    }
+}
+
 bool Value::contains(std::string_view key) const noexcept {
     return find(key) != nullptr;
 }
 
-bool Value::try_set(std::string key, Value value) {
-    if (is_null()) {
-        data_ = Object{};
-    }
-
-    auto* members = std::get_if<Object>(&data_);
-    if (members == nullptr) {
-        return false;
-    }
+Value& Value::put(std::string key, Value value) {
+    auto& members = ensure<Object>("Value: put target must be object or null");
 
     // 기존 키는 삽입 위치를 유지한 채 값만 갱신한다.
-    for (auto& [member_key, member_value] : *members) {
+    for (auto& [member_key, member_value] : members) {
         if (member_key == key) {
             member_value = std::move(value);
-            return true;
+            return *this;
         }
     }
 
-    members->emplace_back(std::move(key), std::move(value));
-    return true;
-}
-
-Value& Value::set(std::string key, Value value) {
-    if (!try_set(std::move(key), std::move(value))) {
-        assert(false && "Value: set target must be object or null");
-        throw std::logic_error{"Value: set target must be object or null"};
-    }
-
+    members.emplace_back(std::move(key), std::move(value));
     return *this;
 }
 

@@ -33,8 +33,8 @@ namespace {
 using State = ddcs::agent::app::session::SessionService::State;
 
 // 양쪽(Controller/Agent) 로그를 한 sink에 모은다.
-// logger singleton이라 마지막 set_sink가 이김
-// -> 두 facade Config에 같은 인스턴스를 명시 주입한다.
+// 로깅 부트스트랩은 프로세스(여기선 각 테스트) 몫이라, 테스트 시작에 install_logger로
+// 전역 로거에 한 번 설치하고 두 facade가 같은 sink를 공유한다.
 class CaptureSink : public ddcs::logger::Sink {
 public:
     bool contains(std::string_view needle) {
@@ -91,8 +91,14 @@ bool pump_until(ddcs::ctrl::Controller& c, ddcs::agent::Agent& a, Pred pred, int
     return pred();
 }
 
-std::unique_ptr<ddcs::ctrl::Controller>
-make_controller(CaptureSink& sink, std::filesystem::path policy_path = {}) {
+// 전역 로거를 테스트 sink로 세운다(debug: reconnect_scheduled 등 관측). main과 같은 수순.
+void install_logger(CaptureSink& sink) {
+    auto& lg = ddcs::logger::Logger::instance();
+    lg.set_level(ddcs::logger::Level::debug);
+    lg.set_sink(sink);
+}
+
+std::unique_ptr<ddcs::ctrl::Controller> make_controller(std::filesystem::path policy_path = {}) {
     ddcs::ctrl::Controller::Config cfg{};
     cfg.listen_port = 0;
     cfg.liveness_timeout = std::chrono::milliseconds{300};
@@ -100,24 +106,21 @@ make_controller(CaptureSink& sink, std::filesystem::path policy_path = {}) {
     if (!policy_path.empty()) {
         cfg.policy_path = std::move(policy_path);
     }
-    cfg.log_level = ddcs::logger::Level::debug;
-    cfg.log_sink = &sink;
     return std::make_unique<ddcs::ctrl::Controller>(cfg);
 }
 
 std::unique_ptr<ddcs::agent::Agent>
-make_agent(CaptureSink& sink, std::uint16_t port, std::uint8_t uuid_seed, std::string group = {}) {
+make_agent(std::uint16_t port, std::uint8_t uuid_seed, std::string group = {}) {
     ddcs::agent::Agent::Config cfg{};
     cfg.controller_host = "127.0.0.1";
     cfg.controller_port = port;
-    cfg.device = std::make_unique<ddcs::agent::domain::DummyDevice>(make_uuid(uuid_seed));
     cfg.session.heartbeat = std::chrono::milliseconds{50};
-    cfg.session.status_update = std::chrono::milliseconds{50};
+    cfg.session.status_report = std::chrono::milliseconds{50};
     cfg.session.register_timeout = std::chrono::milliseconds{500};
     cfg.session.group = std::move(group); // 정책 타깃팅용 그룹 선언
-    cfg.log_level = ddcs::logger::Level::debug;
-    cfg.log_sink = &sink;
-    return std::make_unique<ddcs::agent::Agent>(std::move(cfg));
+    return std::make_unique<ddcs::agent::Agent>(
+        std::move(cfg), std::make_unique<ddcs::agent::domain::DummyDevice>(make_uuid(uuid_seed))
+    );
 }
 
 // 단일 그룹 정책을 temp 파일로 떨군다. low_load 위(>0)라 load=0인 DummyDevice는 idle로 떨어진다.
@@ -209,24 +212,28 @@ private:
 
 TEST(AgentControllerE2eTest, AgentRegistersAndReachesActive) {
     CaptureSink sink;
-    auto controller = make_controller(sink);
+    install_logger(sink);
+    auto controller = make_controller();
     controller->start();
-    auto agent = make_agent(sink, controller->port(), 0xab);
+    auto agent = make_agent(controller->port(), 0xab);
     agent->start();
 
     bool const active =
         pump_until(*controller, *agent, [&] { return agent->session().state() == State::active; });
 
     ASSERT_TRUE(active);
-    EXPECT_TRUE(sink.contains(R"("event":"session.registered")"));       // controller가 등록 확정
-    EXPECT_TRUE(sink.contains(R"("event":"agent.session.registered")")); // agent가 응답 수신
+    EXPECT_TRUE(sink.contains(R"("event":"session.connection.register.accept")")
+    ); // controller가 등록 확정
+    EXPECT_TRUE(sink.contains(R"("event":"session.connection.register.success")")
+    ); // agent가 응답 수신
 }
 
 TEST(AgentControllerE2eTest, HeartbeatKeepsAgentAliveOverTime) {
     CaptureSink sink;
-    auto controller = make_controller(sink);
+    install_logger(sink);
+    auto controller = make_controller();
     controller->start();
-    auto agent = make_agent(sink, controller->port(), 0xcd);
+    auto agent = make_agent(controller->port(), 0xcd);
     agent->start();
 
     ASSERT_TRUE(pump_until(*controller, *agent, [&] {
@@ -241,7 +248,7 @@ TEST(AgentControllerE2eTest, HeartbeatKeepsAgentAliveOverTime) {
     }
 
     EXPECT_EQ(agent->session().state(), State::active);
-    EXPECT_FALSE(sink.contains(R"("event":"session.liveness_timeout")")); // 축출 안 됨
+    EXPECT_FALSE(sink.contains(R"("reason":"liveness_expired")")); // 축출 안 됨
 }
 
 // 정책 경로로 c->a Command가 왕복한다(operator API 없음 - load 임계 전환이 명령을 낸다).
@@ -249,15 +256,16 @@ TEST(AgentControllerE2eTest, HeartbeatKeepsAgentAliveOverTime) {
 // outcome 회신.
 TEST(AgentControllerE2eTest, PolicyCommandRoundTrips) {
     CaptureSink sink;
+    install_logger(sink);
     auto const policy = write_idle_policy("edge");
-    auto controller = make_controller(sink, policy);
+    auto controller = make_controller(policy);
     controller->start();
-    auto agent = make_agent(sink, controller->port(), 0xef, "edge");
+    auto agent = make_agent(controller->port(), 0xef, "edge");
     agent->start();
 
     bool const round_trip = pump_until(*controller, *agent, [&] {
-        return sink.contains(R"("event":"agent.session.cmd.applied")") // agent가 명령 적용
-               && sink.contains(R"("event":"command.outcome")");       // controller가 outcome 상관
+        return sink.contains(R"("event":"session.command.apply")") // agent가 명령 적용
+               && sink.contains(R"("event":"command.complete")");  // controller가 성공 종결
     });
 
     EXPECT_TRUE(round_trip);
@@ -267,10 +275,11 @@ TEST(AgentControllerE2eTest, PolicyCommandRoundTrips) {
 // controller가 사라지면 agent가 backoff 후 같은 포트의 새 controller로 자동 재접속/재등록
 TEST(AgentControllerE2eTest, AgentReconnectsAfterControllerDrop) {
     CaptureSink sink;
-    auto controller = make_controller(sink);
+    install_logger(sink);
+    auto controller = make_controller();
     controller->start();
     auto const port = controller->port();
-    auto agent = make_agent(sink, port, 0x5a);
+    auto agent = make_agent(port, 0x5a);
     agent->start();
 
     ASSERT_TRUE(pump_until(*controller, *agent, [&] {
@@ -288,8 +297,6 @@ TEST(AgentControllerE2eTest, AgentReconnectsAfterControllerDrop) {
     ddcs::ctrl::Controller::Config ccfg{};
     ccfg.listen_port = port;
     ccfg.liveness_timeout = std::chrono::milliseconds{300};
-    ccfg.log_level = ddcs::logger::Level::debug;
-    ccfg.log_sink = &sink;
     auto controller2 = std::make_unique<ddcs::ctrl::Controller>(ccfg);
     controller2->start();
 
@@ -300,33 +307,34 @@ TEST(AgentControllerE2eTest, AgentReconnectsAfterControllerDrop) {
     EXPECT_TRUE(reactive);
 }
 
-// issue-03 회귀(런타임): 컨트롤러가 TCP는 받아주되 registration을 끝내주지 않으면, 에이전트의 재연결
-// backoff가 base에 묶이지 말고 지수적으로 자라야 한다(thundering-herd 방지). 유닛 테스트
+// issue-03 회귀(런타임): 컨트롤러가 TCP는 받아주되 registration을 끝내주지 않으면, 에이전트의
+// 재연결 backoff가 base에 묶이지 말고 지수적으로 자라야 한다(thundering-herd 방지). 유닛 테스트
 // BackoffGrowsWhileRegistrationNeverSucceeds는 fake로 보지만, 여기선 진짜 소켓 + 진짜 reconnect
 // 타이머로 끝까지 돌린다. (backoff reset은 registration 성공 시에만 -> 여기선 영영 안 일어남.)
 TEST(AgentControllerE2eTest, BackoffGrowsWhenPeerAcceptsButNeverRegisters) {
     using namespace std::chrono_literals;
     CaptureSink sink;
-    DeafListener deaf; // accept-but-never-register
+    install_logger(sink); // reconnect_scheduled(DEBUG)가 sink에 보이게
+    DeafListener deaf;    // accept-but-never-register
 
     long const base_ms = 20;
     ddcs::agent::Agent::Config cfg{};
     cfg.controller_host = "127.0.0.1";
     cfg.controller_port = deaf.port(); // 진짜 컨트롤러 대신 귀먹은 리스너로
-    cfg.device = std::make_unique<ddcs::agent::domain::DummyDevice>(make_uuid(0xef));
     cfg.reconnect_base_delay = std::chrono::milliseconds{base_ms};
     cfg.reconnect_max_delay = std::chrono::milliseconds{640}; // 여러 단계 자랄 여유(cap)
     cfg.session.register_timeout = std::chrono::milliseconds{60}; // 빨리 timeout -> 사이클 빠르게
     cfg.session.heartbeat = std::chrono::milliseconds{50};
-    cfg.session.status_update = std::chrono::milliseconds{50};
-    cfg.log_level = ddcs::logger::Level::debug; // reconnect_scheduled(DEBUG)가 sink에 보이게
-    cfg.log_sink = &sink;
+    cfg.session.status_report = std::chrono::milliseconds{50};
 
-    ddcs::agent::Agent agent{std::move(cfg)};
+    ddcs::agent::Agent agent{
+        std::move(cfg), std::make_unique<ddcs::agent::domain::DummyDevice>(make_uuid(0xef))
+    };
     agent.start();
 
-    // 여러 재연결 사이클을 모은다(각 ~ register_timeout + backoff). 실시간 timerfd라 펌프로 시간을 흘린다.
-    auto const event = R"("event":"agent_transport.reconnect_scheduled")";
+    // 여러 재연결 사이클을 모은다(각 ~ register_timeout + backoff). 실시간 timerfd라 펌프로 시간을
+    // 흘린다.
+    auto const event = R"("event":"transport.reconnect.schedule")";
     auto const key = R"("delay_ms":)";
     auto const deadline = std::chrono::steady_clock::now() + 5s;
     while (std::chrono::steady_clock::now() < deadline && sink.ints_for(event, key).size() < 6) {

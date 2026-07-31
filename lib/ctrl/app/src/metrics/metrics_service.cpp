@@ -140,8 +140,9 @@ std::string MetricsService::scrape() {
     );
     // 알람 counter. 명령 최종 실패 + session 건강 (operator가 rate로 알람)
     append_metric(
-        out, "ddcs_commands_gave_up_total", "Commands abandoned after exhausting retries.",
-        "counter", commands_.metrics().gave_up_total
+        out, "ddcs_commands_gave_up_total",
+        "Commands abandoned, by retry exhaustion or send failure.", "counter",
+        commands_.metrics().gave_up_total
     );
     append_metric(
         out, "ddcs_agents_evicted_total", "Agents force-closed after liveness timeout (unhealthy).",
@@ -174,18 +175,17 @@ std::string MetricsService::scrape() {
         sweep_.sum_us
     );
     append_metric(
-        out, "ddcs_sweep_ticks_total", "Number of sweep ticks executed.", "counter", sweep_.ticks
+        out, "ddcs_sweep_ticks_total", "Number of sweep ticks executed.", "counter", sweep_.count
     );
 
-    // per-group 게이지. active device를 group으로 집계해 group{,mode} 라벨로 노출한다.
-    // 정책이 group 단위라(평균 load -> regime -> mode) group별 동작을 분리 관측하고,
-    // 집계 규칙은 정책 평가와 같은 aggregate_groups를 공유한다(관측 규칙 = 정책 입력 규칙).
-    auto const groups = device::aggregate_groups(roster_, devices_, policy_);
+    // per-group 게이지. 집계 규칙은 정책 평가와 같은 aggregate_groups를 공유한다.
+    auto const groups = device::aggregate_groups(active_devices_, devices_, policy_);
 
     out += "# HELP ddcs_group_load_avg Average reported load across active devices in the group.\n";
     out += "# TYPE ddcs_group_load_avg gauge\n";
     for (auto const& [group, agg] : groups) {
-        double const avg = agg.devices != 0 ? agg.load_sum / static_cast<double>(agg.devices) : 0.0;
+        double const avg =
+            agg.device_count != 0 ? agg.load_sum / static_cast<double>(agg.device_count) : 0.0;
         append_group_gauge(out, "ddcs_group_load_avg", group, avg);
     }
 
@@ -193,7 +193,8 @@ std::string MetricsService::scrape() {
            "the group.\n";
     out += "# TYPE ddcs_group_temp_avg gauge\n";
     for (auto const& [group, agg] : groups) {
-        double const avg = agg.devices != 0 ? agg.temp_sum / static_cast<double>(agg.devices) : 0.0;
+        double const avg =
+            agg.device_count != 0 ? agg.temp_sum / static_cast<double>(agg.device_count) : 0.0;
         append_group_gauge(out, "ddcs_group_temp_avg", group, avg);
     }
 

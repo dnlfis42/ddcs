@@ -2,16 +2,16 @@
 
 #include "ddcs/common/clock.hpp"
 #include "ddcs/ctrl/app/device/command_service.hpp"
-#include "ddcs/ctrl/app/device/port/command.hpp"
+#include "ddcs/ctrl/app/device/port/active_devices.hpp"
 #include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/device/port/command_sender.hpp"
-#include "ddcs/ctrl/app/device/port/device_roster.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/domain/group_policy.hpp"
-#include "ddcs/ctrl/domain/status.hpp"
 #include "ddcs/device/mode.hpp"
+#include "ddcs/device/status.hpp"
 #include "ddcs/json/value.hpp"
+#include "ddcs/wire/command/command.hpp"
 
 #include <array>
 #include <chrono>
@@ -32,17 +32,19 @@ using ddcs::common::ManualClock;
 using ddcs::ctrl::app::device::CommandService;
 using ddcs::ctrl::app::device::parse_policy;
 using ddcs::ctrl::app::device::PolicyService;
-using ddcs::ctrl::app::device::port::Command;
+using ddcs::ctrl::app::device::port::ActiveDevices;
 using ddcs::ctrl::app::device::port::CommandId;
 using ddcs::ctrl::app::device::port::CommandSender;
-using ddcs::ctrl::app::device::port::DeviceRoster;
-using ddcs::ctrl::app::device::port::SetMode;
+using ddcs::ctrl::app::device::port::SendResult;
 using ddcs::ctrl::domain::DeviceId;
 using ddcs::ctrl::domain::DeviceRegistry;
 using ddcs::ctrl::domain::GroupPolicy;
 using ddcs::ctrl::domain::GroupRule;
 using ddcs::ctrl::domain::ThermalRule;
 using ddcs::device::Mode;
+using ddcs::device::Status;
+using ddcs::wire::command::Command;
+using ddcs::wire::command::SetMode;
 using namespace std::chrono_literals;
 
 DeviceId make_device_id(std::uint8_t seed) {
@@ -52,7 +54,7 @@ DeviceId make_device_id(std::uint8_t seed) {
 }
 
 // 고정된 active 집합을 내주는 대역.
-class FakeDeviceRoster final : public DeviceRoster {
+class FakeActiveDevices final : public ActiveDevices {
 public:
     std::vector<DeviceId> active;
 
@@ -74,21 +76,19 @@ public:
 
     std::vector<Sent> sent;
 
-    bool try_send(DeviceId device, CommandId command_id, Command const& command) override {
-        sent.push_back(
-            Sent{
-                .device = device,
-                .command_id = command_id,
-                .mode = std::get<SetMode>(command).mode,
-            }
-        );
-        return true;
+    SendResult send(DeviceId device, CommandId command_id, Command const& command) override {
+        sent.push_back(Sent{
+            .device = device,
+            .command_id = command_id,
+            .mode = ddcs::device::decode_mode(std::get<SetMode>(command).mode).value_or(Mode::safe),
+        });
+        return SendResult::ok;
     }
 };
 
 // 재진입 회귀용 대역. for_each_active의 순회 창(iterating)을 노출한다.
 // 대역 자체는 UB를 피하려 스냅샷을 순회하되, 창이 열린 동안 송신이 일어났는지는 sender가 관측한다.
-class WindowedDeviceRoster final : public DeviceRoster {
+class WindowedActiveDevices final : public ActiveDevices {
 public:
     std::vector<DeviceId> active;
     bool iterating = false;
@@ -103,58 +103,57 @@ public:
     }
 };
 
-// 송신 시점에 roster가 순회 중이었는지 기록하는 대역
+// 송신 시점에 active 집합을 순회 중이었는지 기록하는 대역
 // dispatch가 순회 밖이면 iterating은 항상 false다.
 class IterationProbeCommandSender final : public CommandSender {
 public:
-    explicit IterationProbeCommandSender(WindowedDeviceRoster& roster) noexcept
-        : roster_{roster} {}
+    explicit IterationProbeCommandSender(WindowedActiveDevices& active_devices) noexcept
+        : active_devices_{active_devices} {}
 
     int sent_count = 0;
     bool dispatched_during_iteration = false;
 
-    bool try_send(DeviceId, CommandId, Command const&) override {
-        if (roster_.iterating) {
+    SendResult send(DeviceId, CommandId, Command const&) override {
+        if (active_devices_.iterating) {
             dispatched_during_iteration = true;
         }
         ++sent_count;
-        return true;
+        return SendResult::ok;
     }
 
 private:
-    WindowedDeviceRoster& roster_;
+    WindowedActiveDevices& active_devices_;
 };
 
 struct PolicyFixture {
     ManualClock clock;
-    FakeDeviceRoster roster;
+    FakeActiveDevices active_devices;
     DeviceRegistry devices;
     FakeCommandSender sender;
     CommandService commands{sender, 5s, 1, 500ms};
-    PolicyService policy{roster, devices, commands};
+    PolicyService policy{active_devices, devices, commands};
 
     DeviceId enroll(std::uint8_t seed, std::string group, double load, bool active = true) {
         DeviceId const id = make_device_id(seed);
-        devices.find_or_create(id);
-        devices.set_group(id, std::move(group));
-        devices.update_status(
-            id, ddcs::ctrl::domain::Status{.mode = Mode::normal, .load = load, .temp = 40.0}
+        devices.enroll(id, std::move(group));
+        EXPECT_TRUE(
+            devices.update_status(id, Status{.mode = Mode::normal, .load = load, .temp = 40.0})
         );
         if (active) {
-            roster.active.push_back(id);
+            active_devices.active.push_back(id);
         }
         return id;
     }
 
     void set_load(DeviceId id, double load) {
-        devices.update_status(
-            id, ddcs::ctrl::domain::Status{.mode = Mode::normal, .load = load, .temp = 40.0}
+        EXPECT_TRUE(
+            devices.update_status(id, Status{.mode = Mode::normal, .load = load, .temp = 40.0})
         );
     }
 
     static GroupPolicy sensors_policy() {
         GroupPolicy p;
-        p.set("sensors", GroupRule::try_make(80.0, 20.0, Mode::safe, Mode::normal).value());
+        p.set("sensors", GroupRule::create(80.0, 20.0, Mode::safe, Mode::normal).value());
         return p;
     }
 
@@ -163,7 +162,7 @@ struct PolicyFixture {
         GroupPolicy p;
         p.set(
             "sensors",
-            GroupRule::try_make(
+            GroupRule::create(
                 80.0, 20.0, Mode::safe, Mode::normal,
                 ThermalRule{
                     .high_temp = 90.0, .resume_temp = 70.0, .high_temp_mode = Mode::performance
@@ -198,6 +197,30 @@ TEST(PolicyServiceTest, TransitionsToBusyAboveHighLoad) {
         EXPECT_EQ(s.mode, Mode::safe); // 계열이 SetMode인 것은 typed 명령이 보장
     }
     EXPECT_EQ(f.commands.pending_count(), 2u); // 전달 추적은 CommandService로 넘어갔다.
+}
+
+TEST(PolicyServiceTest, DefersUnobservedDeviceUntilFirstStatus) {
+    PolicyFixture f;
+    f.enroll(0x01, "sensors", 95.0);
+    // 등록만 되고 보고 전인 device: 평균을 희석하지도, 명령을 받지도 않는다
+    DeviceId const fresh = make_device_id(0x02);
+    f.devices.enroll(fresh, "sensors");
+    f.active_devices.active.push_back(fresh);
+    f.policy.set_policy(PolicyFixture::sensors_policy());
+
+    f.policy.evaluate(f.clock.now());
+
+    ASSERT_EQ(f.sender.sent.size(), 1u); // avg는 95(관측분만) -> busy. 미관측이 섞이면 47.5였다.
+    EXPECT_EQ(f.sender.sent[0].device, make_device_id(0x01));
+    EXPECT_EQ(f.sender.sent[0].mode, Mode::safe);
+
+    // 첫 보고부터 제어에 편입된다
+    f.set_load(fresh, 90.0);
+    f.policy.evaluate(f.clock.now());
+
+    ASSERT_EQ(f.sender.sent.size(), 2u);
+    EXPECT_EQ(f.sender.sent[1].device, fresh);
+    EXPECT_EQ(f.sender.sent[1].mode, Mode::safe);
 }
 
 TEST(PolicyServiceTest, DoesNotRespamWhileRegimeUnchanged) {
@@ -280,7 +303,7 @@ TEST(PolicyServiceTest, DeviceLeftClearsBeliefSoReconnectRecommands) {
     EXPECT_EQ(f.sender.sent[0].mode, Mode::safe);
 
     // device가 세션을 잃었다(재시작 등). 컨트롤러의 per-device 명령 belief를 폐기한다.
-    f.policy.on_device_left(id);
+    f.policy.on_device_released(id);
 
     // 같은 id로 재접속(agent는 normal로 리부트). regime/effective는 그대로 safe지만,
     // belief가 비었으니 재명령해야 한다. (안 비웠다면 commanded==effective라 suppress돼 1로
@@ -296,28 +319,27 @@ TEST(PolicyServiceTest, DeviceLeftClearsBeliefSoReconnectRecommands) {
 TEST(PolicyServiceTest, ReloadPreservesThermalLatchInDeadband) {
     PolicyFixture f;
     DeviceId const id = f.enroll(0x01, "sensors", 90.0); // load busy(>80)
-    f.policy.set_policy(
-        PolicyFixture::hot_policy()
+    f.policy.set_policy(PolicyFixture::hot_policy()
     ); // busy=safe / thermal hot->performance(high90/resume70)
 
     // 과열 트립(temp 95 > high 90) -> high_temp_mode(performance)
-    f.devices.update_status(
-        id, ddcs::ctrl::domain::Status{.mode = Mode::performance, .load = 90.0, .temp = 95.0}
+    EXPECT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::performance, .load = 90.0, .temp = 95.0})
     );
     f.policy.evaluate(f.clock.now());
     ASSERT_FALSE(f.sender.sent.empty());
     EXPECT_EQ(f.sender.sent.back().mode, Mode::performance);
 
     // 데드밴드로 식힘(resume70 < temp80 < high90), load는 busy 유지
-    f.devices.update_status(
-        id, ddcs::ctrl::domain::Status{.mode = Mode::performance, .load = 90.0, .temp = 80.0}
+    EXPECT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::performance, .load = 90.0, .temp = 80.0})
     );
 
     auto const before = f.sender.sent.size();
     f.policy.set_policy(PolicyFixture::hot_policy()); // 핫리로드(같은 정책)
     f.policy.evaluate(f.clock.now());
 
-    ASSERT_GT(f.sender.sent.size(), before);                 // commanded clear로 재명령은 나감
+    ASSERT_GT(f.sender.sent.size(), before); // commanded clear로 재명령은 나감
     EXPECT_EQ(f.sender.sent.back().mode, Mode::performance); // latch 보존 -> 여전히 high_temp_mode
 }
 
@@ -334,20 +356,18 @@ TEST(PolicyServiceTest, ReloadAppliesNewModeToDeadbandGroup) {
 
     // busy mode를 safe -> normal로 바꾼 정책으로 reload
     GroupPolicy changed;
-    changed.set("sensors", GroupRule::try_make(80.0, 20.0, Mode::normal, Mode::normal).value());
+    changed.set("sensors", GroupRule::create(80.0, 20.0, Mode::normal, Mode::normal).value());
     auto const before = f.sender.sent.size();
     f.policy.set_policy(std::move(changed));
     f.policy.evaluate(f.clock.now());
 
-    ASSERT_GT(f.sender.sent.size(), before);            // regime 보존이라 데드밴드에서도 재명령
+    ASSERT_GT(f.sender.sent.size(), before); // regime 보존이라 데드밴드에서도 재명령
     EXPECT_EQ(f.sender.sent.back().mode, Mode::normal); // 새 high_load_mode 적용
 }
 
 TEST(PolicyServiceTest, ParsePolicyBuildsGroupPolicy) {
-    auto const j = json::parse(
-        R"({"groups":{"sensors":{"high_load":80,"low_load":20,)"
-        R"("high_load_mode":"safe","low_load_mode":"normal"}}})"
-    );
+    auto const j = json::parse(R"({"groups":{"sensors":{"high_load":80,"low_load":20,)"
+                               R"("high_load_mode":"safe","low_load_mode":"normal"}}})");
     ASSERT_TRUE(j.has_value());
 
     auto const p = parse_policy(*j);
@@ -369,22 +389,19 @@ TEST(PolicyServiceTest, ParsePolicyRejectsInvalidInput) {
     EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":80}}})")).has_value());
 
     // 미지 mode
-    EXPECT_FALSE(parse_policy(*json::parse(
-                                  R"({"groups":{"s":{"high_load":80,"low_load":20,)"
-                                  R"("high_load_mode":"warp","low_load_mode":"normal"}}})"
-                              ))
+    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":80,"low_load":20,)"
+                                           R"("high_load_mode":"warp","low_load_mode":"normal"}}})")
+    )
                      .has_value());
     // 임계 역전 시 발진
-    EXPECT_FALSE(parse_policy(*json::parse(
-                                  R"({"groups":{"s":{"high_load":20,"low_load":80,)"
-                                  R"("high_load_mode":"safe","low_load_mode":"normal"}}})"
-                              ))
+    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":20,"low_load":80,)"
+                                           R"("high_load_mode":"safe","low_load_mode":"normal"}}})")
+    )
                      .has_value());
     // 밴드 없음
-    EXPECT_FALSE(parse_policy(*json::parse(
-                                  R"({"groups":{"s":{"high_load":50,"low_load":50,)"
-                                  R"("high_load_mode":"safe","low_load_mode":"normal"}}})"
-                              ))
+    EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"high_load":50,"low_load":50,)"
+                                           R"("high_load_mode":"safe","low_load_mode":"normal"}}})")
+    )
                      .has_value());
 }
 
@@ -392,8 +409,8 @@ TEST(PolicyServiceTest, ThermalOverrideWinsOverLoadRegime) {
     PolicyFixture f;
     DeviceId const id = f.enroll(0x01, "sensors", 95.0); // busy load
     f.policy.set_policy(PolicyFixture::hot_policy());
-    f.devices.update_status(
-        id, ddcs::ctrl::domain::Status{.mode = Mode::normal, .load = 95.0, .temp = 95.0}
+    EXPECT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::normal, .load = 95.0, .temp = 95.0})
     );
 
     f.policy.evaluate(f.clock.now());
@@ -408,8 +425,8 @@ TEST(PolicyServiceTest, ThermalIsPerDevice) {
     DeviceId const cool = f.enroll(0x01, "sensors", 10.0); // temp 40, idle load
     DeviceId const hot = f.enroll(0x02, "sensors", 10.0);
     f.policy.set_policy(PolicyFixture::hot_policy());
-    f.devices.update_status(
-        hot, ddcs::ctrl::domain::Status{.mode = Mode::normal, .load = 10.0, .temp = 95.0}
+    EXPECT_TRUE(
+        f.devices.update_status(hot, Status{.mode = Mode::normal, .load = 10.0, .temp = 95.0})
     );
 
     f.policy.evaluate(f.clock.now());
@@ -432,13 +449,13 @@ TEST(PolicyServiceTest, ThermalReleasesToLoadModeBelowResume) {
     PolicyFixture f;
     DeviceId const id = f.enroll(0x01, "sensors", 95.0); // busy load 유지
     f.policy.set_policy(PolicyFixture::hot_policy());
-    f.devices.update_status(
-        id, ddcs::ctrl::domain::Status{.mode = Mode::normal, .load = 95.0, .temp = 95.0}
+    EXPECT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::normal, .load = 95.0, .temp = 95.0})
     );
     f.policy.evaluate(f.clock.now()); // 과열 -> performance override
 
-    f.devices.update_status(
-        id, ddcs::ctrl::domain::Status{.mode = Mode::normal, .load = 95.0, .temp = 60.0}
+    EXPECT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::normal, .load = 95.0, .temp = 60.0})
     );
     f.policy.evaluate(f.clock.now()); // resume(70) 아래로 식음 -> busy load 모드 복귀
 
@@ -453,43 +470,42 @@ TEST(PolicyServiceTest, ThermalReleasesToBaselineWhenLoadInBand) {
     PolicyFixture f;
     DeviceId const id = f.enroll(0x01, "sensors", 50.0); // 20 < 50 < 80: 밴드 안 -> regime unknown
     f.policy.set_policy(PolicyFixture::hot_policy());
-    f.devices.update_status(
-        id, ddcs::ctrl::domain::Status{.mode = Mode::normal, .load = 50.0, .temp = 95.0}
+    EXPECT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::normal, .load = 50.0, .temp = 95.0})
     );
     f.policy.evaluate(f.clock.now()); // 과열 -> high_temp_mode(performance) latch
 
-    f.devices.update_status(
-        id, ddcs::ctrl::domain::Status{.mode = Mode::normal, .load = 50.0, .temp = 60.0}
+    EXPECT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::normal, .load = 50.0, .temp = 60.0})
     );
     f.policy.evaluate(f.clock.now()); // resume(70) 아래 + regime 미확정 -> baseline 복귀
 
     ASSERT_EQ(f.sender.sent.size(), 2u);
     EXPECT_EQ(f.sender.sent[0].mode, Mode::performance); // hot
-    EXPECT_EQ(f.sender.sent[1].mode, Mode::normal);      // low_load_mode 복귀 (비상모드 latch 해제)
+    EXPECT_EQ(f.sender.sent[1].mode, Mode::normal); // low_load_mode 복귀 (비상모드 latch 해제)
 
     f.policy.evaluate(f.clock.now());
     EXPECT_EQ(f.sender.sent.size(), 2u); // 해제 후 재발신 없음
 }
 
-// 회귀: dispatch는 송신 실패 시 동기 disconnect로 roster를 순회 중 변형할 수 있다.
+// 회귀: dispatch는 송신 실패 시 동기 disconnect로 active 집합을 순회 중 변형할 수 있다.
 //       command_group은 대상을 모은 뒤 순회 밖에서 발송해야 한다.
 TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
-    WindowedDeviceRoster roster;
+    WindowedActiveDevices active_devices;
     DeviceRegistry devices;
-    IterationProbeCommandSender sender{roster};
+    IterationProbeCommandSender sender{active_devices};
     CommandService commands{sender, 5s, 1, 500ms};
-    PolicyService policy{roster, devices, commands};
+    PolicyService policy{active_devices, devices, commands};
 
     DeviceId const id1 = make_device_id(0x01);
     DeviceId const id2 = make_device_id(0x02);
     for (DeviceId const id :
          {id1, id2}) { // sensors 그룹 active 2개, 평균 load > high라서 busy 전환
-        devices.find_or_create(id);
-        devices.set_group(id, "sensors");
-        devices.update_status(
-            id, ddcs::ctrl::domain::Status{.mode = Mode::normal, .load = 95.0, .temp = 40.0}
+        devices.enroll(id, "sensors");
+        EXPECT_TRUE(
+            devices.update_status(id, Status{.mode = Mode::normal, .load = 95.0, .temp = 40.0})
         );
-        roster.active.push_back(id);
+        active_devices.active.push_back(id);
     }
     policy.set_policy(PolicyFixture::sensors_policy());
 

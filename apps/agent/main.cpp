@@ -1,13 +1,16 @@
 #include "ddcs/agent/agent.hpp"
 #include "ddcs/agent/domain/simulated_device.hpp"
+#include "ddcs/common/parse.hpp"
 #include "ddcs/common/uuid.hpp"
-#include "ddcs/config/config.hpp"
+#include "ddcs/config/env.hpp"
+#include "ddcs/config/file.hpp"
 #include "ddcs/device/mode.hpp"
+#include "ddcs/json/value.hpp"
+#include "ddcs/logger/event.hpp"
 #include "ddcs/logger/log.hpp"
+#include "ddcs/wire/frame/frame.hpp"
 
-#include <array>
 #include <chrono>
-#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -20,103 +23,9 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace {
-
-std::string env_or(char const* name, char const* fallback) {
-    char const* const v = std::getenv(name);
-    return v != nullptr ? std::string{v} : std::string{fallback};
-}
-
-// SimulatedDevice 파라미터 override용. 없거나 파싱 실패 시 fallback.
-double env_double(char const* name, double fallback) {
-    char const* const v = std::getenv(name);
-    if (v == nullptr) {
-        return fallback;
-    }
-    char* end = nullptr;
-    double const parsed = std::strtod(v, &end);
-    return end != v ? parsed : fallback;
-}
-
-void load_or_note(ddcs::config::Config& conf, std::filesystem::path const& path) {
-    if (!conf.add_file(path)) {
-        std::fprintf(stderr, "ddcs-agent: config %s not found; using defaults\n", path.c_str());
-    }
-}
-
-constexpr int hex_value(char c) noexcept {
-    if (c >= '0' && c <= '9') {
-        return c - '0';
-    }
-    if (c >= 'a' && c <= 'f') {
-        return c - 'a' + 10;
-    }
-    if (c >= 'A' && c <= 'F') {
-        return c - 'A' + 10;
-    }
-    return -1;
-}
-
-// 32 char hex (no dashes). 예: "0feef128d17f1f5585659a23ddb8c29d"
-std::optional<ddcs::common::Uuid> parse_uuid_hex32(std::string_view s) noexcept {
-    if (s.size() != 32) {
-        return std::nullopt;
-    }
-    std::array<std::byte, 16> bytes{};
-    for (std::size_t i = 0; i < 16; ++i) {
-        int const hi = hex_value(s[i * 2]);
-        int const lo = hex_value(s[i * 2 + 1]);
-        if (hi < 0 || lo < 0) {
-            return std::nullopt;
-        }
-        bytes[i] = std::byte{static_cast<std::uint8_t>(hi * 16 + lo)};
-    }
-    return ddcs::common::Uuid{bytes};
-}
-
-// 표준 8-4-4-4-12 형식 (uuidgen / Uuid::to_string 호환). 예: "0feef128-d17f-1f55-8565-9a23ddb8c29d"
-std::optional<ddcs::common::Uuid> parse_uuid_hex36(std::string_view s) noexcept {
-    if (s.size() != 36) {
-        return std::nullopt;
-    }
-    if (s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-') {
-        return std::nullopt;
-    }
-    std::array<std::byte, 16> bytes{};
-    std::size_t out_nibble = 0;
-    for (char const c : s) {
-        if (c == '-') {
-            continue;
-        }
-        int const h = hex_value(c);
-        if (h < 0) {
-            return std::nullopt;
-        }
-        if (out_nibble % 2 == 0) {
-            bytes[out_nibble / 2] = std::byte{static_cast<std::uint8_t>(h << 4)};
-        } else {
-            auto const merged = static_cast<std::uint8_t>(
-                static_cast<std::uint8_t>(bytes[out_nibble / 2]) | static_cast<std::uint8_t>(h)
-            );
-            bytes[out_nibble / 2] = std::byte{merged};
-        }
-        ++out_nibble;
-    }
-    return ddcs::common::Uuid{bytes};
-}
-
-// 두 형식 중 하나로 파싱하고 nil(전부 0)은 신원으로 무의미하므로 거부한다.
-std::optional<ddcs::common::Uuid> parse_device_uuid(std::string_view s) noexcept {
-    std::optional<ddcs::common::Uuid> u = parse_uuid_hex36(s);
-    if (!u.has_value()) {
-        u = parse_uuid_hex32(s);
-    }
-    if (u.has_value() && u->is_nil()) {
-        return std::nullopt;
-    }
-    return u;
-}
 
 std::string_view trim(std::string_view s) noexcept {
     auto const first = s.find_first_not_of(" \t\r\n");
@@ -126,46 +35,36 @@ std::string_view trim(std::string_view s) noexcept {
     return s.substr(first, s.find_last_not_of(" \t\r\n") - first + 1);
 }
 
-ddcs::common::Uuid generate_random_uuid() {
-    std::random_device rd;
-    std::mt19937_64 gen{rd()};
-    std::array<std::byte, 16> bytes{};
-    for (auto& b : bytes) {
-        b = std::byte{static_cast<std::uint8_t>(gen() & 0xff)};
-    }
-    return ddcs::common::Uuid{bytes};
-}
-
-struct LoadedUuid {
-    ddcs::common::Uuid value;
-    bool ephemeral; // 안정 신원이 아니라 매번 달라질 수 있음(persist 실패)
-};
-
-// 인스턴스별 device 신원. 우선순위:
-// 1. DDCS_DEVICE_ID (env, 명시)
-// 2. DDCS_DEVICE_ID_FILE (기본 data/agent.uuid) 읽기 - 재시작에도 안정
-// 3. 랜덤 생성 후 그 파일에 기록 - 첫 부팅 자가발급(이후 안정). 기록 실패 시에만 ephemeral.
-LoadedUuid load_device_uuid() {
-    if (char const* env = std::getenv("DDCS_DEVICE_ID")) {
-        if (auto u = parse_device_uuid(env)) {
-            return {*u, false};
+// 인스턴스별 device 신원. env(DDCS_DEVICE_ID) > 파일 읽기 > 생성+기록(자가발급) 순으로 해석.
+ddcs::common::Uuid load_device_uuid() {
+    if (auto const value = ddcs::config::env::get("DDCS_DEVICE_ID")) {
+        if (auto u = ddcs::common::parse_uuid(*value)) {
+            LOG_DEVICE_ID(u->to_string(), "env");
+            return *u;
         }
-        std::fprintf(stderr, "ddcs-agent: DDCS_DEVICE_ID is invalid or nil; ignoring\n");
+        LOG_CONFIG_VALUE_INVALID("env", "DDCS_DEVICE_ID", "uuid", *value);
     }
 
-    std::filesystem::path const path = env_or("DDCS_DEVICE_ID_FILE", "data/agent.uuid");
+    std::filesystem::path const path{
+        ddcs::config::env::get("DDCS_DEVICE_ID_FILE").value_or("data/agent.uuid")
+    };
+    LOG_CONFIG_PATH("DDCS_DEVICE_ID_FILE", path.string());
 
     if (std::ifstream in{path}) {
         std::string const text{
             std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}
         };
-        if (auto u = parse_device_uuid(trim(text))) {
-            return {*u, false};
+        auto const trimmed = trim(text);
+        if (auto u = ddcs::common::parse_uuid(trimmed)) {
+            LOG_DEVICE_ID(u->to_string(), "file");
+            return *u;
         }
-        std::fprintf(stderr, "ddcs-agent: %s holds an invalid uuid; regenerating\n", path.c_str());
+        // 파일 하나가 통째로 값이라 key 자리에 경로가 온다.
+        LOG_CONFIG_VALUE_INVALID("file", path.string(), "uuid", trimmed);
     }
 
-    ddcs::common::Uuid const fresh = generate_random_uuid();
+    ddcs::common::Uuid const fresh = ddcs::common::Uuid::random();
+    LOG_DEVICE_ID(fresh.to_string(), "generated");
     if (path.has_parent_path()) {
         std::error_code ec;
         std::filesystem::create_directories(path.parent_path(), ec);
@@ -173,57 +72,120 @@ LoadedUuid load_device_uuid() {
     if (std::ofstream out{path}) {
         out << fresh.to_string() << '\n';
         if (out) {
-            return {fresh, false}; // persist 성공 -> 안정 신원
+            return fresh; // persist 성공 -> 안정 신원
         }
     }
-    std::fprintf(
-        stderr, "ddcs-agent: could not persist uuid to %s; using a random ephemeral id\n",
-        path.c_str()
-    );
-    return {fresh, true};
+
+    // 기록에 실패하면 재시작마다 DeviceId가 바뀌어 Controller가 매번 새 Device로 본다.
+    LOG_DEVICE_ID_NOT_PERSISTED(fresh.to_string());
+    return fresh;
 }
 
 } // namespace
 
 int main() {
-    // 부팅 실패(config malformed, epoll/signalfd/timerfd 생성 실패 등)는 여기서 잡아 운영자용
-    // 1줄 진단 + EXIT_FAILURE로 끝낸다. (config malformed는 add_file이 throw)
-    try {
-        std::filesystem::path const path = env_or("DDCS_CONFIG_PATH", "config/agent.json");
-        ddcs::config::Config conf;
-        load_or_note(conf, path); // 단일 agent 설정 파일 (신원은 별도 env/파일로 해석)
+    ddcs::logger::StdoutSink sink;
+    auto& lg = ddcs::logger::Logger::instance();
+    lg.set_sink(sink);
 
+    // 부팅 실패(config malformed, epoll/signalfd/timerfd 생성 실패 등)는 여기서 잡아 운영자용
+    // 1줄 진단 + EXIT_FAILURE로 끝낸다.
+    try {
+        // device uuid
         auto const uuid = load_device_uuid();
 
+        // 설정 파일
+        std::filesystem::path const config_path{
+            ddcs::config::env::get("DDCS_CONFIG_PATH").value_or("config/agent.json")
+        };
+        LOG_CONFIG_PATH("DDCS_CONFIG_PATH", config_path.string());
+
+        ddcs::json::Value root; // 파일 없으면 null -> 전부 기본값
+        if (auto loaded = ddcs::config::file::load(config_path)) {
+            root = std::move(*loaded);
+        } else {
+            LOG_CONFIG_PATH_ABSENT(config_path.string());
+        }
+
+        // 로거 설정
+        auto log_level = lg.level();
+        auto const level_text = ddcs::config::file::get_string(root, "log.level", "info");
+        if (auto const parsed = ddcs::logger::parse_level(level_text)) {
+            log_level = *parsed;
+        } else {
+            LOG_CONFIG_VALUE_INVALID("file", "log.level", "log level", level_text);
+        }
+        if (auto const level = ddcs::config::env::get("DDCS_LOG_LEVEL")) {
+            if (auto const parsed = ddcs::logger::parse_level(*level)) {
+                log_level = *parsed;
+            } else {
+                LOG_CONFIG_VALUE_INVALID("env", "DDCS_LOG_LEVEL", "log level", *level);
+            }
+        }
+        lg.set_level(log_level);
+
+        // Agent 설정
         ddcs::agent::Agent::Config cfg{};
-        cfg.controller_host = conf.get_string("transport.host", "DDCS_TRANSPORT_HOST", "127.0.0.1");
-        cfg.controller_port = conf.get_port("transport.port", "DDCS_TRANSPORT_PORT", 8080);
-        cfg.reconnect_base_delay = conf.get_duration_ms("transport.reconnect_base_delay_ms", 1000);
-        cfg.reconnect_max_delay = conf.get_duration_ms("transport.reconnect_max_delay_ms", 30000);
-        cfg.device_id_is_ephemeral = uuid.ephemeral;
-        cfg.session.group = conf.get_string("device.group", "DDCS_DEVICE_GROUP", "zone_a");
-        cfg.session.heartbeat = conf.get_duration_ms("session.heartbeat_interval_ms", 1000);
-        cfg.session.status_update = conf.get_duration_ms("session.status_report_interval_ms", 5000);
-        cfg.session.register_timeout =
-            conf.get_duration_ms("session.registration_timeout_ms", 2000);
-        // device 시뮬레이션: load/temp는 mode-구동 상태(정책이 SetMode로 몰고 sim이 rate*tick
-        // 적분). rate(초당)는 device 스펙(글로벌 기본값), tick은 status 보고 주기에서 주입.
+
+        cfg.controller_host =
+            ddcs::config::file::get_string(root, "transport.host", cfg.controller_host);
+        if (auto const host = ddcs::config::env::get("DDCS_TRANSPORT_HOST")) {
+            cfg.controller_host = std::string{*host};
+        }
+
+        cfg.controller_port =
+            ddcs::config::file::get_port(root, "transport.port", cfg.controller_port);
+        cfg.controller_port =
+            ddcs::config::env::get_port("DDCS_TRANSPORT_PORT", cfg.controller_port);
+
+        cfg.rx_buffer_size = ddcs::config::file::get_size(
+            root, "transport.rx_buffer_size", cfg.rx_buffer_size, ddcs::wire::frame::max_rx_capacity
+        );
+
+        cfg.reconnect_base_delay = ddcs::config::file::get_duration_ms(
+            root, "transport.reconnect_base_delay_ms", cfg.reconnect_base_delay
+        );
+
+        cfg.reconnect_max_delay = ddcs::config::file::get_duration_ms(
+            root, "transport.reconnect_max_delay_ms", cfg.reconnect_max_delay
+        );
+
+        cfg.session.heartbeat = ddcs::config::file::get_duration_ms(
+            root, "session.heartbeat_interval_ms", cfg.session.heartbeat
+        );
+
+        cfg.session.status_report = ddcs::config::file::get_duration_ms(
+            root, "session.status_report_interval_ms", cfg.session.status_report
+        );
+
+        cfg.session.register_timeout = ddcs::config::file::get_duration_ms(
+            root, "session.registration_timeout_ms", cfg.session.register_timeout
+        );
+
+        cfg.session.group = ddcs::config::file::get_string(root, "device.group", "zone_a");
+        if (auto const group = ddcs::config::env::get("DDCS_DEVICE_GROUP")) {
+            cfg.session.group = std::string{*group};
+        }
+
+        // device 시뮬레이션:
+        // load/temp는 mode-구동 상태(정책이 SetMode로 몰고 sim이 rate*tick 적분).
+        // rate(초당)는 device 스펙(글로벌 기본값), tick은 status 보고 주기에서 주입.
+        // sim 노브(DDCS_SIM_*)는 데모 조정용 env 전용 키다.
         ddcs::agent::domain::SimulatedDevice::Config sim{};
         sim.tick_seconds =
             static_cast<double>(
-                std::chrono::duration_cast<std::chrono::milliseconds>(cfg.session.status_update)
+                std::chrono::duration_cast<std::chrono::milliseconds>(cfg.session.status_report)
                     .count()
             ) /
             1000.0;
-        sim.load_noise = env_double("DDCS_SIM_NOISE", sim.load_noise);
+        sim.load_noise = ddcs::config::env::get_double("DDCS_SIM_NOISE", sim.load_noise);
         sim.temp_noise = sim.load_noise * 0.5;
         // 개체차: load rate는 +-jitter(평균 보존), 초기 load/temp는 랜덤, noise seed도 device마다.
-        // temp rate(발열/냉각)는 기기 공통 스펙이라 안 흔든다. 개체 분산은 초기온도+noise로만 줘서
-        // device들이 high_temp에 서로 다른 시점에 닿게 한다(그래야 per-device thermal이 보임).
+        // temp rate(발열/냉각)는 기기 공통 스펙이라 안 흔든다. 개체 분산은 초기온도+noise 몫이다.
         std::mt19937_64 rng{std::random_device{}()};
         // jitter는 부호 보존 위해 (0,1): 1 이상이면 load_rate가 0/부호반전돼 limit cycle이 깨진다.
         // (음수/0은 아래 lambda가 그대로 통과시켜 무효화한다.)
-        double jitter = env_double("DDCS_SIM_JITTER", 0.10);
+        double jitter = ddcs::config::env::get_double("DDCS_SIM_JITTER", 0.10);
         if (jitter > 0.99) {
             jitter = 0.99;
         }
@@ -240,22 +202,18 @@ int main() {
         sim.load_initial = std::uniform_real_distribution<double>{20.0, 80.0}(rng);
         sim.temp_initial = std::uniform_real_distribution<double>{40.0, 55.0}(rng);
         sim.seed = rng();
-        cfg.device = std::make_unique<ddcs::agent::domain::SimulatedDevice>(
-            uuid.value, ddcs::device::Mode::normal, sim
+        auto device = std::make_unique<ddcs::agent::domain::SimulatedDevice>(
+            uuid, ddcs::device::Mode::normal, sim
         );
-        if (auto const level =
-                ddcs::logger::parse_level(conf.get_string("log.level", "DDCS_LOG_LEVEL", "info"))) {
-            cfg.log_level = *level;
-        }
 
-        ddcs::agent::Agent agent{std::move(cfg)};
+        ddcs::agent::Agent agent{std::move(cfg), std::move(device)};
         agent.start();
         agent.run();
     } catch (std::exception const& e) {
-        std::fprintf(stderr, "ddcs-agent: fatal: %s\n", e.what());
+        std::fprintf(stderr, "%s\n", e.what());
         return EXIT_FAILURE;
     } catch (...) {
-        std::fprintf(stderr, "ddcs-agent: fatal: unknown error\n");
+        std::fprintf(stderr, "unknown exception\n");
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;

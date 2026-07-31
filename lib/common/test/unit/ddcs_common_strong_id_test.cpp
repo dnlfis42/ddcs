@@ -54,15 +54,6 @@ TEST(StrongIdTest, ClearsValueToInvalid) {
     EXPECT_FALSE(value.valid());
 }
 
-TEST(StrongIdTest, ResetsValueToInvalid) {
-    FirstId value{42};
-
-    value.reset();
-
-    EXPECT_EQ(value.get(), FirstId::invalid);
-    EXPECT_FALSE(value.valid());
-}
-
 TEST(StrongIdTest, ComparesValuesWithSameTag) {
     EXPECT_EQ(FirstId{42}, FirstId{42});
     EXPECT_NE(FirstId{42}, FirstId{7});

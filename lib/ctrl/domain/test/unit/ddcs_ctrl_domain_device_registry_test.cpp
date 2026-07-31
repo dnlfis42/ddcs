@@ -1,6 +1,8 @@
 #include "ddcs/ctrl/domain/device_registry.hpp"
 
 #include "ddcs/common/uuid.hpp"
+#include "ddcs/device/mode.hpp"
+#include "ddcs/device/status.hpp"
 
 #include <array>
 #include <cstddef>
@@ -12,6 +14,8 @@ namespace {
 
 using namespace ddcs::ctrl::domain;
 using ddcs::common::Uuid;
+using ddcs::device::Mode;
+using ddcs::device::Status;
 
 Uuid make_uuid(std::uint8_t seed) {
     std::array<std::byte, 16> b{};
@@ -21,75 +25,90 @@ Uuid make_uuid(std::uint8_t seed) {
     return Uuid{b};
 }
 
-TEST(DeviceRegistryTest, CreatesNewDeviceForUnknownUuid) {
+TEST(DeviceRegistryTest, CreatesShadowForUnknownUuid) {
     DeviceRegistry reg;
     auto const u = make_uuid(1);
-    DeviceShadow const& d = reg.find_or_create(u);
-    EXPECT_EQ(d.id, u);
-    EXPECT_TRUE(d.id.valid());
+    reg.enroll(u, "sensors");
+    DeviceShadow const* d = reg.find(u);
+    ASSERT_NE(d, nullptr);
+    EXPECT_EQ(d->id, u); // uuid가 곧 DeviceId (서로게이트 발급 없음)
+    EXPECT_EQ(d->group, "sensors");
     EXPECT_EQ(reg.size(), 1u);
 }
 
-TEST(DeviceRegistryTest, ReturnsSameIdForSameUuid) {
+TEST(DeviceRegistryTest, CreatesShadowWithoutObservation) {
+    // 갓 등록한 Shadow는 미관측이다. 기본값 관측을 지어내지 않는다.
     DeviceRegistry reg;
-    auto const u = make_uuid(2);
-    DeviceId const id1 = reg.find_or_create(u).id;
-    DeviceId const id2 = reg.find_or_create(u).id; // 재등록 시 동일 id (identity persistence)
-    EXPECT_EQ(id1, id2);
-    EXPECT_EQ(reg.size(), 1u);
+    auto const u = make_uuid(12);
+    reg.enroll(u, "sensors");
+    ASSERT_NE(reg.find(u), nullptr);
+    EXPECT_FALSE(reg.find(u)->status.has_value());
 }
 
-TEST(DeviceRegistryTest, AssignsDistinctIdsToDistinctUuids) {
+TEST(DeviceRegistryTest, CreatesSeparateShadowsForDistinctUuids) {
     DeviceRegistry reg;
-    DeviceId const a = reg.find_or_create(make_uuid(3)).id;
-    DeviceId const b = reg.find_or_create(make_uuid(4)).id;
-    EXPECT_NE(a, b);
+    reg.enroll(make_uuid(3), "a");
+    reg.enroll(make_uuid(4), "b");
     EXPECT_EQ(reg.size(), 2u);
 }
 
 TEST(DeviceRegistryTest, FindsByUuid) {
     DeviceRegistry reg;
     auto const u = make_uuid(5);
-    reg.find_or_create(u);
+    reg.enroll(u, "sensors");
     DeviceShadow const* found = reg.find(u);
     ASSERT_NE(found, nullptr);
     EXPECT_EQ(found->id, u);
     EXPECT_EQ(reg.find(make_uuid(6)), nullptr);
 }
 
-TEST(DeviceRegistryTest, FindsById) {
-    DeviceRegistry reg;
-    DeviceId const id = reg.find_or_create(make_uuid(7)).id;
-    DeviceShadow const* found = reg.find(id);
-    ASSERT_NE(found, nullptr);
-    EXPECT_EQ(found->id, id);
-    EXPECT_EQ(reg.find(make_uuid(99)), nullptr);
-}
-
-TEST(DeviceRegistryTest, SetsGroup) {
-    DeviceRegistry reg;
-    auto const u = make_uuid(8);
-    DeviceId const id = reg.find_or_create(u).id;
-    reg.set_group(id, "sensors");
-    DeviceShadow const* d = reg.find(u);
-    ASSERT_NE(d, nullptr);
-    EXPECT_EQ(d->group, "sensors");
-}
-
 TEST(DeviceRegistryTest, RefreshesGroupOnReRegister) {
     DeviceRegistry reg;
     auto const u = make_uuid(9);
-    DeviceId const id = reg.find_or_create(u).id;
-    reg.set_group(id, "g1");
-    reg.set_group(id, "g2"); // 재등록 시 갱신
+    reg.enroll(u, "g1");
+    reg.enroll(u, "g2"); // 재등록: 선언된 group 갱신
     DeviceShadow const* d = reg.find(u);
     ASSERT_NE(d, nullptr);
     EXPECT_EQ(d->group, "g2");
+    EXPECT_EQ(reg.size(), 1u);
 }
 
-TEST(DeviceRegistryTest, IgnoresUnknownIdWhenSettingGroup) {
+TEST(DeviceRegistryTest, PreservesStatusOnReRegister) {
+    // 재접속의 핵심 불변식: 재등록해도 직전 관측은 남는다
     DeviceRegistry reg;
-    reg.set_group(make_uuid(200), "g"); // 미지 id면 no-op (크래시 없음)
+    auto const u = make_uuid(11);
+    reg.enroll(u, "sensors");
+    ASSERT_TRUE(reg.update_status(u, Status{.mode = Mode::normal, .load = 70.0, .temp = 60.0}));
+
+    reg.enroll(u, "sensors"); // 재등록
+    DeviceShadow const* d = reg.find(u);
+    ASSERT_NE(d, nullptr);
+    ASSERT_TRUE(d->status.has_value());
+    EXPECT_EQ(d->status->mode, Mode::normal);
+    EXPECT_EQ(d->status->load, 70.0);
+    EXPECT_EQ(reg.size(), 1u);
+}
+
+TEST(DeviceRegistryTest, UpdatesStatus) {
+    DeviceRegistry reg;
+    auto const u = make_uuid(10);
+    reg.enroll(u, "sensors");
+    EXPECT_TRUE(reg.update_status(u, Status{.mode = Mode::performance, .load = 42.0, .temp = 55.5})
+    );
+    DeviceShadow const* d = reg.find(u);
+    ASSERT_NE(d, nullptr);
+    ASSERT_TRUE(d->status.has_value());
+    EXPECT_EQ(d->status->mode, Mode::performance);
+    EXPECT_EQ(d->status->load, 42.0);
+    EXPECT_EQ(d->status->temp, 55.5);
+}
+
+TEST(DeviceRegistryTest, RejectsStatusForUnknownId) {
+    DeviceRegistry reg;
+    // 등록 없이 온 보고는 false로 알린다 (조용한 무시가 아님)
+    EXPECT_FALSE(
+        reg.update_status(make_uuid(201), Status{.mode = Mode::normal, .load = 1.0, .temp = 1.0})
+    );
     EXPECT_EQ(reg.size(), 0u);
 }
 

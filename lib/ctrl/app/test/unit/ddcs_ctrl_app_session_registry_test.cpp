@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -161,6 +162,33 @@ TEST(SessionRegistryTest, KickThenRebindFlow) {
 
     ASSERT_TRUE(registry.bind(ConnectionId{2}, make_device_id(0xAA), clock.now()));
     EXPECT_EQ(registry.find(make_device_id(0xAA))->conn(), ConnectionId{2});
+}
+
+// device::port::ActiveDevices 구현: 등록 미완(handshaking/confirming) 연결은 명령 대상이 아니다
+TEST(SessionRegistryTest, ForEachActiveYieldsOnlyActiveDevices) {
+    ManualClock clock;
+    SessionRegistry registry;
+    ASSERT_TRUE(registry.add(ConnectionId{1}, clock.now())); // handshaking
+    ASSERT_TRUE(registry.add(ConnectionId{2}, clock.now()));
+    ASSERT_TRUE(registry.bind(ConnectionId{2}, make_device_id(0xBB), clock.now())); // confirming
+    ASSERT_TRUE(registry.add(ConnectionId{3}, clock.now()));
+    ASSERT_TRUE(registry.bind(ConnectionId{3}, make_device_id(0xCC), clock.now()));
+    ASSERT_TRUE(registry.find(ConnectionId{3})->confirm(clock.now())); // active
+
+    std::vector<DeviceId> seen;
+    registry.for_each_active([&](DeviceId id) { seen.push_back(id); });
+
+    ASSERT_EQ(seen.size(), 1u);
+    EXPECT_EQ(seen[0], make_device_id(0xCC));
+}
+
+TEST(SessionRegistryTest, ForEachActiveYieldsNothingWhenEmpty) {
+    SessionRegistry registry;
+
+    std::size_t count = 0;
+    registry.for_each_active([&](DeviceId) { ++count; });
+
+    EXPECT_EQ(count, 0u);
 }
 
 TEST(SessionRegistryTest, ForEachVisitsAllAgents) {

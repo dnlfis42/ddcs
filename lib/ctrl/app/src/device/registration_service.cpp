@@ -8,8 +8,7 @@ domain::DeviceId RegistrationService::enroll(common::Uuid const& id, std::string
     if (!id.valid()) {
         return {};
     }
-    devices_.find_or_create(id);
-    devices_.set_group(id, std::string{group});
+    devices_.enroll(id, std::string{group});
     return id;
 }
 

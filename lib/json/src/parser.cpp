@@ -94,12 +94,21 @@ private:
         return text_[pos_];
     }
 
+    [[nodiscard]] std::size_t remaining() const noexcept {
+        return text_.size() - pos_;
+    }
+
     char consume() noexcept {
         return text_[pos_++];
     }
 
-    [[nodiscard]] std::size_t remaining() const noexcept {
-        return text_.size() - pos_;
+    [[nodiscard]] bool consume_literal(std::string_view literal) {
+        if (remaining() >= literal.size() && text_.substr(pos_, literal.size()) == literal) {
+            pos_ += literal.size();
+            return true;
+        }
+
+        return false;
     }
 
     void skip_ws() noexcept {
@@ -113,13 +122,50 @@ private:
         }
     }
 
-    bool try_consume_literal(std::string_view literal) {
-        if (remaining() >= literal.size() && text_.substr(pos_, literal.size()) == literal) {
-            pos_ += literal.size();
-            return true;
+    bool append_escape(std::string& out) {
+        if (eof()) {
+            return false;
         }
 
-        return false;
+        char const escape = consume();
+
+        switch (escape) {
+        case '"':
+            out += '"';
+            return true;
+        case '\\':
+            out += '\\';
+            return true;
+        case '/':
+            out += '/';
+            return true;
+        case 'b':
+            out += '\b';
+            return true;
+        case 'f':
+            out += '\f';
+            return true;
+        case 'n':
+            out += '\n';
+            return true;
+        case 'r':
+            out += '\r';
+            return true;
+        case 't':
+            out += '\t';
+            return true;
+        case 'u': {
+            auto scalar_value = parse_unicode_escape_scalar();
+            if (!scalar_value) {
+                return false;
+            }
+
+            utf8::append_scalar(out, *scalar_value);
+            return true;
+        }
+        default:
+            return false;
+        }
     }
 
     // JSON \uXXXX escape의 4자리 hex를 UTF-16 code unit으로 읽는다.
@@ -186,17 +232,17 @@ private:
 
         switch (current()) {
         case 'n':
-            if (!try_consume_literal("null")) {
+            if (!consume_literal("null")) {
                 return std::nullopt;
             }
             return Value{nullptr};
         case 't':
-            if (!try_consume_literal("true")) {
+            if (!consume_literal("true")) {
                 return std::nullopt;
             }
             return Value{true};
         case 'f':
-            if (!try_consume_literal("false")) {
+            if (!consume_literal("false")) {
                 return std::nullopt;
             }
             return Value{false};
@@ -245,52 +291,6 @@ private:
         }
 
         return std::nullopt;
-    }
-
-    bool append_escape(std::string& out) {
-        if (eof()) {
-            return false;
-        }
-
-        char const escape = consume();
-
-        switch (escape) {
-        case '"':
-            out += '"';
-            return true;
-        case '\\':
-            out += '\\';
-            return true;
-        case '/':
-            out += '/';
-            return true;
-        case 'b':
-            out += '\b';
-            return true;
-        case 'f':
-            out += '\f';
-            return true;
-        case 'n':
-            out += '\n';
-            return true;
-        case 'r':
-            out += '\r';
-            return true;
-        case 't':
-            out += '\t';
-            return true;
-        case 'u': {
-            auto scalar_value = parse_unicode_escape_scalar();
-            if (!scalar_value) {
-                return false;
-            }
-
-            utf8::append_scalar(out, *scalar_value);
-            return true;
-        }
-        default:
-            return false;
-        }
     }
 
     std::optional<Value> parse_number() {
@@ -385,7 +385,7 @@ private:
                 return std::nullopt;
             }
 
-            array.push_back(std::move(*value));
+            array.append(std::move(*value));
 
             skip_ws();
             if (eof()) {
@@ -452,7 +452,7 @@ private:
                 return std::nullopt;
             }
 
-            object.set(std::move(*key), std::move(*value));
+            object.put(std::move(*key), std::move(*value));
 
             skip_ws();
             if (eof()) {

@@ -1,9 +1,60 @@
 #pragma once
 
 #include "ddcs/ctrl/app/transport/port/connection_id.hpp"
-#include "ddcs/ctrl/app/transport/port/disconnect_reason.hpp"
+
+#include <cstdint>
+#include <string_view>
 
 namespace ddcs::ctrl::app::transport::port {
+
+// 세션이 왜 끝났는지. 이 값이 유일한 출처이므로 끊는 쪽이 이유를 정해 넘긴다.
+enum class DisconnectReason : std::uint8_t {
+    // transport가 판정
+    peer_closed, // peer가 FIN 보냄
+    io_error,    // kernel/network I/O 오류
+    frame_error, // frame 계층 오류(magic 불일치, 길이 초과, ring 손상)
+    // app이 판정
+    shutdown,             // 프로세스 종료
+    kicked,               // 같은 device의 새 세션이 밀어냄(new-wins)
+    handshake_expired,    // 등록을 제 시간에 못 끝냄
+    liveness_expired,     // active인데 침묵
+    register_rejected,    // 등록을 거부함
+    register_undelivered, // 판정을 전달하지 못함
+    bad_message,          // 디코딩 실패
+    unexpected_message,   // 그 상태에서 오지 않아야 하는 message type
+    internal_error,       // 방어 경로(정상 배선에서는 닿지 않음)
+};
+
+// 로그/진단용 이름. 어휘 밖 값은 빈 문자열로 노출한다.
+constexpr std::string_view to_string(DisconnectReason reason) noexcept {
+    switch (reason) {
+    case DisconnectReason::peer_closed:
+        return "peer_closed";
+    case DisconnectReason::io_error:
+        return "io_error";
+    case DisconnectReason::frame_error:
+        return "frame_error";
+    case DisconnectReason::shutdown:
+        return "shutdown";
+    case DisconnectReason::kicked:
+        return "kicked";
+    case DisconnectReason::handshake_expired:
+        return "handshake_expired";
+    case DisconnectReason::liveness_expired:
+        return "liveness_expired";
+    case DisconnectReason::register_rejected:
+        return "register_rejected";
+    case DisconnectReason::register_undelivered:
+        return "register_undelivered";
+    case DisconnectReason::bad_message:
+        return "bad_message";
+    case DisconnectReason::unexpected_message:
+        return "unexpected_message";
+    case DisconnectReason::internal_error:
+        return "internal_error";
+    }
+    return {};
+}
 
 // 연결 수명 사건(연결/해제)의 통지를 받는 포트
 class ConnectionListener {

@@ -17,12 +17,6 @@ ddcs_add_unit_test(
 )
 
 ddcs_add_unit_test(
-    ddcs_common_env_test
-    SOURCES ddcs_common_env_test.cpp
-    LIBRARIES ddcs::common
-)
-
-ddcs_add_unit_test(
     ddcs_common_linear_buffer_test
     SOURCES ddcs_common_linear_buffer_test.cpp
     LIBRARIES ddcs::common
@@ -31,6 +25,12 @@ ddcs_add_unit_test(
 ddcs_add_unit_test(
     ddcs_common_object_pool_test
     SOURCES ddcs_common_object_pool_test.cpp
+    LIBRARIES ddcs::common
+)
+
+ddcs_add_unit_test(
+    ddcs_common_parse_test
+    SOURCES ddcs_common_parse_test.cpp
     LIBRARIES ddcs::common
 )
 

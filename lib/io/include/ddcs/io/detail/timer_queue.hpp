@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ddcs/common/clock.hpp"
-#include "ddcs/io/timer_id.hpp"
+#include "ddcs/io/timer_token.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -10,15 +10,14 @@
 
 namespace ddcs::io::detail {
 
-// TimerId를 deadline 순서로 보관하는 min-heap
-// - clock과 handler를 모른다.
+// TimerToken을 deadline 순서로 보관하는 min-heap
 class TimerQueue {
 public:
     using time_point = common::Clock::time_point;
 
     struct Entry {
         time_point deadline;
-        TimerId id;
+        TimerToken id;
     };
 
     [[nodiscard]] bool empty() const noexcept {
@@ -32,7 +31,7 @@ public:
         return heap_.front();
     }
 
-    void push(time_point deadline, TimerId id) {
+    void push(time_point deadline, TimerToken id) {
         assert(id.valid());
 
         heap_.push_back(Entry{deadline, id});
@@ -43,6 +42,7 @@ public:
         if (heap_.empty()) {
             return;
         }
+
         std::pop_heap(heap_.begin(), heap_.end(), Later{});
         heap_.pop_back();
     }

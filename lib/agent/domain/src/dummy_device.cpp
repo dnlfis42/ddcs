@@ -6,8 +6,8 @@ DummyDevice::DummyDevice(common::Uuid id, device::Mode initial) noexcept
     : id_(id),
       mode_(initial) {}
 
-Status DummyDevice::query() {
-    return Status{.mode = mode_, .load = load_, .temp = temp_};
+device::Status DummyDevice::query() {
+    return device::Status{.mode = mode_, .load = load_, .temp = temp_};
 }
 
 bool DummyDevice::apply(device::Mode mode) {

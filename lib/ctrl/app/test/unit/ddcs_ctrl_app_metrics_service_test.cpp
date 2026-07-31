@@ -3,13 +3,11 @@
 #include "ddcs/common/clock.hpp"
 #include "ddcs/common/uuid.hpp"
 #include "ddcs/ctrl/app/device/command_service.hpp"
-#include "ddcs/ctrl/app/device/port/command.hpp"
 #include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/device/port/command_sender.hpp"
 #include "ddcs/ctrl/app/device/port/device_release_sink.hpp"
 #include "ddcs/ctrl/app/device/registration_service.hpp"
 #include "ddcs/ctrl/app/device/status_service.hpp"
-#include "ddcs/ctrl/app/session/device_roster.hpp"
 #include "ddcs/ctrl/app/session/session.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
 #include "ddcs/ctrl/app/session/session_service.hpp"
@@ -20,6 +18,8 @@
 #include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/domain/group_policy.hpp"
 #include "ddcs/device/mode.hpp"
+#include "ddcs/device/status.hpp"
+#include "ddcs/wire/command/command.hpp"
 
 #include <array>
 #include <chrono>
@@ -34,10 +34,9 @@ namespace {
 using ddcs::common::ManualClock;
 using ddcs::common::Uuid;
 using ddcs::ctrl::app::device::CommandService;
-using ddcs::ctrl::app::device::port::Command;
 using ddcs::ctrl::app::device::port::CommandId;
 using ddcs::ctrl::app::device::port::CommandSender;
-using ddcs::ctrl::app::device::port::SetMode;
+using ddcs::ctrl::app::device::port::SendResult;
 using ddcs::ctrl::app::metrics::MetricsService;
 using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::app::session::SessionService;
@@ -46,6 +45,8 @@ using ddcs::ctrl::app::transport::port::Disconnector;
 using ddcs::ctrl::app::transport::port::MessageBuffer;
 using ddcs::ctrl::app::transport::port::MessageSender;
 using ddcs::ctrl::domain::DeviceRegistry;
+using ddcs::wire::command::Command;
+using ddcs::wire::command::SetMode;
 using namespace std::chrono_literals;
 
 Uuid make_uuid(std::uint8_t seed) {
@@ -61,8 +62,8 @@ bool contains(std::string const& s, char const* sub) {
 class FakeCommandSender final : public CommandSender {
 public:
     bool accept = true;
-    bool try_send(ddcs::ctrl::domain::DeviceId, CommandId, Command const&) override {
-        return accept;
+    SendResult send(ddcs::ctrl::domain::DeviceId, CommandId, Command const&) override {
+        return accept ? SendResult::ok : SendResult::offline;
     }
 };
 
@@ -71,7 +72,7 @@ class FakeDisconnector final : public Disconnector {
 public:
     explicit FakeDisconnector(SessionRegistry& sessions) noexcept
         : sessions_{sessions} {}
-    void disconnect(ConnectionId id) override {
+    void disconnect(ConnectionId id, ddcs::ctrl::app::transport::port::DisconnectReason) override {
         sessions_.erase(id);
     }
 
@@ -90,7 +91,7 @@ public:
 
 class NoopReleaseSink final : public ddcs::ctrl::app::device::port::DeviceReleaseSink {
 public:
-    void on_device_left(ddcs::ctrl::domain::DeviceId) override {}
+    void on_device_released(ddcs::ctrl::domain::DeviceId) override {}
 };
 
 struct Fixture {
@@ -108,9 +109,8 @@ struct Fixture {
     SessionService session_service{sessions,     disconnector, outbox,   clock,
                                    registration, status,       commands, release_sink,
                                    policy,       3s,           3s};
-    ddcs::ctrl::app::session::DeviceRoster roster{sessions};
-    ddcs::ctrl::app::metrics::SweepStats sweep;
-    MetricsService metrics{sessions, devices, roster, commands, session_service, policy, sweep};
+    ddcs::ctrl::app::metrics::DurationStats sweep;
+    MetricsService metrics{sessions, devices, sessions, commands, session_service, policy, sweep};
 
     ddcs::ctrl::domain::DeviceId activate(std::uint64_t conn, std::uint8_t seed) {
         ConnectionId const id{conn};
@@ -122,18 +122,18 @@ struct Fixture {
 
     CommandId send(ddcs::ctrl::domain::DeviceId device) {
         return commands.dispatch(
-            device, SetMode{.mode = ddcs::device::Mode::performance}, clock.now()
+            device, SetMode{.mode = ddcs::device::encode_mode(ddcs::device::Mode::performance)},
+            clock.now()
         );
     }
 };
 
 TEST(MetricsServiceTest, ScrapeReportsGauges) {
     Fixture f;
-    EXPECT_TRUE(
-        f.sessions.add(ConnectionId{1}, f.clock.now())
+    EXPECT_TRUE(f.sessions.add(ConnectionId{1}, f.clock.now())
     ); // handshaking도 connection으로 집계
     EXPECT_TRUE(f.sessions.add(ConnectionId{2}, f.clock.now()));
-    f.devices.find_or_create(make_uuid(1));
+    f.devices.enroll(make_uuid(1), "");
 
     auto const text = f.metrics.scrape();
 
@@ -163,7 +163,7 @@ TEST(MetricsServiceTest, ScrapeReportsCommandCounters) {
 
     auto const id = f.send(device);
     f.clock.advance(100ms);
-    f.commands.settle(device, id, true, "", f.clock.now());
+    f.commands.settle(device, id, true, 0, f.clock.now());
 
     auto const text = f.metrics.scrape();
 
@@ -188,7 +188,7 @@ TEST(MetricsServiceTest, ScrapeRttHistogramCumulates) {
     for (int ms : {5, 30, 200}) {
         auto const id = f.send(device);
         f.clock.advance(std::chrono::milliseconds{ms});
-        f.commands.settle(device, id, true, "", f.clock.now());
+        f.commands.settle(device, id, true, 0, f.clock.now());
     }
 
     auto const text = f.metrics.scrape();
@@ -208,7 +208,7 @@ TEST(MetricsServiceTest, ScrapeReportsSupersedeAndStale) {
 
     auto const first = f.send(device);
     f.send(device);                                            // 같은 device+type이라 supersede
-    f.commands.settle(device, first, true, "", f.clock.now()); // 대체된 id라서 stale
+    f.commands.settle(device, first, true, 0, f.clock.now()); // 대체된 id라서 stale
 
     auto const text = f.metrics.scrape();
 
@@ -240,27 +240,29 @@ TEST(MetricsServiceTest, ScrapeReflectsHandshakeExpiry) {
 
 TEST(MetricsServiceTest, ScrapeReportsGroupGauges) {
     using ddcs::ctrl::domain::GroupRule;
-    using ddcs::ctrl::domain::Status;
     using ddcs::device::Mode;
+    using ddcs::device::Status;
     Fixture f;
     // 메트릭은 정책 group으로 한정되므로 zone_a/zone_b를 정책에 등록
-    f.policy.set("zone_a", *GroupRule::try_make(70, 30, Mode::performance, Mode::normal));
-    f.policy.set("zone_b", *GroupRule::try_make(60, 45, Mode::performance, Mode::safe));
+    f.policy.set("zone_a", *GroupRule::create(70, 30, Mode::performance, Mode::normal));
+    f.policy.set("zone_b", *GroupRule::create(60, 45, Mode::performance, Mode::safe));
 
     // zone_a: 2개 active (load 80, 60 -> avg 70), 둘 다 performance
     auto const a1 = f.activate(1, 0x01);
     auto const a2 = f.activate(2, 0x02);
-    f.devices.find_or_create(a1);
-    f.devices.set_group(a1, "zone_a");
-    f.devices.update_status(a1, Status{.mode = Mode::performance, .load = 80.0, .temp = 50.0});
-    f.devices.find_or_create(a2);
-    f.devices.set_group(a2, "zone_a");
-    f.devices.update_status(a2, Status{.mode = Mode::performance, .load = 60.0, .temp = 60.0});
+    f.devices.enroll(a1, "zone_a");
+    EXPECT_TRUE(
+        f.devices.update_status(a1, Status{.mode = Mode::performance, .load = 80.0, .temp = 50.0})
+    );
+    f.devices.enroll(a2, "zone_a");
+    EXPECT_TRUE(
+        f.devices.update_status(a2, Status{.mode = Mode::performance, .load = 60.0, .temp = 60.0})
+    );
     // zone_b: 1개 active (load 10), safe
     auto const b1 = f.activate(3, 0x03);
-    f.devices.find_or_create(b1);
-    f.devices.set_group(b1, "zone_b");
-    f.devices.update_status(b1, Status{.mode = Mode::safe, .load = 10.0, .temp = 30.0});
+    f.devices.enroll(b1, "zone_b");
+    EXPECT_TRUE(f.devices.update_status(b1, Status{.mode = Mode::safe, .load = 10.0, .temp = 30.0})
+    );
 
     auto const text = f.metrics.scrape();
 

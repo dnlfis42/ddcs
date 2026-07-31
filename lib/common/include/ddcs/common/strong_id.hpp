@@ -28,10 +28,6 @@ public:
         value_ = invalid;
     }
 
-    constexpr void reset() noexcept {
-        clear();
-    }
-
     constexpr bool operator==(StrongId const&) const = default;
 
 private:

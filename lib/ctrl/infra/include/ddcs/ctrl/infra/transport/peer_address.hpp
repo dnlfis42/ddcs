@@ -28,12 +28,6 @@ struct PeerAddress {
         port = 0;
         addr = {};
     }
-
-    void reset() noexcept {
-        clear();
-    }
-
-    bool operator==(PeerAddress const&) const = default;
 };
 
 } // namespace ddcs::ctrl::infra::transport

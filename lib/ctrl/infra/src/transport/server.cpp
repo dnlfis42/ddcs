@@ -3,17 +3,14 @@
 #include "ddcs/common/object_pool.hpp"
 #include "ddcs/ctrl/app/transport/port/connection_id.hpp"
 #include "ddcs/ctrl/app/transport/port/connection_listener.hpp"
-#include "ddcs/ctrl/app/transport/port/disconnect_reason.hpp"
 #include "ddcs/ctrl/app/transport/port/disconnector.hpp"
 #include "ddcs/ctrl/app/transport/port/message_receiver.hpp"
 #include "ddcs/ctrl/app/transport/port/message_sender.hpp"
 #include "ddcs/ctrl/infra/transport/acceptor.hpp"
 #include "ddcs/ctrl/infra/transport/connection.hpp"
 #include "ddcs/io/reactor.hpp"
-#include "ddcs/logger/log.hpp"
-#include "ddcs/wire/frame/extract.hpp"
+#include "ddcs/logger/event.hpp"
 #include "ddcs/wire/frame/frame.hpp"
-#include "ddcs/wire/frame/seal.hpp"
 
 #include <cassert>
 #include <cstddef>
@@ -33,55 +30,49 @@ constexpr std::size_t message_pool_chunk_size = 64;
 constexpr io::ChannelEvents base_connection_interests =
     io::ChannelEvents::readable | io::ChannelEvents::edge_triggered;
 
-// 최대 frame(header + max payload)이 rx ring에 통째로 들어가야
-// 부분 frame 대기가 끝난다(아니면 framing 교착).
-static_assert(
-    wire::frame::header_size + wire::frame::max_payload_length <= Connection::rx_buffer_capacity,
-    "max frame (header + max_payload_length) must fit in the rx ring buffer"
-);
-
 } // namespace
 
 class Server::Impl final : public port::Disconnector, public port::MessageSender {
 public:
-    enum class State {
-        idle = 0x00,
-        ready = 0x01,
-        active = 0x02,
-    };
-
     struct ReapEntry {
         port::ConnectionId id;
         port::DisconnectReason reason;
     };
 
-    Impl(Server& owner, io::Reactor& reactor, std::uint16_t port, int backlog)
+    Impl(
+        Server& owner, io::Reactor& reactor, std::uint16_t port, int backlog,
+        std::size_t rx_buffer_size
+    )
         : owner_(owner),
           reactor_(reactor),
           acceptor_(Acceptor{owner, port, backlog}),
-          connection_pool_(common::ObjectPool<Connection>::create<connection_pool_chunk_size>()),
-          message_pool_(
-              common::ObjectPool<common::LinearBuffer>::create<message_pool_chunk_size>(
-                  wire::frame::header_size + wire::frame::max_payload_length
-              )
-          ) {}
+          connection_pool_(common::ObjectPool<Connection>::create<connection_pool_chunk_size>(
+              wire::frame::fit_rx_capacity(rx_buffer_size)
+          )),
+          message_pool_(common::ObjectPool<common::LinearBuffer>::create<message_pool_chunk_size>(
+              wire::frame::max_frame_size
+          )) {
+        if (auto const fitted = wire::frame::fit_rx_capacity(rx_buffer_size);
+            fitted != rx_buffer_size) {
+            LOG_TRANSPORT_RX_BUFFER_ADJUST(rx_buffer_size, fitted);
+        }
+    }
 
-    void disconnect(port::ConnectionId id) override {
+    void disconnect(port::ConnectionId id, port::DisconnectReason reason) override {
         Connection* conn = find(id);
         if (conn == nullptr) {
             return;
         }
 
-        begin_reap(*conn, port::DisconnectReason::local_drop);
-        drain_reap_queue();
+        schedule_reap(*conn, reason);
+        reap_scheduled();
     }
 
     [[nodiscard]] port::MessageBuffer make_message_buffer() override {
         auto message = message_pool_.acquire();
-        bool const reserved =
-            wire::frame::reserve_header_room(*message); // frame header 자리 미리 확보
-        assert(reserved);
-        (void)reserved;
+        // frame header 자리 확보. 실패해도 여기서는 알리지 않는다. 그 버퍼는 프레이밍이 안 되므로
+        // send의 encode_frame이 같은 사실을 한 번 알린다.
+        (void)message->set_headroom(wire::frame::header_size);
         return message;
     }
 
@@ -95,59 +86,54 @@ public:
             return;
         }
 
-        if (!wire::frame::seal(*message)) {
-            assert(false); // make_message_buffer 용량/headroom 계약 위반. 버그 신호
+        if (!wire::frame::encode_frame(*message)) {
+            // payload 상한 초과 또는 make_message_buffer()를 거치지 않은 버퍼(프로그래머 오류)
+            LOG_TRANSPORT_FRAME_ENCODE_FAIL_CONN(id.get(), message->data_span().size());
             return;
         }
 
         conn->tx_enqueue(std::move(message));
         update_interests(*conn);
-        drain_reap_queue();
+        reap_scheduled();
     }
 
-    [[nodiscard]] bool
+    [[nodiscard]] io::SysResult
     init(port::ConnectionListener& listener, port::MessageReceiver& receiver) noexcept {
-        if (state_ != State::idle) {
-            return false;
+        if (acceptor_.valid()) {
+            return io::SysResult::fail(); // 이중 init
         }
-        if (!acceptor_.init()) {
-            return false;
+        if (auto const result = acceptor_.init(); !result) {
+            return result;
         }
 
         listener_ = &listener;
         receiver_ = &receiver;
-        state_ = State::ready;
-        return true;
+        return io::SysResult::success();
     }
 
-    [[nodiscard]] bool start() {
-        if (state_ == State::active) {
-            return true;
+    [[nodiscard]] io::SysResult start() {
+        if (acceptor_.registered()) {
+            return io::SysResult::success();
         }
-        if (state_ != State::ready) {
-            return false;
-        }
-        if (!reactor_.add(acceptor_.channel())) {
-            return false;
+        if (!acceptor_.valid()) {
+            return io::SysResult::fail(); // init 전 start
         }
 
-        state_ = State::active;
-        return true;
+        return reactor_.add(acceptor_.channel());
     }
 
     void stop() noexcept {
-        if (state_ != State::active) {
+        if (!acceptor_.registered()) {
             return;
         }
 
         reactor_.remove(acceptor_.channel());
-        begin_reap_all(port::DisconnectReason::local_drop);
-        drain_reap_queue();
-        state_ = State::ready;
+        schedule_reap_all(port::DisconnectReason::shutdown);
+        reap_scheduled();
     }
 
     void close() noexcept {
-        if (state_ == State::idle) {
+        if (!acceptor_.valid()) {
             return;
         }
 
@@ -155,7 +141,6 @@ public:
         acceptor_.close();
         listener_ = nullptr;
         receiver_ = nullptr;
-        state_ = State::idle;
     }
 
     [[nodiscard]] std::uint16_t port() const noexcept {
@@ -163,83 +148,78 @@ public:
     }
 
     [[nodiscard]] bool active() const noexcept {
-        return state_ == State::active;
+        return acceptor_.registered();
     }
 
-    void handle_accepted(io::Fd&& fd, PeerAddress peer) {
-        auto conn = connection_pool_.acquire();
-        auto const id = issue_id();
-        if (!conn->init(owner_, id, peer, std::move(fd), base_connection_interests)) {
-            return;
+    // 연결 조립 중 예외(슬롯/노드 할당 실패)는 이 연결 하나를 포기하는 선에서 막는다.
+    // 풀 핸들과 Fd의 RAII가 되돌리므로 중간에 빠져나가도 남는 상태가 없다.
+    void on_accepted(io::Fd&& fd, PeerAddress peer) {
+        try {
+            auto conn = connection_pool_.acquire();
+            auto const id = issue_id();
+            conn->init(owner_, id, peer, std::move(fd), base_connection_interests);
+
+            Connection* stored = conn.get();
+            auto [it, inserted] = connections_.try_emplace(id, std::move(conn));
+            if (!inserted) {
+                LOG_TRANSPORT_CONNECTION_DUPLICATE(id.get());
+                return;
+            }
+            if (auto const result = reactor_.add(stored->channel()); !result) {
+                LOG_TRANSPORT_CONNECTION_REGISTER_FAIL(id.get(), result.err);
+                connections_.erase(it); // 핸들 drop이 reset로 슬롯 반환
+                return;
+            }
+
+            notify_connected(id);
+        } catch (...) {
+            LOG_TRANSPORT_CONNECTION_SETUP_FAIL();
         }
 
-        Connection* stored = conn.get();
-        auto [it, inserted] = connections_.try_emplace(id, std::move(conn));
-        if (!inserted) {
-            return;
-        }
-        bool const tracked = stored->mark_tracked();
-        assert(tracked);
-        (void)tracked;
-
-        if (!reactor_.add(stored->channel())) {
-            connections_.erase(it);
-            return;
-        }
-        bool const activated = stored->mark_active();
-        assert(activated);
-        if (!activated) {
-            reactor_.remove(stored->channel());
-            connections_.erase(it);
-            return;
-        }
-
-        notify_connected(id);
-        drain_reap_queue();
+        reap_scheduled();
     }
 
-    void handle_accept_error(int err) noexcept {
-        LOG_WARN("transport.server.accept_error", logger::kv("errno", err));
+    void on_accept_error(int err) noexcept {
+        LOG_TRANSPORT_ACCEPT_FAIL(err);
     }
 
-    void handle_acceptor_failure(io::ChannelEvents events) noexcept {
-        LOG_ERROR(
-            "transport.server.acceptor_failure", logger::kv("events", io::to_underlying(events))
-        );
+    void on_acceptor_failure(io::ChannelEvents events) noexcept {
+        LOG_TRANSPORT_LISTEN_FAIL(io::to_underlying(events));
         close(); // 리스닝 fd 고장
     }
 
-    void handle_connection_ready(Connection& connection, io::ChannelEvents events) {
-        if (connection.state() != Connection::State::active) {
-            return;
-        }
-        auto const id = connection.id();
+    void on_connection_event(Connection& connection, io::ChannelEvents events) {
+        do {
+            if (!connection.registered()) {
+                break;
+            }
+            auto const id = connection.id();
 
-        if (io::contains(events, io::ChannelEvents::readable)) {
-            handle_readable(connection);
-        }
+            if (io::contains(events, io::ChannelEvents::readable)) {
+                handle_readable(connection);
+            }
 
-        // on_message 콜백이 disconnect/send로 재진입해 연결을 정리했을 수 있어 재조회한다.
-        Connection* conn = find_active(id);
-        if (conn == nullptr) {
-            drain_reap_queue();
-            return;
-        }
+            // on_message 콜백이 disconnect/send로 재진입해 연결을 정리했을 수 있어 재조회한다.
+            Connection* conn = find_active(id);
+            if (conn == nullptr) {
+                break;
+            }
 
-        if (io::contains(events, io::ChannelEvents::error) ||
-            io::contains(events, io::ChannelEvents::hangup)) {
-            begin_reap(*conn, port::DisconnectReason::io_error);
-            drain_reap_queue();
-            return;
-        }
+            if (io::contains(events, io::ChannelEvents::error) ||
+                io::contains(events, io::ChannelEvents::hangup)) {
+                schedule_reap(*conn, port::DisconnectReason::io_error);
+                break;
+            }
 
-        if (io::contains(events, io::ChannelEvents::writable)) {
-            handle_writable(*conn);
-        }
-        if (conn->state() == Connection::State::active) {
-            update_interests(*conn);
-        }
-        drain_reap_queue();
+            if (io::contains(events, io::ChannelEvents::writable)) {
+                handle_writable(*conn);
+            }
+            if (conn->registered()) {
+                update_interests(*conn);
+            }
+        } while (false);
+
+        reap_scheduled();
     }
 
 private:
@@ -259,37 +239,31 @@ private:
 
     [[nodiscard]] Connection* find_active(port::ConnectionId id) noexcept {
         Connection* conn = find(id);
-        if (conn == nullptr || conn->state() != Connection::State::active) {
+        if (conn == nullptr || !conn->registered()) {
             return nullptr;
         }
         return conn;
     }
 
-    void begin_reap_all(port::DisconnectReason reason) {
-        for (auto& [id, conn] : connections_) {
-            (void)id;
-            begin_reap(*conn, reason);
-        }
-    }
-
-    void begin_reap(Connection& conn, port::DisconnectReason reason) {
-        if (conn.state() != Connection::State::active) {
-            return; // 이미 reap 대기 중(tracked)이거나 셋업 미완
+    void schedule_reap(Connection& conn, port::DisconnectReason reason) {
+        // 이미 reap 대기 중이거나 셋업 미완
+        if (!conn.registered()) {
+            return;
         }
 
         auto const id = conn.id();
-        if (conn.channel().registered()) {
-            reactor_.remove(conn.channel());
-        }
-
-        bool const tracked = conn.mark_tracked();
-        assert(tracked);
-        (void)tracked;
-
+        reactor_.remove(conn.channel());
         reap_queue_.push({id, reason});
     }
 
-    void drain_reap_queue() noexcept {
+    void schedule_reap_all(port::DisconnectReason reason) {
+        for (auto& [id, conn] : connections_) {
+            (void)id;
+            schedule_reap(*conn, reason);
+        }
+    }
+
+    void reap_scheduled() noexcept {
         while (!reap_queue_.empty()) {
             ReapEntry const entry = reap_queue_.front();
             reap_queue_.pop();
@@ -309,7 +283,7 @@ private:
     }
 
     void update_interests(Connection& conn) {
-        if (conn.state() != Connection::State::active || !conn.channel().registered()) {
+        if (!conn.registered()) {
             return;
         }
 
@@ -320,8 +294,9 @@ private:
         if (conn.channel().interests() == interests) {
             return;
         }
-        if (!reactor_.modify(conn.channel(), interests)) {
-            begin_reap(conn, port::DisconnectReason::io_error);
+        if (auto const result = reactor_.modify(conn.channel(), interests); !result) {
+            LOG_TRANSPORT_REACTOR_MODIFY_FAIL_CONN(conn.id().get(), result.err);
+            schedule_reap(conn, port::DisconnectReason::io_error);
         }
     }
 
@@ -335,75 +310,76 @@ private:
                 return;
             }
 
-            Connection::IoResult const result = conn->receive();
-            dispatch_frames(id); // 결과 처리 전에 도착분 디스패치
+            net::ReceiveResult const result = conn->receive();
+
+            wire::frame::dispatch_frames(
+                message_pool_,
+                [&]() -> common::CircularBuffer* {
+                    Connection* active = find_active(id);
+                    return active != nullptr ? &active->rx_buffer() : nullptr;
+                },
+                [&](port::MessageBuffer payload) { notify_message(id, std::move(payload)); },
+                [&](wire::frame::DecodeResult reason) {
+                    // bad_magic/too_long은 상대가 잘못 보낸 것이고, read_error는 우리 ring
+                    // 로직이 어긋난 것이라 레벨이 갈린다. 뭉개면 우리 버그가 상대 탓으로 남는다.
+                    if (reason == wire::frame::DecodeResult::read_error) {
+                        LOG_TRANSPORT_FRAME_DECODE_CORRUPT_CONN(id.get());
+                    } else {
+                        LOG_TRANSPORT_FRAME_DECODE_FAIL_CONN(
+                            id.get(), wire::frame::to_string(reason)
+                        );
+                    }
+                    if (Connection* active = find_active(id)) {
+                        schedule_reap(*active, port::DisconnectReason::frame_error);
+                    }
+                }
+            );
 
             conn = find_active(id); // 콜백 재진입으로 정리됐을 수 있다.
             if (conn == nullptr) {
                 return;
             }
 
-            switch (result) {
-            case Connection::IoResult::ok:
-            case Connection::IoResult::would_block:
+            switch (result.code) {
+            case net::ReceiveResult::Code::would_block:
                 return;
-            case Connection::IoResult::full:
+            case net::ReceiveResult::Code::full:
                 continue; // dispatch가 공간을 비웠으니 더 읽는다.
-            case Connection::IoResult::peer_closed:
-                begin_reap(*conn, port::DisconnectReason::peer_closed);
+            case net::ReceiveResult::Code::peer_closed:
+                schedule_reap(*conn, port::DisconnectReason::peer_closed);
                 return;
-            case Connection::IoResult::error:
-                begin_reap(*conn, port::DisconnectReason::io_error);
+            case net::ReceiveResult::Code::error:
+                LOG_TRANSPORT_RECEIVE_FAIL_CONN(id.get(), result.err);
+                schedule_reap(*conn, port::DisconnectReason::io_error);
                 return;
             }
         }
     }
 
     void handle_writable(Connection& conn) {
-        switch (conn.transmit()) {
-        case Connection::IoResult::ok:
-        case Connection::IoResult::would_block:
+        auto const result = conn.transmit();
+        switch (result.code) {
+        case net::TransmitResult::Code::drained:
+        case net::TransmitResult::Code::would_block:
             return;
-        case Connection::IoResult::full:
-        case Connection::IoResult::peer_closed:
-            assert(false && "transmit은 full/peer_closed를 반환하지 않는다");
-            [[fallthrough]];
-        case Connection::IoResult::error:
-            begin_reap(conn, port::DisconnectReason::io_error);
+        case net::TransmitResult::Code::error:
+            LOG_TRANSPORT_SEND_FAIL_CONN(conn.id().get(), result.err);
+            schedule_reap(conn, port::DisconnectReason::io_error);
             return;
         }
-    }
-
-    // rx ring의 완성된 frame을 모두 on_message로 올린다(agent Connector::framing과 공유 루프).
-    // get_rx가 매 반복 find_active로 재조회하므로 콜백(notify_message) 재진입에 안전하다.
-    void dispatch_frames(port::ConnectionId id) {
-        wire::frame::extract_frames(
-            message_pool_,
-            [&]() -> common::CircularBuffer* {
-                Connection* conn = find_active(id);
-                return conn != nullptr ? &conn->rx_buffer() : nullptr;
-            },
-            [&](port::MessageBuffer payload) { notify_message(id, std::move(payload)); },
-            [&](wire::frame::PullResult) {
-                if (Connection* conn = find_active(id)) {
-                    begin_reap(*conn, port::DisconnectReason::protocol_error);
-                }
-            }
-        );
     }
 
     void notify_connected(port::ConnectionId id) noexcept {
         if (listener_ == nullptr) {
             return;
         }
+
         try {
             listener_->on_connected(id);
         } catch (...) {
-            LOG_ERROR(
-                "transport.server.observer_callback_failed", logger::kv("callback", "on_connected")
-            );
+            LOG_TRANSPORT_CONNECTION_NOTIFY_FAIL(id.get(), "connect");
             if (Connection* conn = find_active(id)) {
-                begin_reap(*conn, port::DisconnectReason::local_drop);
+                schedule_reap(*conn, port::DisconnectReason::internal_error);
             }
         }
     }
@@ -412,14 +388,13 @@ private:
         if (receiver_ == nullptr) {
             return;
         }
+
         try {
             receiver_->on_message(id, std::move(payload));
         } catch (...) {
-            LOG_ERROR(
-                "transport.server.observer_callback_failed", logger::kv("callback", "on_message")
-            );
+            LOG_TRANSPORT_CONNECTION_NOTIFY_FAIL(id.get(), "message");
             if (Connection* conn = find_active(id)) {
-                begin_reap(*conn, port::DisconnectReason::local_drop);
+                schedule_reap(*conn, port::DisconnectReason::internal_error);
             }
         }
     }
@@ -428,13 +403,11 @@ private:
         if (listener_ == nullptr) {
             return;
         }
+
         try {
             listener_->on_disconnected(id, reason);
         } catch (...) {
-            LOG_ERROR(
-                "transport.server.observer_callback_failed",
-                logger::kv("callback", "on_disconnected")
-            );
+            LOG_TRANSPORT_CONNECTION_NOTIFY_FAIL(id.get(), "disconnect");
         }
     }
 
@@ -442,7 +415,6 @@ private:
     io::Reactor& reactor_;
     port::ConnectionListener* listener_ = nullptr;
     port::MessageReceiver* receiver_ = nullptr;
-    State state_ = State::idle;
 
     Acceptor acceptor_;
 
@@ -455,18 +427,19 @@ private:
     std::uint64_t next_connection_id_ = 1;
 };
 
-Server::Server(io::Reactor& reactor, std::uint16_t port, int backlog)
-    : impl_(std::make_unique<Impl>(*this, reactor, port, backlog)) {}
+Server::Server(io::Reactor& reactor, std::uint16_t port, int backlog, std::size_t rx_buffer_size)
+    : impl_(std::make_unique<Impl>(*this, reactor, port, backlog, rx_buffer_size)) {}
 
 Server::~Server() {
     close();
 }
 
-bool Server::init(port::ConnectionListener& listener, port::MessageReceiver& receiver) noexcept {
+io::SysResult
+Server::init(port::ConnectionListener& listener, port::MessageReceiver& receiver) noexcept {
     return impl_->init(listener, receiver);
 }
 
-bool Server::start() {
+io::SysResult Server::start() {
     return impl_->start();
 }
 
@@ -494,20 +467,20 @@ bool Server::active() const noexcept {
     return impl_->active();
 }
 
-void Server::handle_accepted(io::Fd&& fd, PeerAddress peer) {
-    impl_->handle_accepted(std::move(fd), peer);
+void Server::on_accepted(io::Fd&& fd, PeerAddress peer) {
+    impl_->on_accepted(std::move(fd), peer);
 }
 
-void Server::handle_accept_error(int err) {
-    impl_->handle_accept_error(err);
+void Server::on_accept_error(int err) {
+    impl_->on_accept_error(err);
 }
 
-void Server::handle_acceptor_failure(io::ChannelEvents events) {
-    impl_->handle_acceptor_failure(events);
+void Server::on_acceptor_failure(io::ChannelEvents events) {
+    impl_->on_acceptor_failure(events);
 }
 
-void Server::handle_connection_ready(Connection& connection, io::ChannelEvents events) {
-    impl_->handle_connection_ready(connection, events);
+void Server::on_connection_event(Connection& connection, io::ChannelEvents events) {
+    impl_->on_connection_event(connection, events);
 }
 
 } // namespace ddcs::ctrl::infra::transport

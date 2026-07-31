@@ -1,11 +1,11 @@
-#include "ddcs/wire/message/command.hpp"
+#include "ddcs/wire/command/command.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
 
-namespace ddcs::wire::message {
+namespace ddcs::wire::command {
 
 std::optional<std::size_t> encode_set_mode(std::span<std::byte> out, std::uint8_t mode) noexcept {
     if (out.empty()) {
@@ -24,4 +24,4 @@ std::optional<SetMode> decode_set_mode(std::span<std::byte const> in) noexcept {
     return SetMode{.mode = static_cast<std::uint8_t>(in[0])};
 }
 
-} // namespace ddcs::wire::message
+} // namespace ddcs::wire::command

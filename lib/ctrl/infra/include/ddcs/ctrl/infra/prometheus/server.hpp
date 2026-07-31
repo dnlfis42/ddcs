@@ -5,6 +5,7 @@
 #include "ddcs/io/channel.hpp"
 #include "ddcs/io/channel_events.hpp"
 #include "ddcs/io/channel_handler.hpp"
+#include "ddcs/io/sys_result.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -27,9 +28,9 @@ namespace ddcs::ctrl::infra::prometheus {
 
 namespace port = ddcs::ctrl::app::metrics::port;
 
-// metrics 스크레이프 listen 엔드포인트 (reactor의 2nd guest)
-// - HTTP read 후 MetricsSource::scrape, respond 후 close
-// - 스크레이프는 저빈도 best-effort
+// metrics 스크레이프 listen 엔드포인트
+//
+// 스크랩은 저빈도 best-effort
 class Server final : private io::ChannelHandler {
 public:
     Server(
@@ -42,10 +43,10 @@ public:
     Server(Server&&) noexcept = delete;
     Server& operator=(Server&&) noexcept = delete;
 
-    // socket/bind/listen. 실패는 WARN + false
-    [[nodiscard]] bool init() noexcept;
+    // socket/bind/listen. 실패는 WARN + errno를 실은 실패 반환
+    [[nodiscard]] io::SysResult init() noexcept;
     // listen channel을 reactor에 등록
-    [[nodiscard]] bool start();
+    [[nodiscard]] io::SysResult start();
     // reactor에서 제거 + 연결 전부 정리
     void stop() noexcept;
     void close() noexcept;
@@ -56,43 +57,36 @@ public:
     }
 
     [[nodiscard]] bool active() const noexcept {
-        return state_ == State::active;
+        return listen_channel_.registered();
     }
 
     [[nodiscard]] std::size_t connection_count() const noexcept {
         return connections_.size();
     }
 
-    void handle_connection_ready(Connection& conn, io::ChannelEvents events);
+    void on_connection_event(Connection& conn, io::ChannelEvents events);
 
 private:
     void on_ready(io::Channel& channel, io::ChannelEvents events) override;
+    void accept_connections();
 
-    enum class State : std::uint8_t {
-        idle,
-        ready,
-        active,
-    };
-
-    void drain_accepts();
-    void dispatch(Connection& conn, io::ChannelEvents events);
-    // source_.scrape()로 HTTP 응답 빌드
-    void respond(Connection& conn);
-    void schedule_close(Connection& conn);
-    void reap();
-    [[nodiscard]] Connection* find(int fd);
+    void schedule_reap(Connection& conn);
+    void reap_scheduled();
 
 private:
     io::Reactor& reactor_;
+
     port::PrometheusSource& source_;
+
     std::uint16_t listen_port_;
     std::uint16_t bound_port_ = 0;
     int const backlog_;
-    State state_ = State::idle;
+
     io::Channel listen_channel_;
-    common::ObjectPool<Connection> pool_;
+
+    common::ObjectPool<Connection> connection_pool_;
     std::unordered_map<int, common::PoolHandle<Connection>> connections_; // conn fd 키
-    std::vector<int> pending_close_;
+    std::vector<int> reap_queue_;
 };
 
 } // namespace ddcs::ctrl::infra::prometheus

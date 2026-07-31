@@ -12,6 +12,7 @@
 
 namespace {
 
+using ddcs::agent::app::transport::port::DisconnectReason;
 using ddcs::agent::app::transport::port::Inbound;
 using ddcs::agent::app::transport::port::Outbound;
 using ddcs::agent::app::transport::port::TimerSlot;
@@ -29,13 +30,13 @@ public:
 
 class NoopOutbound : public Outbound {
 public:
-    PoolHandle<LinearBuffer> payload_buffer() override {
+    PoolHandle<LinearBuffer> make_message_buffer() override {
         return {};
     }
     void send(PoolHandle<LinearBuffer>) override {}
     void schedule_timer(TimerSlot, std::chrono::nanoseconds) override {}
     void cancel_timer(TimerSlot) override {}
-    void close() override {}
+    void disconnect(DisconnectReason) override {}
     void notify_registered() override {}
 };
 
@@ -51,7 +52,7 @@ TEST(AgentPortTest, InterfacesAreImplementable) {
 TEST(AgentPortTest, TimerSlotHasThreeSlots) {
     EXPECT_EQ(static_cast<std::uint8_t>(TimerSlot::register_timeout), 0);
     EXPECT_EQ(static_cast<std::uint8_t>(TimerSlot::heartbeat), 1);
-    EXPECT_EQ(static_cast<std::uint8_t>(TimerSlot::status), 2);
+    EXPECT_EQ(static_cast<std::uint8_t>(TimerSlot::status_report), 2);
 }
 
 } // namespace

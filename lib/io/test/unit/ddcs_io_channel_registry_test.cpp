@@ -30,7 +30,7 @@ TEST(ChannelRegistryTest, ResolvesInsertedChannel) {
     ChannelRegistry registry;
     DummyHandler handler;
     Channel channel;
-    ASSERT_TRUE(channel.init(make_fd(), ChannelEvents::readable, handler));
+    channel.init(make_fd(), ChannelEvents::readable, handler);
 
     auto const token = registry.insert(channel);
 
@@ -41,7 +41,7 @@ TEST(ChannelRegistryTest, ReturnsCurrentTokenForChannel) {
     ChannelRegistry registry;
     DummyHandler handler;
     Channel channel;
-    ASSERT_TRUE(channel.init(make_fd(), ChannelEvents::readable, handler));
+    channel.init(make_fd(), ChannelEvents::readable, handler);
 
     auto const inserted_token = registry.insert(channel);
     auto const current_token = registry.token(channel);
@@ -54,7 +54,7 @@ TEST(ChannelRegistryTest, InvalidatesTokenWhenErased) {
     ChannelRegistry registry;
     DummyHandler handler;
     Channel channel;
-    ASSERT_TRUE(channel.init(make_fd(), ChannelEvents::readable, handler));
+    channel.init(make_fd(), ChannelEvents::readable, handler);
 
     auto const token = registry.insert(channel);
     EXPECT_TRUE(registry.erase(channel));
@@ -66,7 +66,7 @@ TEST(ChannelRegistryTest, ReturnsFalseWhenErasingUnknownChannel) {
     ChannelRegistry registry;
     DummyHandler handler;
     Channel channel;
-    ASSERT_TRUE(channel.init(make_fd(), ChannelEvents::readable, handler));
+    channel.init(make_fd(), ChannelEvents::readable, handler);
 
     EXPECT_FALSE(registry.erase(channel));
 }

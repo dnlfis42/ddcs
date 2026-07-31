@@ -8,6 +8,8 @@
 
 namespace ddcs::common {
 
+// 앞뒤로 여유 공간을 둔 선형 바이트 버퍼. 저장 공간은 headroom [0, data_offset_),
+// data [data_offset_, tail_offset_), tailroom [tail_offset_, capacity_) 세 구역으로 나뉜다.
 class LinearBuffer {
 public:
     explicit LinearBuffer(std::size_t capacity)
@@ -48,7 +50,29 @@ public:
         return {tailroom_ptr(), tailroom_size()};
     }
 
-    [[nodiscard]] bool try_peek(std::span<std::byte> dst) const noexcept {
+    // 앞쪽 data 영역의 n 바이트를 소비한다. 복사 없이 offset만 전진한다.
+    [[nodiscard]] bool consume(std::size_t n) noexcept {
+        if (size() < n) {
+            return false;
+        }
+
+        data_offset_ += n;
+        assert_invariant();
+        return true;
+    }
+
+    // 뒤쪽 tailroom의 n 바이트를 data 영역으로 확정한다.
+    [[nodiscard]] bool commit(std::size_t n) noexcept {
+        if (tailroom_size() < n) {
+            return false;
+        }
+
+        tail_offset_ += n;
+        assert_invariant();
+        return true;
+    }
+
+    [[nodiscard]] bool peek(std::span<std::byte> dst) const noexcept {
         if (size() < dst.size()) {
             return false;
         }
@@ -59,8 +83,8 @@ public:
         return true;
     }
 
-    [[nodiscard]] bool try_extract(std::span<std::byte> dst) noexcept {
-        if (!try_peek(dst)) {
+    [[nodiscard]] bool extract(std::span<std::byte> dst) noexcept {
+        if (!peek(dst)) {
             return false;
         }
 
@@ -69,18 +93,7 @@ public:
         return true;
     }
 
-    // 앞쪽 data 영역의 n 바이트를 소비한다.
-    [[nodiscard]] bool try_consume(std::size_t n) noexcept {
-        if (size() < n) {
-            return false;
-        }
-
-        data_offset_ += n;
-        assert_invariant();
-        return true;
-    }
-
-    [[nodiscard]] bool try_append(std::span<std::byte const> src) noexcept {
+    [[nodiscard]] bool append(std::span<std::byte const> src) noexcept {
         if (tailroom_size() < src.size()) {
             return false;
         }
@@ -93,19 +106,8 @@ public:
         return true;
     }
 
-    // 뒤쪽 여유 공간의 n 바이트를 data 영역으로 확정한다.
-    [[nodiscard]] bool try_commit(std::size_t n) noexcept {
-        if (tailroom_size() < n) {
-            return false;
-        }
-
-        tail_offset_ += n;
-        assert_invariant();
-        return true;
-    }
-
-    // 앞쪽 여유 공간에 src를 복사해 data 영역 앞에 붙인다.
-    [[nodiscard]] bool try_prepend(std::span<std::byte const> src) noexcept {
+    // 앞쪽 headroom에 src를 복사해 data 영역 앞에 붙인다.
+    [[nodiscard]] bool prepend(std::span<std::byte const> src) noexcept {
         if (headroom_size() < src.size()) {
             return false;
         }
@@ -118,8 +120,8 @@ public:
         return true;
     }
 
-    // 버퍼가 비어 있을 때 headroom 크기를 n 바이트로 설정한다.
-    [[nodiscard]] bool try_set_headroom(std::size_t n) noexcept {
+    // headroom 크기를 n 바이트로 설정한다. 버퍼가 비어 있을 때만 성공한다.
+    [[nodiscard]] bool set_headroom(std::size_t n) noexcept {
         if (!empty() || n > capacity()) {
             return false;
         }
@@ -130,8 +132,8 @@ public:
         return true;
     }
 
-    // 버퍼가 비어 있을 때 headroom 크기를 n 바이트만큼 늘린다.
-    [[nodiscard]] bool try_grow_headroom(std::size_t n) noexcept {
+    // headroom 크기를 n 바이트만큼 늘린다. 버퍼가 비어 있을 때만 성공한다.
+    [[nodiscard]] bool grow_headroom(std::size_t n) noexcept {
         if (!empty() || n > tailroom_size()) {
             return false;
         }
@@ -160,16 +162,12 @@ private:
         return storage_.get() + tail_offset_;
     }
 
-    // Invariant: data_offset_ <= tail_offset_ <= capacity_
+    // 불변식: data_offset_ <= tail_offset_ <= capacity_
     void assert_invariant() const noexcept {
         assert(data_offset_ <= tail_offset_);
         assert(tail_offset_ <= capacity_);
     }
 
-    // Layout:
-    // - [0, data_offset_): headroom
-    // - [data_offset_, tail_offset_): data
-    // - [tail_offset_, capacity_): tailroom
     std::unique_ptr<std::byte[]> storage_;
     std::size_t capacity_;
     std::size_t data_offset_ = 0;

@@ -3,7 +3,6 @@
 #include "ddcs/common/clock.hpp"
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
-#include "ddcs/ctrl/app/device/port/command.hpp"
 #include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/session/session.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
@@ -12,13 +11,14 @@
 #include "ddcs/ctrl/app/transport/port/message_sender.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/device/mode.hpp"
+#include "ddcs/wire/command/command.hpp"
 #include "ddcs/wire/frame/frame.hpp"
-#include "ddcs/wire/message/command.hpp"
 #include "ddcs/wire/message/message.hpp"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <variant>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -26,11 +26,12 @@
 namespace {
 
 namespace msg = ddcs::wire::message;
+namespace cmd = ddcs::wire::command;
 namespace frame = ddcs::wire::frame;
 
 using ddcs::common::ManualClock;
 using ddcs::ctrl::app::device::port::CommandId;
-using ddcs::ctrl::app::device::port::SetMode;
+using ddcs::ctrl::app::device::port::SendResult;
 using ddcs::ctrl::app::session::CommandSender;
 using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::app::transport::port::ConnectionId;
@@ -38,6 +39,7 @@ using ddcs::ctrl::app::transport::port::MessageBuffer;
 using ddcs::ctrl::app::transport::port::MessageSender;
 using ddcs::ctrl::domain::DeviceId;
 using ddcs::device::Mode;
+using ddcs::wire::command::SetMode;
 
 DeviceId make_device_id(std::uint8_t seed) {
     std::array<std::byte, 16> bytes{};
@@ -60,29 +62,26 @@ public:
 
     MessageBuffer make_message_buffer() override {
         auto message = pool_.acquire();
-        EXPECT_TRUE(message->try_grow_headroom(frame::header_size)); // infra 계약 모사
+        EXPECT_TRUE(message->grow_headroom(frame::header_size)); // infra 계약 모사
         return message;
     }
 
     void send(ConnectionId conn, MessageBuffer message) override {
         //  // [type][command_id][command_type][payload]
-        auto const bytes = message->data_span();
-        ASSERT_FALSE(bytes.empty());
-        EXPECT_EQ(msg::message_type(bytes), msg::MessageType::command_request);
-        auto const cmd = msg::decode_command_request(bytes.subspan(1));
-        ASSERT_TRUE(cmd.has_value());
-        auto const set_mode = msg::decode_set_mode(cmd->payload);
+        auto const decoded = msg::decode_message(message->data_span());
+        ASSERT_TRUE(decoded.has_value());
+        auto const* req = std::get_if<msg::CommandRequest>(&*decoded);
+        ASSERT_NE(req, nullptr);
+        auto const set_mode = cmd::decode_set_mode(req->payload);
         ASSERT_TRUE(set_mode.has_value());
         std::array<std::byte, frame::header_size> const frame_stub{}; // frame 헤더 자리 검증
-        sent.push_back(
-            Sent{
-                .conn = conn,
-                .command_id = cmd->command_id,
-                .type = cmd->command_type,
-                .mode = ddcs::device::decode_mode(set_mode->mode).value_or(Mode::safe),
-                .frame_headroom_ok = message->try_prepend(frame_stub),
-            }
-        );
+        sent.push_back(Sent{
+            .conn = conn,
+            .command_id = req->command_id,
+            .type = req->command_type,
+            .mode = ddcs::device::decode_mode(set_mode->mode).value_or(Mode::safe),
+            .frame_headroom_ok = message->prepend(frame_stub),
+        });
     }
 
 private:
@@ -110,45 +109,61 @@ TEST(CommandSenderTest, SendsEncodedCommandToActiveConnection) {
     SenderFixture f;
     ConnectionId const conn = f.activate(1, 0xAA);
 
-    EXPECT_TRUE(
-        f.sender.try_send(make_device_id(0xAA), CommandId{42}, SetMode{.mode = Mode::performance})
+    EXPECT_EQ(
+        f.sender.send(
+            make_device_id(0xAA), CommandId{42},
+            SetMode{.mode = ddcs::device::encode_mode(Mode::performance)}
+        ),
+        SendResult::ok
     );
 
     ASSERT_EQ(f.outbox.sent.size(), 1u);
     EXPECT_EQ(f.outbox.sent[0].conn, conn);
     EXPECT_EQ(f.outbox.sent[0].command_id, 42u);
-    EXPECT_EQ(f.outbox.sent[0].type, static_cast<std::uint8_t>(msg::CommandType::set_mode));
+    EXPECT_EQ(f.outbox.sent[0].type, static_cast<std::uint8_t>(cmd::CommandType::set_mode));
     EXPECT_EQ(f.outbox.sent[0].mode, Mode::performance);
     EXPECT_TRUE(f.outbox.sent[0].frame_headroom_ok); // command 헤더 기록 후에도 frame 자리 보존
 }
 
-TEST(CommandSenderTest, ReturnsFalseWhenDeviceUnknown) {
+TEST(CommandSenderTest, ReturnsOfflineWhenDeviceUnknown) {
     SenderFixture f;
 
-    EXPECT_FALSE(
-        f.sender.try_send(make_device_id(0xAA), CommandId{42}, SetMode{.mode = Mode::normal})
+    EXPECT_EQ(
+        f.sender.send(
+            make_device_id(0xAA), CommandId{42},
+            SetMode{.mode = ddcs::device::encode_mode(Mode::normal)}
+        ),
+        SendResult::offline
     );
     EXPECT_TRUE(f.outbox.sent.empty());
 }
 
-TEST(CommandSenderTest, ReturnsFalseWhenDeviceNotActive) {
+TEST(CommandSenderTest, ReturnsOfflineWhenDeviceNotActive) {
     SenderFixture f;
     ASSERT_TRUE(f.sessions.add(ConnectionId{1}, f.clock.now())); // handshaking. bind 전
 
-    EXPECT_FALSE(
-        f.sender.try_send(make_device_id(0xAA), CommandId{42}, SetMode{.mode = Mode::normal})
+    EXPECT_EQ(
+        f.sender.send(
+            make_device_id(0xAA), CommandId{42},
+            SetMode{.mode = ddcs::device::encode_mode(Mode::normal)}
+        ),
+        SendResult::offline
     );
     EXPECT_TRUE(f.outbox.sent.empty());
 }
 
-TEST(CommandSenderTest, ReturnsFalseWhenDeviceConfirming) {
+TEST(CommandSenderTest, ReturnsOfflineWhenDeviceConfirming) {
     SenderFixture f;
     ASSERT_TRUE(f.sessions.add(ConnectionId{1}, f.clock.now()));
     // RegisterAck 전
     ASSERT_TRUE(f.sessions.bind(ConnectionId{1}, make_device_id(0xAA), f.clock.now()));
 
-    EXPECT_FALSE(
-        f.sender.try_send(make_device_id(0xAA), CommandId{42}, SetMode{.mode = Mode::normal})
+    EXPECT_EQ(
+        f.sender.send(
+            make_device_id(0xAA), CommandId{42},
+            SetMode{.mode = ddcs::device::encode_mode(Mode::normal)}
+        ),
+        SendResult::offline
     );
     EXPECT_TRUE(f.outbox.sent.empty()); // 등록 미확인 연결에는 명령 금지
 }

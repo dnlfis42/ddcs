@@ -1,26 +1,25 @@
 #pragma once
 
 #include "ddcs/common/clock.hpp"
+#include "ddcs/ctrl/app/device/port/active_devices.hpp"
 #include "ddcs/ctrl/app/session/session.hpp"
 #include "ddcs/ctrl/app/transport/port/connection_id.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 
 #include <cassert>
 #include <cstddef>
+#include <functional>
 #include <unordered_map>
 
 namespace ddcs::ctrl::app::session {
 
 namespace port = ddcs::ctrl::app::transport::port;
 
-// Session 집합의 단일 진실 + 집합 불변식의 봉인처
-// - conn 유일 (primary 키), device당 바인딩(confirming/active) 연결 최대 1 (역색인 키)
-// - 역색인 엔트리는 곧 그 device가 바인딩된 Session (bind가 만들고 erase가 지운다.)
-//
-// CAUTION:
-// - outbound.disconnect는 동기로 on_disconnected 후 erase를 되부른다.
-// - 순회 중 disconnect 금지(희생자 수집 후 순회 밖에서), erase 가능 경로 뒤에는 find 재조회
-class SessionRegistry {
+// Session 집합의 단일 진실.
+// conn이 1차 키, device 역색인이 "device당 바인딩 연결 최대 1" 불변식을 봉인한다.
+// CAUTION: outbound.disconnect는 동기로 on_disconnected와 erase를 되부른다.
+// 순회 중 disconnect 금지(희생자 수집 후 순회 밖에서), erase 가능 경로 뒤에는 find 재조회.
+class SessionRegistry : public device::port::ActiveDevices {
 public:
     [[nodiscard]] std::size_t size() const noexcept {
         return sessions_.size();
@@ -37,7 +36,7 @@ public:
         return it == device_index_.end() ? nullptr : find(it->second);
     }
 
-    // monitor sweep용 순회
+    // monitor sweep용 순회.
     // CAUTION: 순회 중 등록/제거 금지
     template <typename F>
     void for_each(F&& fn) const {
@@ -46,17 +45,25 @@ public:
         }
     }
 
-    // on_connected: handshaking Session 생성
+    // 정책과 메트릭 집계용 active device 열거 (device::port::ActiveDevices 구현)
+    void for_each_active(std::function<void(domain::DeviceId)> const& fn) override {
+        for_each([&](Session const& session) {
+            if (session.active()) {
+                fn(session.device());
+            }
+        });
+    }
+
+    // on_connected: handshaking Session 생성:
     // - conn 중복이면 false (infra가 유일성을 보장하므로 버그 신호)
     [[nodiscard]] bool add(port::ConnectionId conn, common::Clock::time_point now) {
         return sessions_.try_emplace(conn, conn, now).second;
     }
 
     // 등록 확정시 handshaking에서 confirming으로 전이 + 역색인 등재
-    // - active 전이는 Session::confirm(RegisterAck 수신)이 맡는다.
-    // - 실패(상태 불변): conn 없음 / device 이미 점유 /// 비handshaking / nil device
-    //
-    // NOTE: 점유 device는 호출자가 먼저 kick으로 비워야 한다(disconnect가 동기로 erase까지 끝낸다).
+    // (active 전이는 Session::confirm 몫)
+    // - 실패(상태 불변): conn 없음 / device 이미 점유 / 비handshaking / nil device
+    // - 점유 device는 호출자가 먼저 kick으로 비워야 한다.
     [[nodiscard]] bool
     bind(port::ConnectionId conn, domain::DeviceId device, common::Clock::time_point now) {
         auto it = sessions_.find(conn);

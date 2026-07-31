@@ -28,26 +28,28 @@ TEST(StatusServiceTest, UpdateStatusUpdatesDeviceShadow) {
     DeviceRegistry devices;
     StatusService service{devices};
     auto const id = make_uuid(0xAA);
-    devices.find_or_create(id);
+    devices.enroll(id, "");
 
     service.update_status(id, 2, 0.5, 41.0);
 
     auto const* dev = devices.find(id);
     ASSERT_NE(dev, nullptr);
-    EXPECT_EQ(dev->status.mode, Mode::performance);
-    EXPECT_DOUBLE_EQ(dev->status.load, 0.5);
-    EXPECT_DOUBLE_EQ(dev->status.temp, 41.0);
+    ASSERT_TRUE(dev->status.has_value());
+    EXPECT_EQ(dev->status->mode, Mode::performance);
+    EXPECT_DOUBLE_EQ(dev->status->load, 0.5);
+    EXPECT_DOUBLE_EQ(dev->status->temp, 41.0);
 }
 
 TEST(StatusServiceTest, UnknownModeFallsBackToSafe) {
     DeviceRegistry devices;
     StatusService service{devices};
     auto const id = make_uuid(0xAA);
-    devices.find_or_create(id);
+    devices.enroll(id, "");
 
     service.update_status(id, 99, 0.1, 30.0);
 
-    EXPECT_EQ(devices.find(id)->status.mode, Mode::safe);
+    ASSERT_TRUE(devices.find(id)->status.has_value());
+    EXPECT_EQ(devices.find(id)->status->mode, Mode::safe);
 }
 
 TEST(StatusServiceTest, UnknownDeviceIgnored) {
@@ -63,31 +65,46 @@ TEST(StatusServiceTest, IgnoresNonFiniteLoadKeepingLastGood) {
     DeviceRegistry devices;
     StatusService service{devices};
     auto const id = make_uuid(0xAA);
-    devices.find_or_create(id);
+    devices.enroll(id, "");
     service.update_status(id, 1, 0.5, 40.0); // 직전 정상 보고
 
     service.update_status(id, 2, std::numeric_limits<double>::quiet_NaN(), 45.0);
 
     auto const* dev = devices.find(id);
     ASSERT_NE(dev, nullptr);
-    EXPECT_EQ(dev->status.mode, Mode::normal); // 갱신 거부, 직전 mode 보존
-    EXPECT_DOUBLE_EQ(dev->status.load, 0.5);
-    EXPECT_DOUBLE_EQ(dev->status.temp, 40.0);
+    ASSERT_TRUE(dev->status.has_value());
+    EXPECT_EQ(dev->status->mode, Mode::normal); // 갱신 거부, 직전 mode 보존
+    EXPECT_DOUBLE_EQ(dev->status->load, 0.5);
+    EXPECT_DOUBLE_EQ(dev->status->temp, 40.0);
 }
 
 TEST(StatusServiceTest, IgnoresNonFiniteTempKeepingLastGood) {
     DeviceRegistry devices;
     StatusService service{devices};
     auto const id = make_uuid(0xAA);
-    devices.find_or_create(id);
+    devices.enroll(id, "");
     service.update_status(id, 1, 0.3, 30.0); // 직전 정상 보고
 
     service.update_status(id, 2, 0.7, std::numeric_limits<double>::infinity());
 
     auto const* dev = devices.find(id);
     ASSERT_NE(dev, nullptr);
-    EXPECT_DOUBLE_EQ(dev->status.load, 0.3);
-    EXPECT_DOUBLE_EQ(dev->status.temp, 30.0);
+    ASSERT_TRUE(dev->status.has_value());
+    EXPECT_DOUBLE_EQ(dev->status->load, 0.3);
+    EXPECT_DOUBLE_EQ(dev->status->temp, 30.0);
+}
+
+TEST(StatusServiceTest, KeepsShadowUnobservedWhenFirstReportIsNonFinite) {
+    DeviceRegistry devices;
+    StatusService service{devices};
+    auto const id = make_uuid(0xAA);
+    devices.enroll(id, "");
+
+    service.update_status(id, 1, std::numeric_limits<double>::quiet_NaN(), 30.0);
+
+    // last-good이 없으면 보존할 값도 없다: Shadow는 미관측으로 남는다
+    ASSERT_NE(devices.find(id), nullptr);
+    EXPECT_FALSE(devices.find(id)->status.has_value());
 }
 
 } // namespace

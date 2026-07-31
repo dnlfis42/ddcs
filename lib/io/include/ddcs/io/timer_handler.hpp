@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ddcs/io/timer_id.hpp"
+#include "ddcs/io/timer_token.hpp"
 
 namespace ddcs::io {
 
@@ -10,7 +10,7 @@ public:
     virtual ~TimerHandler() = default;
 
     // 등록한 delay가 지나면 TimerScheduler가 id로 호출한다.
-    virtual void on_expired(TimerId id) = 0;
+    virtual void on_expired(TimerToken id) = 0;
 };
 
 } // namespace ddcs::io

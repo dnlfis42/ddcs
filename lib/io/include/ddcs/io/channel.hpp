@@ -5,7 +5,6 @@
 #include "ddcs/io/fd.hpp"
 
 #include <cassert>
-#include <cstdint>
 #include <exception>
 #include <utility>
 
@@ -16,12 +15,6 @@ class Reactor;
 // fd readiness를 Reactor에 등록하기 위한 정보
 class Channel {
 public:
-    enum class State : std::uint8_t {
-        idle,
-        ready,
-        registered,
-    };
-
     Channel() = default;
     ~Channel() = default;
 
@@ -30,17 +23,17 @@ public:
     Channel(Channel&&) noexcept = delete;
     Channel& operator=(Channel&&) noexcept = delete;
 
-    [[nodiscard]] bool
-    init(io::Fd&& fd, ChannelEvents interests, ChannelHandler& handler) noexcept {
+    // fd 소유권을 받아 channel을 준비한다.
+    // 전제조건: 미초기화 channel + 유효한 fd. 위반은 프로그래머 오류다.
+    void init(Fd&& fd, ChannelEvents interests, ChannelHandler& handler) noexcept {
         if (valid() || !fd.valid()) {
-            return false;
+            assert(false && "init() precondition: fresh channel and valid fd");
+            std::terminate();
         }
 
         fd_ = std::move(fd);
         interests_ = interests;
         handler_ = &handler;
-        state_ = State::ready;
-        return true;
     }
 
     [[nodiscard]] int fd() const noexcept {
@@ -51,34 +44,34 @@ public:
         return interests_;
     }
 
+    // 전제조건: 초기화된 channel. 위반은 프로그래머 오류다.
     [[nodiscard]] ChannelHandler& handler() const noexcept {
-        assert(handler_ != nullptr);
+        if (handler_ == nullptr) {
+            assert(false && "handler() on uninitialized channel");
+            std::terminate();
+        }
+
         return *handler_;
     }
 
     [[nodiscard]] bool valid() const noexcept {
-        return state_ != State::idle;
+        return fd_.valid();
     }
 
     [[nodiscard]] bool registered() const noexcept {
-        return state_ == State::registered;
+        return registered_;
     }
 
+    // registered 상태로 close하면 Reactor에 dangling 포인터와 stale fd가 남는다.
     void close() noexcept {
-        // CAUTION: registered 상태로 close하면 Reactor에 dangling 포인터와 stale fd가 남는다.
         if (registered()) {
-            assert(false && "Channel: close on registered channel");
+            assert(false && "close() on registered channel");
             std::terminate();
         }
 
         fd_.close();
         interests_ = ChannelEvents::none;
         handler_ = nullptr;
-        state_ = State::idle;
-    }
-
-    void reset() noexcept {
-        close();
     }
 
 private:
@@ -89,19 +82,21 @@ private:
     }
 
     void mark_registered() noexcept {
-        assert(state_ == State::ready);
-        state_ = State::registered;
+        assert(valid() && !registered_);
+
+        registered_ = true;
     }
 
     void mark_deregistered() noexcept {
-        assert(state_ == State::registered);
-        state_ = State::ready;
+        assert(registered_);
+
+        registered_ = false;
     }
 
-    io::Fd fd_;
+    Fd fd_;
     ChannelEvents interests_ = ChannelEvents::none;
     ChannelHandler* handler_ = nullptr;
-    State state_ = State::idle;
+    bool registered_ = false;
 };
 
 } // namespace ddcs::io

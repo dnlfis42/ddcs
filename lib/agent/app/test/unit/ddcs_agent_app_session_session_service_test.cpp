@@ -7,16 +7,19 @@
 #include "ddcs/common/object_pool.hpp"
 #include "ddcs/common/uuid.hpp"
 #include "ddcs/device/mode.hpp"
-#include "ddcs/wire/message/command.hpp"
+#include "ddcs/device/status.hpp"
+#include "ddcs/wire/command/command.hpp"
 #include "ddcs/wire/message/message.hpp"
 
 #include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -24,25 +27,27 @@
 namespace {
 
 namespace msg = ddcs::wire::message;
+namespace cmd = ddcs::wire::command;
 
 using ddcs::agent::app::session::SessionService;
+using ddcs::agent::app::transport::port::DisconnectReason;
 using ddcs::agent::app::transport::port::Outbound;
 using ddcs::agent::app::transport::port::TimerSlot;
 using ddcs::agent::domain::Device;
 using ddcs::agent::domain::DummyDevice;
-using ddcs::agent::domain::Status;
 using ddcs::common::LinearBuffer;
 using ddcs::common::ObjectPool;
 using ddcs::common::PoolHandle;
 using ddcs::common::Uuid;
 using ddcs::device::decode_mode;
 using ddcs::device::Mode;
+using ddcs::device::Status;
 
 // 송신 기록 대역
 // - payload를 통째로 보관한다(infra가 frame header를 덧씌우기 전 상태).
 class MockOutbound : public Outbound {
 public:
-    PoolHandle<LinearBuffer> payload_buffer() override {
+    PoolHandle<LinearBuffer> make_message_buffer() override {
         return pool.acquire();
     }
 
@@ -59,22 +64,23 @@ public:
         cancels.push_back(id);
     }
 
-    void close() override {
-        ++closes;
+    void disconnect(DisconnectReason reason) override {
+        ++disconnects;
+        disconnect_reasons.push_back(reason);
     }
 
     void notify_registered() override {
         ++registered_notifications;
     }
 
-    ObjectPool<LinearBuffer> pool{
-        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{1024})
-    };
+    ObjectPool<LinearBuffer> pool{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{1024
+    })};
 
     std::vector<std::string> sends; // 각 원소가 msg payload (`[type][body]`)
     std::vector<std::pair<TimerSlot, std::chrono::nanoseconds>> timers;
     std::vector<TimerSlot> cancels;
-    int closes = 0;
+    std::vector<DisconnectReason> disconnect_reasons;
+    int disconnects = 0;
     int registered_notifications = 0;
 };
 
@@ -95,7 +101,7 @@ PoolHandle<LinearBuffer> payload_register_outcome(msg::RegisterOutcome::Code cod
     auto const w = msg::encode_register_outcome(buf->tailroom_span(), code);
     EXPECT_TRUE(w.has_value());
     if (w) {
-        EXPECT_TRUE(buf->try_commit(*w));
+        EXPECT_TRUE(buf->commit(*w));
     }
     return buf;
 }
@@ -104,43 +110,53 @@ PoolHandle<LinearBuffer> payload_heartbeat() {
     auto const w = msg::encode_heartbeat(buf->tailroom_span());
     EXPECT_TRUE(w.has_value());
     if (w) {
-        EXPECT_TRUE(buf->try_commit(*w));
+        EXPECT_TRUE(buf->commit(*w));
     }
     return buf;
 }
 // command_request: `[type][command_id][command_type]` 헤더 뒤에 device payload를 append
 PoolHandle<LinearBuffer>
-payload_command(std::uint64_t id, std::uint8_t command_type, std::span<std::byte const> cmd) {
+payload_command(std::uint64_t id, std::uint8_t command_type, std::span<std::byte const> body) {
     auto buf = build_pool().acquire();
     auto const w = msg::encode_command_request_header(buf->tailroom_span(), id, command_type);
     EXPECT_TRUE(w.has_value());
     if (w) {
-        EXPECT_TRUE(buf->try_commit(*w));
+        EXPECT_TRUE(buf->commit(*w));
     }
-    if (!cmd.empty()) {
-        EXPECT_TRUE(buf->try_append(cmd));
+    if (!body.empty()) {
+        EXPECT_TRUE(buf->append(body));
     }
     return buf;
 }
 PoolHandle<LinearBuffer> setmode_command(std::uint64_t id, Mode mode) {
     static auto cmd_pool = ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{64});
     auto cmd_buf = cmd_pool.acquire();
-    auto const w = msg::encode_set_mode(cmd_buf->tailroom_span(), static_cast<std::uint8_t>(mode));
+    auto const w = cmd::encode_set_mode(cmd_buf->tailroom_span(), static_cast<std::uint8_t>(mode));
     EXPECT_TRUE(w.has_value());
     if (w) {
-        EXPECT_TRUE(cmd_buf->try_commit(*w));
+        EXPECT_TRUE(cmd_buf->commit(*w));
     }
     return payload_command(
-        id, static_cast<std::uint8_t>(msg::CommandType::set_mode), cmd_buf->data_span()
+        id, static_cast<std::uint8_t>(cmd::CommandType::set_mode), cmd_buf->data_span()
     );
 }
 
 msg::MessageType sent_type(std::string const& s) {
     return msg::message_type({reinterpret_cast<std::byte const*>(s.data()), s.size()});
 }
-std::span<std::byte const> sent_body(std::string const& s) {
-    std::span<std::byte const> const bytes{reinterpret_cast<std::byte const*>(s.data()), s.size()};
-    return bytes.subspan(1);
+// 송신 문자열을 decode_message로 풀어 기대 타입 대안만 꺼낸다. 타입 불일치도 nullopt
+template <typename T>
+std::optional<T> sent_as(std::string const& s) {
+    auto const message =
+        msg::decode_message({reinterpret_cast<std::byte const*>(s.data()), s.size()});
+    if (!message) {
+        return std::nullopt;
+    }
+    auto const* alternative = std::get_if<T>(&*message);
+    if (alternative == nullptr) {
+        return std::nullopt;
+    }
+    return *alternative;
 }
 
 bool has_timer(MockOutbound const& o, TimerSlot id) {
@@ -190,7 +206,7 @@ TEST(AgentSessionServiceTest, OnConnectedSendsRegisterAndArmsTimeout) {
     EXPECT_EQ(svc.state(), SessionService::State::registering);
     ASSERT_EQ(out.sends.size(), 1u);
     EXPECT_EQ(sent_type(out.sends[0]), msg::MessageType::register_request);
-    auto const req = msg::decode_register_request(sent_body(out.sends[0]));
+    auto const req = sent_as<msg::RegisterRequest>(out.sends[0]);
     ASSERT_TRUE(req.has_value());
     EXPECT_EQ(req->uuid, make_uuid(0xab));
     EXPECT_TRUE(has_timer(out, TimerSlot::register_timeout));
@@ -207,7 +223,7 @@ TEST(AgentSessionServiceTest, RegisterRequestCarriesConfiguredGroup) {
 
     ASSERT_EQ(out.sends.size(), 1u);
     EXPECT_EQ(sent_type(out.sends[0]), msg::MessageType::register_request);
-    auto const req = msg::decode_register_request(sent_body(out.sends[0]));
+    auto const req = sent_as<msg::RegisterRequest>(out.sends[0]);
     ASSERT_TRUE(req.has_value());
     EXPECT_EQ(req->group, "sensors");
 }
@@ -222,12 +238,12 @@ TEST(AgentSessionServiceTest, RegisterOutcomeSuccessSendsAckAndEntersActive) {
 
     EXPECT_EQ(svc.state(), SessionService::State::active);
     EXPECT_TRUE(has_cancel(out, TimerSlot::register_timeout));
-    EXPECT_EQ(out.closes, 0);
+    EXPECT_EQ(out.disconnects, 0);
     EXPECT_EQ(out.registered_notifications, 1); // 등록 성공 시 transport backoff 리셋 통지
     // 3-way(register_request->register_ack) 후 enter_active가 초기 status를 즉시 게시
     ASSERT_EQ(out.sends.size(), 3u);
     EXPECT_EQ(sent_type(out.sends[1]), msg::MessageType::register_ack);
-    EXPECT_EQ(sent_type(out.sends[2]), msg::MessageType::status);
+    EXPECT_EQ(sent_type(out.sends[2]), msg::MessageType::status_report);
 }
 
 TEST(AgentSessionServiceTest, EnterActiveSendsInitialStatusReport) {
@@ -242,8 +258,8 @@ TEST(AgentSessionServiceTest, EnterActiveSendsInitialStatusReport) {
 
     // 등록 직후 초기 텔레메트리 1건: register_request, register_ack, status
     ASSERT_EQ(out.sends.size(), 3u);
-    EXPECT_EQ(sent_type(out.sends[2]), msg::MessageType::status);
-    auto const st = msg::decode_status(sent_body(out.sends[2]));
+    EXPECT_EQ(sent_type(out.sends[2]), msg::MessageType::status_report);
+    auto const st = sent_as<msg::StatusReport>(out.sends[2]);
     ASSERT_TRUE(st.has_value());
     EXPECT_EQ(decode_mode(st->mode), Mode::performance); // 디바이스 실제 상태를 게시
     EXPECT_DOUBLE_EQ(st->load, 42.0);
@@ -258,7 +274,9 @@ TEST(AgentSessionServiceTest, RegisterOutcomeFailedCloses) {
     svc.on_recv(payload_register_outcome(msg::RegisterOutcome::Code::failed));
 
     EXPECT_NE(svc.state(), SessionService::State::active);
-    EXPECT_EQ(out.closes, 1);
+    EXPECT_EQ(out.disconnects, 1);
+    // 거절은 이벤트를 따로 내지 않아 reason이 유일한 기록이다.
+    EXPECT_EQ(out.disconnect_reasons.back(), DisconnectReason::register_rejected);
     EXPECT_EQ(out.registered_notifications, 0); // 거부면 backoff 리셋 통지 없음
 }
 
@@ -270,8 +288,11 @@ TEST(AgentSessionServiceTest, RegisterTimeoutClosesConnection) {
 
     svc.on_timer(TimerSlot::register_timeout);
 
-    EXPECT_EQ(svc.state(), SessionService::State::closing);
-    EXPECT_EQ(out.closes, 1);
+    // disconnect만 요청한다. idle 전이는 transport의 on_disconnected 통지가 만든다.
+    EXPECT_EQ(svc.state(), SessionService::State::registering);
+    EXPECT_EQ(out.disconnects, 1);
+    // 시한 초과도 이벤트를 따로 내지 않아 reason이 유일한 기록이다.
+    EXPECT_EQ(out.disconnect_reasons.back(), DisconnectReason::register_timeout);
     EXPECT_EQ(out.registered_notifications, 0); // 미응답 timeout이면 backoff 리셋 통지 없음
 }
 
@@ -283,7 +304,8 @@ TEST(AgentSessionServiceTest, UnexpectedTypeWhileRegisteringCloses) {
 
     svc.on_recv(payload_heartbeat());
 
-    EXPECT_EQ(out.closes, 1);
+    EXPECT_EQ(out.disconnects, 1);
+    EXPECT_EQ(out.disconnect_reasons.back(), DisconnectReason::unexpected_message);
 }
 
 TEST(AgentSessionServiceTest, DisconnectResetsToIdle) {
@@ -294,8 +316,9 @@ TEST(AgentSessionServiceTest, DisconnectResetsToIdle) {
 
     svc.on_disconnected();
 
+    // 타이머 취소는 transport(Outbound::disconnect 계약)의 몫이라 여기서 일어나지 않는다.
     EXPECT_EQ(svc.state(), SessionService::State::idle);
-    EXPECT_TRUE(has_cancel(out, TimerSlot::register_timeout));
+    EXPECT_FALSE(has_cancel(out, TimerSlot::register_timeout));
 }
 
 TEST(AgentSessionServiceTest, EnterActiveArmsHeartbeatAndStatusTimers) {
@@ -307,7 +330,7 @@ TEST(AgentSessionServiceTest, EnterActiveArmsHeartbeatAndStatusTimers) {
     svc.on_recv(payload_register_outcome(msg::RegisterOutcome::Code::success));
 
     EXPECT_TRUE(has_timer(out, TimerSlot::heartbeat));
-    EXPECT_TRUE(has_timer(out, TimerSlot::status));
+    EXPECT_TRUE(has_timer(out, TimerSlot::status_report));
 }
 
 TEST(AgentSessionServiceTest, HeartbeatTimerSendsHeartbeatAndReschedules) {
@@ -320,7 +343,7 @@ TEST(AgentSessionServiceTest, HeartbeatTimerSendsHeartbeatAndReschedules) {
 
     ASSERT_EQ(out.sends.size(), 1u);
     EXPECT_EQ(sent_type(out.sends[0]), msg::MessageType::heartbeat);
-    EXPECT_EQ(count_timer(out, TimerSlot::heartbeat), 1); // 재무장
+    EXPECT_EQ(count_timer(out, TimerSlot::heartbeat), 1); // 재예약
 }
 
 TEST(AgentSessionServiceTest, StatusTimerSendsStatusFromDeviceAndReschedules) {
@@ -331,16 +354,16 @@ TEST(AgentSessionServiceTest, StatusTimerSendsStatusFromDeviceAndReschedules) {
     SessionService svc{device, out};
     activate(svc, out);
 
-    svc.on_timer(TimerSlot::status);
+    svc.on_timer(TimerSlot::status_report);
 
     ASSERT_EQ(out.sends.size(), 1u);
-    EXPECT_EQ(sent_type(out.sends[0]), msg::MessageType::status);
-    auto const st = msg::decode_status(sent_body(out.sends[0]));
+    EXPECT_EQ(sent_type(out.sends[0]), msg::MessageType::status_report);
+    auto const st = sent_as<msg::StatusReport>(out.sends[0]);
     ASSERT_TRUE(st.has_value());
     EXPECT_EQ(decode_mode(st->mode), Mode::performance); // mode 반영 (어휘 계약 라운드트립)
     EXPECT_DOUBLE_EQ(st->load, 80.0);                    // load 반영
     EXPECT_DOUBLE_EQ(st->temp, 55.0);                    // temp 반영
-    EXPECT_EQ(count_timer(out, TimerSlot::status), 1);   // 재무장
+    EXPECT_EQ(count_timer(out, TimerSlot::status_report), 1); // 재예약
 }
 
 TEST(AgentSessionServiceTest, HeartbeatTimerIgnoredWhenNotActive) {
@@ -369,11 +392,11 @@ TEST(AgentSessionServiceTest, CommandAppliesToDeviceAndAcksThenOutcomes) {
     EXPECT_EQ(sent_type(out.sends[0]), msg::MessageType::command_ack); // ACK 먼저
     EXPECT_EQ(sent_type(out.sends[1]), msg::MessageType::command_outcome);
 
-    auto const ack = msg::decode_command_ack(sent_body(out.sends[0]));
+    auto const ack = sent_as<msg::CommandAck>(out.sends[0]);
     ASSERT_TRUE(ack.has_value());
     EXPECT_EQ(ack->command_id, 1u);
 
-    auto const outcome = msg::decode_command_outcome(sent_body(out.sends[1]));
+    auto const outcome = sent_as<msg::CommandOutcome>(out.sends[1]);
     ASSERT_TRUE(outcome.has_value());
     EXPECT_EQ(outcome->command_id, 1u);
     EXPECT_EQ(outcome->code, msg::CommandOutcome::Code::success);
@@ -398,6 +421,27 @@ TEST(AgentSessionServiceTest, DuplicateCommandResendsWithoutReapplying) {
     EXPECT_EQ(sent_type(out.sends[1]), msg::MessageType::command_outcome);
 }
 
+TEST(AgentSessionServiceTest, DedupResetsAcrossReconnect) {
+    DummyDevice device{{}, Mode::safe};
+    MockOutbound out;
+    SessionService svc{device, out};
+    activate(svc, out);
+
+    svc.on_recv(setmode_command(1, Mode::performance));
+    ASSERT_EQ(device.mode(), Mode::performance);
+
+    // 재연결 = 새 세션. controller 재시작으로 같은 command_id=1이 새 명령으로 올 수 있다.
+    svc.on_disconnected();
+    activate(svc, out);
+
+    svc.on_recv(setmode_command(1, Mode::safe));
+
+    EXPECT_EQ(device.mode(), Mode::safe); // dedup으로 오인하지 않고 적용
+    ASSERT_EQ(out.sends.size(), 2u);
+    EXPECT_EQ(sent_type(out.sends[0]), msg::MessageType::command_ack);
+    EXPECT_EQ(sent_type(out.sends[1]), msg::MessageType::command_outcome);
+}
+
 TEST(AgentSessionServiceTest, UnknownCommandTypeOutcomesFailed) {
     DummyDevice device{{}, Mode::safe};
     MockOutbound out;
@@ -408,9 +452,9 @@ TEST(AgentSessionServiceTest, UnknownCommandTypeOutcomesFailed) {
 
     EXPECT_EQ(device.mode(), Mode::safe); // device 변동 없음
     ASSERT_EQ(out.sends.size(), 2u);
-    auto const outcome = msg::decode_command_outcome(sent_body(out.sends[1]));
+    auto const outcome = sent_as<msg::CommandOutcome>(out.sends[1]);
     ASSERT_TRUE(outcome.has_value());
-    EXPECT_EQ(outcome->code, msg::CommandOutcome::Code::failed);
+    EXPECT_EQ(outcome->code, msg::CommandOutcome::Code::unknown_type);
 }
 
 TEST(AgentSessionServiceTest, OutOfVocabularyModeOutcomesFailedWithoutApplying) {
@@ -421,16 +465,15 @@ TEST(AgentSessionServiceTest, OutOfVocabularyModeOutcomesFailedWithoutApplying) 
 
     // 구조는 유효한 set_mode지만 mode byte가 어휘 밖(0xFF)이다.
     std::array<std::byte, 1> const bad_mode{std::byte{0xFF}};
-    svc.on_recv(
-        payload_command(7, static_cast<std::uint8_t>(msg::CommandType::set_mode), bad_mode)
+    svc.on_recv(payload_command(7, static_cast<std::uint8_t>(cmd::CommandType::set_mode), bad_mode)
     );
 
     EXPECT_EQ(device.mode(), Mode::safe); // 적용 안 됨
     ASSERT_EQ(out.sends.size(), 2u);      // decode 성공이라 ACK은 나가고 outcome은 실패
     EXPECT_EQ(sent_type(out.sends[0]), msg::MessageType::command_ack);
-    auto const outcome = msg::decode_command_outcome(sent_body(out.sends[1]));
+    auto const outcome = sent_as<msg::CommandOutcome>(out.sends[1]);
     ASSERT_TRUE(outcome.has_value());
-    EXPECT_EQ(outcome->code, msg::CommandOutcome::Code::failed);
+    EXPECT_EQ(outcome->code, msg::CommandOutcome::Code::bad_mode);
 }
 
 TEST(AgentSessionServiceTest, UnexpectedTypeWhileActiveCloses) {
@@ -441,7 +484,7 @@ TEST(AgentSessionServiceTest, UnexpectedTypeWhileActiveCloses) {
 
     svc.on_recv(payload_heartbeat());
 
-    EXPECT_EQ(out.closes, 1);
+    EXPECT_EQ(out.disconnects, 1);
 }
 
 // apply()가 항상 실패하는 Device 대역. DummyDevice는 항상 성공이라 apply 실패 분기를 못 탄다.
@@ -469,10 +512,10 @@ TEST(AgentSessionServiceTest, ApplyFailureOutcomesFailed) {
     ASSERT_EQ(out.sends.size(), 2u);
     // decode 성공이라 ACK은 나간다
     EXPECT_EQ(sent_type(out.sends[0]), msg::MessageType::command_ack);
-    auto const outcome = msg::decode_command_outcome(sent_body(out.sends[1]));
+    auto const outcome = sent_as<msg::CommandOutcome>(out.sends[1]);
     ASSERT_TRUE(outcome.has_value());
     // apply 실패 -> failed
-    EXPECT_EQ(outcome->code, msg::CommandOutcome::Code::failed);
+    EXPECT_EQ(outcome->code, msg::CommandOutcome::Code::apply_failed);
 }
 
 TEST(AgentSessionServiceTest, ApplyFailureDedupResendsFailed) {
@@ -488,10 +531,10 @@ TEST(AgentSessionServiceTest, ApplyFailureDedupResendsFailed) {
     svc.on_recv(setmode_command(1, Mode::performance));
 
     ASSERT_EQ(out.sends.size(), 2u);
-    auto const outcome = msg::decode_command_outcome(sent_body(out.sends[1]));
+    auto const outcome = sent_as<msg::CommandOutcome>(out.sends[1]);
     ASSERT_TRUE(outcome.has_value());
     // last_command_code_ 보존 확인
-    EXPECT_EQ(outcome->code, msg::CommandOutcome::Code::failed);
+    EXPECT_EQ(outcome->code, msg::CommandOutcome::Code::apply_failed);
 }
 
 } // namespace

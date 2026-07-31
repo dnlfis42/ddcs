@@ -3,7 +3,7 @@
 #include "ddcs/common/clock.hpp"
 #include "ddcs/io/reactor.hpp"
 #include "ddcs/io/timer_handler.hpp"
-#include "ddcs/io/timer_id.hpp"
+#include "ddcs/io/timer_token.hpp"
 
 #include <chrono>
 #include <vector>
@@ -16,16 +16,16 @@ namespace {
 
 using ddcs::io::Reactor;
 using ddcs::io::TimerHandler;
-using ddcs::io::TimerId;
 using ddcs::io::TimerScheduler;
+using ddcs::io::TimerToken;
 
 class RecordingTimer : public TimerHandler {
 public:
-    void on_expired(TimerId id) override {
+    void on_expired(TimerToken id) override {
         fired_.push_back(id);
     }
 
-    std::vector<TimerId> fired_;
+    std::vector<TimerToken> fired_;
 };
 
 TEST(TimerSchedulerTest, DispatchesTimerThroughReactor) {
@@ -34,7 +34,7 @@ TEST(TimerSchedulerTest, DispatchesTimerThroughReactor) {
     RecordingTimer handler;
 
     timers.start();
-    TimerId const id = timers.schedule(5ms, handler);
+    TimerToken const id = timers.schedule(5ms, handler);
     reactor.run_once(1000ms);
 
     ASSERT_EQ(handler.fired_.size(), 1u);
@@ -47,7 +47,7 @@ TEST(TimerSchedulerTest, SkipsCancelledTimer) {
     RecordingTimer handler;
 
     timers.start();
-    TimerId const id = timers.schedule(5ms, handler);
+    TimerToken const id = timers.schedule(5ms, handler);
     timers.cancel(id);
     reactor.run_once(50ms);
 
@@ -61,8 +61,8 @@ TEST(TimerSchedulerTest, RearmsTimerFdWhenNextTimerIsCancelled) {
     RecordingTimer handler;
 
     timers.start();
-    TimerId const first_id = timers.schedule(5ms, handler);
-    TimerId const second_id = timers.schedule(20ms, handler);
+    TimerToken const first_id = timers.schedule(5ms, handler);
+    TimerToken const second_id = timers.schedule(20ms, handler);
     timers.cancel(first_id);
 
     clock.advance(5ms);
@@ -82,7 +82,7 @@ TEST(TimerSchedulerTest, DispatchesExpiredTimersWithInjectedClock) {
     TimerScheduler timers{reactor, clock};
     RecordingTimer handler;
 
-    TimerId const id = timers.schedule(5ms, handler);
+    TimerToken const id = timers.schedule(5ms, handler);
     timers.dispatch_expired();
     EXPECT_TRUE(handler.fired_.empty());
 
@@ -102,7 +102,7 @@ TEST(TimerSchedulerTest, StopsSafelyFromCallback) {
         explicit StopTimer(TimerScheduler& scheduler_ref)
             : scheduler{scheduler_ref} {}
 
-        void on_expired(TimerId) override {
+        void on_expired(TimerToken) override {
             ++count;
             scheduler.stop();
         }

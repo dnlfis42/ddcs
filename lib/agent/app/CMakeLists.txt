@@ -16,7 +16,7 @@ target_sources(
 )
 target_link_libraries(
     ddcs_agent_app
-    PRIVATE ddcs::build_options ddcs::json ddcs::logger ddcs::device
+    PRIVATE ddcs::build_options ddcs::json ddcs::logger ddcs::device ddcs::wire::command
     PUBLIC
         ddcs::cxx_standard
         ddcs::common

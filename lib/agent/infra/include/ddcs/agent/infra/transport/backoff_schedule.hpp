@@ -6,26 +6,20 @@
 
 namespace ddcs::agent::infra::transport {
 
-// 재연결 backoff 정책
-// - exponential growth + jitter, cap 적용
-// - 수열(jitter 무시): 1s, 2s, 4s, 8s, 16s, 30s, 30s, ...
-//
-// 호출자는 next_delay()로 timer 무장 후, app 등록(handshake) 성공 시 reset()
-// - TCP 연결 성공이 아니라 등록 성공 기준 (등록 미완 사이클이 반복되면 backoff가 자라야 한다.)
+// 재연결 backoff 정책 (지수 증가 + jitter, cap 적용)
 class BackoffSchedule {
 public:
-    static constexpr std::chrono::nanoseconds default_base_delay = std::chrono::seconds{1};
-    static constexpr std::chrono::nanoseconds default_max_delay = std::chrono::seconds{30};
     static constexpr std::uint32_t jitter_percent = 25; // +/-25%
 
-public:
-    BackoffSchedule() noexcept = default;
-    explicit BackoffSchedule(std::uint32_t seed) noexcept
-        : rng_state_(seed) {}
-    // base/max 주입(설정 가능). 수열 base * 2^attempt 를 max로 cap.
-    BackoffSchedule(std::chrono::nanoseconds base, std::chrono::nanoseconds max) noexcept
+    // base/max의 단일 출처는 Agent::Config라 기본값 없이 명시 주입만 받는다.
+    // 수열 base * 2^attempt 를 max로 cap.
+    // seed는 jitter 수열의 시작점. 운영은 조립 루트가 비결정 값을, 테스트는 고정값을 준다.
+    BackoffSchedule(
+        std::chrono::nanoseconds base, std::chrono::nanoseconds max, std::uint32_t seed
+    ) noexcept
         : base_delay_(base),
-          max_delay_(max) {}
+          max_delay_(max),
+          rng_state_(seed) {}
 
     std::uint32_t attempt() const noexcept {
         return attempt_;
@@ -42,11 +36,10 @@ public:
 private:
     std::uint32_t next_rand() noexcept;
 
-private:
-    std::chrono::nanoseconds base_delay_ = default_base_delay;
-    std::chrono::nanoseconds max_delay_ = default_max_delay;
+    std::chrono::nanoseconds base_delay_;
+    std::chrono::nanoseconds max_delay_;
     std::uint32_t attempt_ = 0;
-    std::uint32_t rng_state_ = 0xdeadbeefu; // 결정적 jitter(테스트 가능); 운영 시 ctor로 시드 주입
+    std::uint32_t rng_state_; // xorshift32 상태. 같은 seed면 같은 jitter 수열(테스트 가능)
 };
 
 } // namespace ddcs::agent::infra::transport

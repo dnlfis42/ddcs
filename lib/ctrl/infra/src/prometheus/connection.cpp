@@ -2,6 +2,7 @@
 
 #include "ddcs/ctrl/infra/prometheus/server.hpp"
 
+#include <cassert>
 #include <cerrno>
 #include <cstddef>
 #include <utility>
@@ -17,25 +18,20 @@ constexpr std::size_t request_cap = 8192; // 요청 상한, 넘으면 그만 읽
 
 } // namespace
 
-bool Connection::assign(Server& server, io::Fd fd, io::ChannelEvents interests) noexcept {
-    if (state_ != State::idle) {
-        return false;
-    }
-    if (!channel_.init(std::move(fd), interests, *this)) {
-        return false;
-    }
+void Connection::init(Server& server, io::Fd fd, io::ChannelEvents interests) noexcept {
+    assert(state_ == State::idle && "init() on non-idle connection");
+    channel_.init(std::move(fd), interests, *this);
 
     server_ = &server;
     state_ = State::reading;
     rx_.clear();
     tx_.clear();
     tx_pos_ = 0;
-    return true;
 }
 
 void Connection::reset() noexcept {
     server_ = nullptr;
-    channel_.reset();
+    channel_.close();
     state_ = State::idle;
     rx_.clear();
     tx_.clear();
@@ -46,10 +42,10 @@ void Connection::on_ready(io::Channel& channel, io::ChannelEvents events) {
     if (&channel != &channel_) {
         return;
     }
-    server_->handle_connection_ready(*this, events);
+    server_->on_connection_event(*this, events);
 }
 
-Connection::IoResult Connection::receive() {
+net::ReceiveResult Connection::receive() {
     char buf[1024];
     for (;;) {
         ssize_t n;
@@ -63,13 +59,13 @@ Connection::IoResult Connection::receive() {
             continue; // ET: 소진까지
         }
         if (n == 0) {
-            return IoResult::peer_closed; // FIN
+            return {.code = net::ReceiveResult::Code::peer_closed}; // FIN
         }
         int const err = errno;
         if (err == EAGAIN || err == EWOULDBLOCK) {
-            return IoResult::would_block;
+            return {.code = net::ReceiveResult::Code::would_block};
         }
-        return IoResult::error;
+        return {.code = net::ReceiveResult::Code::error, .err = err};
     }
 }
 
@@ -83,7 +79,7 @@ void Connection::begin_response(std::string http) {
     state_ = State::writing;
 }
 
-Connection::IoResult Connection::transmit() {
+net::TransmitResult Connection::transmit() {
     while (tx_pos_ < tx_.size()) {
         ssize_t n;
         do {
@@ -93,14 +89,16 @@ Connection::IoResult Connection::transmit() {
             tx_pos_ += static_cast<std::size_t>(n);
             continue;
         }
+        if (n == 0) {
+            return {.code = net::TransmitResult::Code::error}; // errno 미설정. stale errno 판독 방지
+        }
         int const err = errno;
         if (err == EAGAIN || err == EWOULDBLOCK) {
-            return IoResult::would_block; // 커널 송신 버퍼 포화 시 writable 대기
+            return {.code = net::TransmitResult::Code::would_block}; // 커널 송신 버퍼 포화 시 writable 대기
         }
-        return IoResult::error;
+        return {.code = net::TransmitResult::Code::error, .err = err};
     }
-    state_ = State::done;
-    return IoResult::ok;
+    return {.code = net::TransmitResult::Code::drained};
 }
 
 } // namespace ddcs::ctrl::infra::prometheus

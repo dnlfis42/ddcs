@@ -4,7 +4,10 @@ add_library(ddcs::logger ALIAS ddcs_logger)
 target_sources(
     ddcs_logger
     PRIVATE src/log.cpp
-    PUBLIC FILE_SET HEADERS BASE_DIRS include FILES include/ddcs/logger/log.hpp
+    PUBLIC
+        FILE_SET HEADERS
+            BASE_DIRS include
+            FILES include/ddcs/logger/event.hpp include/ddcs/logger/log.hpp
 )
 target_link_libraries(
     ddcs_logger

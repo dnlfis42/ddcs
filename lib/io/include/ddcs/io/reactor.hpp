@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ddcs/io/channel_events.hpp"
+#include "ddcs/io/sys_result.hpp"
 
 #include <chrono>
 #include <memory>
@@ -9,9 +10,8 @@ namespace ddcs::io {
 
 class Channel;
 
-// epoll 기반 readiness 이벤트 루프
-// - 등록된 Channel보다 오래 살아야 한다.
-// - 스레드 안전하지 않으므로 단일 스레드 reactor loop에서만 호출한다.
+// epoll 기반 readiness 이벤트 루프. 등록된 Channel보다 오래 살아야 한다.
+// 스레드 안전하지 않으므로 단일 스레드 reactor loop에서만 호출한다.
 class Reactor {
 public:
     Reactor();
@@ -28,10 +28,11 @@ public:
 
     [[nodiscard]] bool running() const noexcept;
 
-    // 이미 등록된 channel이면 그대로 두고 true
-    [[nodiscard]] bool add(Channel& channel);
-    // 등록되지 않은 channel이면 false
-    [[nodiscard]] bool modify(Channel& channel, ChannelEvents interests);
+    // 이미 등록된 channel이면 그대로 두고 성공.
+    // epoll_ctl 실패면 err에 errno, 미초기화 channel이면 논리 실패(err == 0)
+    [[nodiscard]] SysResult add(Channel& channel);
+    // 등록되지 않은 channel이면 논리 실패(err == 0)
+    [[nodiscard]] SysResult modify(Channel& channel, ChannelEvents interests);
     // 등록되지 않은 channel이면 무시한다.
     void remove(Channel& channel) noexcept;
 

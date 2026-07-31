@@ -40,7 +40,7 @@ TEST(ChannelTest, InitializesWithOwnedFd) {
     ddcs::io::Fd fd = make_fd();
     int const raw_fd = fd.get();
 
-    ASSERT_TRUE(channel.init(std::move(fd), ChannelEvents::readable, handler));
+    channel.init(std::move(fd), ChannelEvents::readable, handler);
 
     EXPECT_FALSE(fd.valid());
     EXPECT_TRUE(channel.valid());
@@ -50,41 +50,30 @@ TEST(ChannelTest, InitializesWithOwnedFd) {
     EXPECT_EQ(&channel.handler(), &handler);
 }
 
-TEST(ChannelTest, RejectsInvalidFd) {
+// 무효 fd / 이중 init은 프로그래머 오류 전제조건이라 죽는다 (assert + terminate)
+TEST(ChannelDeathTest, DiesOnInvalidFd) {
     DummyHandler handler;
     Channel channel;
     ddcs::io::Fd fd;
 
-    EXPECT_FALSE(channel.init(std::move(fd), ChannelEvents::readable, handler));
-
-    EXPECT_FALSE(channel.valid());
-    EXPECT_FALSE(channel.registered());
-    EXPECT_EQ(channel.fd(), ddcs::io::Fd::invalid);
-    EXPECT_EQ(channel.interests(), ChannelEvents::none);
+    EXPECT_DEATH(channel.init(std::move(fd), ChannelEvents::readable, handler), "");
 }
 
-TEST(ChannelTest, DoesNotConsumeFdWhenAlreadyInitialized) {
+TEST(ChannelDeathTest, DiesWhenAlreadyInitialized) {
     DummyHandler handler;
     Channel channel;
-    ASSERT_TRUE(channel.init(make_fd(), ChannelEvents::readable, handler));
+    channel.init(make_fd(), ChannelEvents::readable, handler);
 
-    ddcs::io::Fd fd = make_fd();
-    int const raw_fd = fd.get();
-
-    EXPECT_FALSE(channel.init(std::move(fd), ChannelEvents::writable, handler));
-
-    EXPECT_TRUE(fd.valid());
-    EXPECT_EQ(fd.get(), raw_fd);
-    EXPECT_EQ(channel.interests(), ChannelEvents::readable);
+    EXPECT_DEATH(channel.init(make_fd(), ChannelEvents::writable, handler), "");
 }
 
-TEST(ChannelTest, ResetsAndClosesFd) {
+TEST(ChannelTest, ClosesFd) {
     DummyHandler handler;
     Channel channel;
-    ASSERT_TRUE(channel.init(make_fd(), ChannelEvents::readable, handler));
+    channel.init(make_fd(), ChannelEvents::readable, handler);
     int const raw_fd = channel.fd();
 
-    channel.reset();
+    channel.close();
 
     EXPECT_FALSE(channel.valid());
     EXPECT_FALSE(channel.registered());
@@ -93,14 +82,14 @@ TEST(ChannelTest, ResetsAndClosesFd) {
     EXPECT_TRUE(fd_is_closed(raw_fd));
 }
 
-TEST(ChannelTest, ReinitializesAfterReset) {
+TEST(ChannelTest, ReinitializesAfterClose) {
     DummyHandler handler;
     Channel channel;
-    ASSERT_TRUE(channel.init(make_fd(), ChannelEvents::readable, handler));
+    channel.init(make_fd(), ChannelEvents::readable, handler);
 
-    channel.reset();
+    channel.close();
 
-    ASSERT_TRUE(channel.init(make_fd(), ChannelEvents::writable, handler));
+    channel.init(make_fd(), ChannelEvents::writable, handler);
     EXPECT_TRUE(channel.valid());
     EXPECT_EQ(channel.interests(), ChannelEvents::writable);
 }

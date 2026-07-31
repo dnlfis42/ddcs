@@ -9,10 +9,11 @@
 
 namespace ddcs::common {
 
+// 고정 용량 FIFO 바이트 스트림 버퍼
 class CircularBuffer {
 public:
     explicit CircularBuffer(std::size_t capacity)
-        : storage_(new std::byte[checked_capacity(capacity)]),
+        : storage_(new std::byte[validated_capacity(capacity)]),
           capacity_(capacity),
           index_mask_(capacity - 1) {}
     ~CircularBuffer() = default;
@@ -21,10 +22,6 @@ public:
     CircularBuffer& operator=(CircularBuffer const&) = delete;
     CircularBuffer(CircularBuffer&&) noexcept = delete;
     CircularBuffer& operator=(CircularBuffer&&) noexcept = delete;
-
-    [[nodiscard]] static constexpr bool valid_capacity(std::size_t capacity) noexcept {
-        return capacity > 0 && (capacity & (capacity - 1)) == 0;
-    }
 
     [[nodiscard]] std::size_t capacity() const noexcept {
         return capacity_;
@@ -42,10 +39,6 @@ public:
         return size() == capacity_;
     }
 
-    [[nodiscard]] std::size_t writable_size() const noexcept {
-        return capacity_ - size();
-    }
-
     [[nodiscard]] std::span<std::byte const> readable_span() const noexcept {
         return {read_ptr(), contiguous_readable_size()};
     }
@@ -54,7 +47,25 @@ public:
         return {write_ptr(), contiguous_writable_size()};
     }
 
-    [[nodiscard]] bool try_peek(std::span<std::byte> dst) const noexcept {
+    [[nodiscard]] bool consume(std::size_t n) noexcept {
+        if (size() < n) {
+            return false;
+        }
+
+        read_seq_ += n;
+        return true;
+    }
+
+    [[nodiscard]] bool commit(std::size_t n) noexcept {
+        if (writable_size() < n) {
+            return false;
+        }
+
+        write_seq_ += n;
+        return true;
+    }
+
+    [[nodiscard]] bool peek(std::span<std::byte> dst) const noexcept {
         if (size() < dst.size()) {
             return false;
         }
@@ -74,8 +85,8 @@ public:
         return true;
     }
 
-    [[nodiscard]] bool try_read(std::span<std::byte> dst) noexcept {
-        if (!try_peek(dst)) {
+    [[nodiscard]] bool read(std::span<std::byte> dst) noexcept {
+        if (!peek(dst)) {
             return false;
         }
 
@@ -83,16 +94,7 @@ public:
         return true;
     }
 
-    [[nodiscard]] bool try_consume(std::size_t n) noexcept {
-        if (size() < n) {
-            return false;
-        }
-
-        read_seq_ += n;
-        return true;
-    }
-
-    [[nodiscard]] bool try_write(std::span<std::byte const> src) noexcept {
+    [[nodiscard]] bool write(std::span<std::byte const> src) noexcept {
         if (writable_size() < src.size()) {
             return false;
         }
@@ -114,28 +116,21 @@ public:
         return true;
     }
 
-    [[nodiscard]] bool try_commit(std::size_t n) noexcept {
-        if (writable_size() < n) {
-            return false;
-        }
-
-        write_seq_ += n;
-        return true;
-    }
-
     void clear() noexcept {
         read_seq_ = 0;
         write_seq_ = 0;
     }
 
-    void reset() noexcept {
-        clear();
+private:
+    [[nodiscard]] static bool is_valid_capacity(std::size_t capacity) noexcept {
+        return capacity > 0 && (capacity & (capacity - 1)) == 0;
     }
 
-private:
-    [[nodiscard]] static std::size_t checked_capacity(std::size_t capacity) {
-        if (!valid_capacity(capacity)) {
-            throw std::invalid_argument{"CircularBuffer capacity must be a power of two"};
+    // 용량은 코드가 정하는 상수라 위반은 프로그래머 오류다. 테스트가 이 경로를 고정하므로
+    // assert 대신 빌드 모드와 무관하게 logic_error를 던진다.
+    [[nodiscard]] static std::size_t validated_capacity(std::size_t capacity) {
+        if (!is_valid_capacity(capacity)) {
+            throw std::logic_error{"CircularBuffer capacity must be a power of two"};
         }
         return capacity;
     }
@@ -158,6 +153,10 @@ private:
 
     [[nodiscard]] std::byte* write_ptr() noexcept {
         return storage_.get() + write_index();
+    }
+
+    [[nodiscard]] std::size_t writable_size() const noexcept {
+        return capacity_ - size();
     }
 
     [[nodiscard]] std::size_t contiguous_readable_size() const noexcept {

@@ -3,7 +3,7 @@
 
 #include "ddcs/ctrl/infra/transport/peer_address.hpp"
 #include "ddcs/ctrl/infra/transport/server.hpp"
-#include "ddcs/logger/log.hpp"
+#include "ddcs/logger/event.hpp"
 #include "ddcs/net/socket.hpp"
 
 #include <cassert>
@@ -47,19 +47,19 @@ Acceptor::Acceptor(Server& server, std::uint16_t listen_port, int accept_backlog
       listen_port_(listen_port),
       accept_backlog_(accept_backlog) {}
 
-bool Acceptor::init() noexcept {
+io::SysResult Acceptor::init() noexcept {
     if (valid()) {
-        return false;
+        return io::SysResult::fail(); // 이중 init
     }
 
     io::Fd fd{::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)};
     if (!fd.valid()) {
-        return false;
+        return io::SysResult::fail(errno);
     }
 
     int const yes = 1;
     if (::setsockopt(fd.get(), SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0) {
-        return false;
+        return io::SysResult::fail(errno);
     }
 
     sockaddr_in addr{};
@@ -67,36 +67,32 @@ bool Acceptor::init() noexcept {
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(listen_port_);
     if (::bind(fd.get(), reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        return false;
+        return io::SysResult::fail(errno);
     }
 
     if (::listen(fd.get(), accept_backlog_) < 0) {
-        return false;
+        return io::SysResult::fail(errno);
     }
 
-    std::uint16_t const bound_port = net::bound_port(fd.get());
-    if (bound_port == 0) {
-        return false;
+    auto const bound_port = net::bound_port(fd.get());
+    if (!bound_port) {
+        return io::SysResult::fail(errno); // getsockname 실패의 errno가 남아 있다
     }
 
     auto const interests = io::ChannelEvents::readable | io::ChannelEvents::edge_triggered;
-    if (!channel_.init(std::move(fd), interests, *this)) {
-        errno = EINVAL;
-        return false;
-    }
+    channel_.init(std::move(fd), interests, *this);
 
     accept_spare_fd_.reset(::open("/dev/null", O_RDONLY | O_CLOEXEC));
     if (!accept_spare_fd_.valid()) {
-        int const err = errno;
+        auto const result = io::SysResult::fail(errno); // close()가 errno를 덮기 전에 캡처
         close();
-        errno = err;
-        return false;
+        return result;
     }
 
-    bound_port_ = bound_port;
+    bound_port_ = *bound_port;
 
-    LOG_INFO("transport.acceptor.init", logger::kv("port", port()));
-    return true;
+    LOG_TRANSPORT_LISTEN(port());
+    return io::SysResult::success();
 }
 
 void Acceptor::close() noexcept {
@@ -114,15 +110,15 @@ void Acceptor::on_ready(io::Channel& channel, io::ChannelEvents events) {
 
     if (io::contains(events, io::ChannelEvents::error) ||
         io::contains(events, io::ChannelEvents::hangup)) {
-        server_.handle_acceptor_failure(events); // 로깅은 Server가 담당한다.
+        server_.on_acceptor_failure(events); // 로깅은 Server가 담당한다.
         return;
     }
     if (io::contains(events, io::ChannelEvents::readable)) {
-        drain_accepts();
+        accept_connections();
     }
 }
 
-void Acceptor::drain_accepts() {
+void Acceptor::accept_connections() {
     for (;;) {
         sockaddr_storage peer_addr{};
         socklen_t peer_addr_len{sizeof(peer_addr)};
@@ -140,26 +136,35 @@ void Acceptor::drain_accepts() {
                 continue;
             }
             if (err == EMFILE || err == ENFILE) {
-                if (!reject_pending_connection(err)) {
+                if (!fd_exhausted_) {
+                    fd_exhausted_ = true;
+                    rejected_while_exhausted_ = 0;
+                    LOG_TRANSPORT_ACCEPT_FD_EXHAUSTED(err);
+                }
+                ++rejected_while_exhausted_;
+                if (!reject_pending_connection()) {
                     return;
                 }
                 continue;
             }
-            server_.handle_accept_error(err);
+            server_.on_accept_error(err);
             return;
+        }
+
+        if (fd_exhausted_) {
+            fd_exhausted_ = false;
+            LOG_TRANSPORT_ACCEPT_FD_RECOVER(rejected_while_exhausted_);
         }
 
         int const yes = 1;
         (void)::setsockopt(conn_fd.get(), IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
         PeerAddress const peer =
             to_peer_address(reinterpret_cast<sockaddr const&>(peer_addr), peer_addr_len);
-        server_.handle_accepted(std::move(conn_fd), peer);
+        server_.on_accepted(std::move(conn_fd), peer);
     }
 }
 
-bool Acceptor::reject_pending_connection(int exhausted_err) {
-    LOG_WARN("transport.accept.fd_exhausted", logger::kv("errno", exhausted_err));
-
+bool Acceptor::reject_pending_connection() {
     accept_spare_fd_.close();
     io::Fd reject{::accept4(channel_.fd(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC)};
     bool const drained = reject.valid();
@@ -169,8 +174,8 @@ bool Acceptor::reject_pending_connection(int exhausted_err) {
     accept_spare_fd_.reset(::open("/dev/null", O_RDONLY | O_CLOEXEC));
     if (!accept_spare_fd_.valid()) {
         int const reopen_err = errno;
-        LOG_ERROR("transport.accept.spare_fd_reopen_failed", logger::kv("errno", reopen_err));
-        server_.handle_accept_error(reopen_err);
+        LOG_TRANSPORT_ACCEPT_SPARE_FD_FAIL(reopen_err);
+        server_.on_accept_error(reopen_err);
         return false;
     }
 
@@ -178,7 +183,7 @@ bool Acceptor::reject_pending_connection(int exhausted_err) {
         if (reject_err == EAGAIN || reject_err == EWOULDBLOCK) {
             return false; // 그 사이 백로그가 비었다. 정상 종료
         }
-        server_.handle_accept_error(reject_err);
+        server_.on_accept_error(reject_err);
         return false;
     }
     return true;

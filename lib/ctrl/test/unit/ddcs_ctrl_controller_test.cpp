@@ -2,12 +2,14 @@
 
 #include "ddcs/logger/log.hpp"
 
+#include <cerrno>
 #include <chrono>
 #include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -29,13 +31,34 @@ public:
     }
 };
 
+// 전역 로거를 테스트 sink로 세우고, 파괴 시 떼어내 stack sink dangling을 막는다.
+// (production은 main이 같은 부트스트랩을 수행한다)
+class ScopedLogger {
+public:
+    ScopedLogger(ddcs::logger::Sink& sink, ddcs::logger::Level level)
+        : sink_(sink) {
+        auto& lg = ddcs::logger::Logger::instance();
+        lg.set_level(level);
+        lg.set_sink(sink);
+    }
+    ~ScopedLogger() {
+        ddcs::logger::Logger::instance().clear_sink(sink_);
+    }
+
+    ScopedLogger(ScopedLogger const&) = delete;
+    ScopedLogger& operator=(ScopedLogger const&) = delete;
+
+private:
+    ddcs::logger::Sink& sink_;
+};
+
 void write_file(std::filesystem::path const& p, std::string_view content) {
     std::ofstream out{p};
     out << content;
 }
 
 // 부분 문자열 발생 횟수(겹침 없음). 핫리로드 성공 토큰 카운트에 쓴다.
-// 성공 이벤트는 "event":"policy.load"(닫는 따옴표 포함)라 .parse_fail/.invalid/.reload와 안 겹친다.
+// 성공 이벤트는 "event":"policy.load"(닫는 따옴표 포함)라 .fail/.absent 와 안 겹친다.
 std::size_t count_substr(std::string_view hay, std::string_view needle) {
     std::size_t n = 0;
     for (auto pos = hay.find(needle); pos != std::string_view::npos;
@@ -75,10 +98,11 @@ std::string scrape_metrics(Controller& controller, std::uint16_t port) {
 
 // 조립 루트 스모크: 구성 후 start, ephemeral 바인드, 1회 디스패치, stop까지 무사한지
 TEST(ControllerTest, StartsBindsEphemeralPortAndDispatchesOnce) {
+    CapturingSink sink;
+    ScopedLogger logger{sink, ddcs::logger::Level::warn};
     Controller::Config cfg{};
     cfg.listen_port = 0;
     cfg.accept_backlog = 16;
-    cfg.log_level = ddcs::logger::Level::warn;
 
     Controller controller{cfg};
     controller.start();
@@ -88,28 +112,57 @@ TEST(ControllerTest, StartsBindsEphemeralPortAndDispatchesOnce) {
     controller.stop();
 }
 
-// metrics_port nullopt(기본)면 엔드포인트 비활성: 바인드 포트 0
-TEST(ControllerTest, DisablesMetricsByDefault) {
+// 부팅 실패 진단: 점유된 포트로 start하면 포트와 EADDRINUSE가 예외에 실린다
+TEST(ControllerTest, ReportsAddressInUseOnOccupiedPort) {
+    CapturingSink sink;
+    ScopedLogger logger{sink, ddcs::logger::Level::warn};
     Controller::Config cfg{};
-    cfg.log_level = ddcs::logger::Level::warn;
+    cfg.listen_port = 0;
+    cfg.accept_backlog = 16;
+
+    Controller occupant{cfg};
+    occupant.start();
+    ASSERT_NE(occupant.port(), 0);
+
+    Controller::Config conflicting{};
+    conflicting.listen_port = occupant.port();
+    conflicting.accept_backlog = 16;
+
+    Controller latecomer{conflicting};
+    try {
+        latecomer.start();
+        FAIL() << "occupied port must fail start()";
+    } catch (std::system_error const& e) {
+        EXPECT_EQ(e.code().value(), EADDRINUSE);
+        EXPECT_NE(std::string{e.what()}.find("transport listen port"), std::string::npos);
+    }
+    occupant.stop();
+}
+
+// prometheus_port nullopt(기본)면 엔드포인트 비활성: 바인드 포트 0
+TEST(ControllerTest, DisablesMetricsByDefault) {
+    CapturingSink sink;
+    ScopedLogger logger{sink, ddcs::logger::Level::warn};
+    Controller::Config cfg{};
 
     Controller controller{cfg};
     controller.start();
-    EXPECT_EQ(controller.metrics_port(), 0);
+    EXPECT_EQ(controller.prometheus_port(), 0);
     controller.stop();
 }
 
-// metrics_port 지정 시 엔드포인트 활성: GET /metrics가 실제 레지스트리 gauge를 노출
+// prometheus_port 지정 시 엔드포인트 활성: GET /metrics가 실제 레지스트리 gauge를 노출
 TEST(ControllerTest, ServesMetricsWhenEnabled) {
+    CapturingSink sink;
+    ScopedLogger logger{sink, ddcs::logger::Level::warn};
     Controller::Config cfg{};
-    cfg.metrics_port = 0; // ephemeral, 활성
-    cfg.log_level = ddcs::logger::Level::warn;
+    cfg.prometheus_port = 0; // ephemeral, 활성
 
     Controller controller{cfg};
     controller.start();
-    ASSERT_NE(controller.metrics_port(), 0);
+    ASSERT_NE(controller.prometheus_port(), 0);
 
-    auto const resp = scrape_metrics(controller, controller.metrics_port());
+    auto const resp = scrape_metrics(controller, controller.prometheus_port());
     EXPECT_NE(resp.find("200 OK"), std::string::npos);
     EXPECT_NE(resp.find("# TYPE ddcs_connections gauge"), std::string::npos);
     EXPECT_NE(resp.find("ddcs_connections 0"), std::string::npos); // session 없음
@@ -125,13 +178,12 @@ TEST(ControllerTest, SighupReloadsPolicy) {
     );
 
     CapturingSink sink;
+    ScopedLogger logger{sink, ddcs::logger::Level::info}; // policy.load* 가 보이게
     Controller::Config cfg{};
     cfg.policy_path = path;
-    cfg.log_level = ddcs::logger::Level::info; // policy.load / policy.reload 가 보이게
-    cfg.log_sink = &sink;
 
     Controller controller{cfg};
-    controller.start(); // policy A(group 1개) 로드 -> "policy.load" groups=1
+    controller.start(); // policy A(group 1개) 로드 -> policy.load groups=1 trigger=boot
 
     // 파일을 group 2개로 교체 후 SIGHUP -> 핫리로드(재적용)
     write_file(
@@ -141,17 +193,14 @@ TEST(ControllerTest, SighupReloadsPolicy) {
         R"("beta":{"high_load":60,"low_load":40,"high_load_mode":"performance","low_load_mode":"normal"}}}})"
     );
     ::raise(SIGHUP);
-    for (int i = 0; i < 10 && sink.text.find(R"("event":"policy.reload")") == std::string::npos;
-         ++i) {
+    for (int i = 0; i < 10 && sink.text.find(R"("trigger":"reload")") == std::string::npos; ++i) {
         controller.run_once(std::chrono::milliseconds{20}); // signalfd 처리 -> reload
     }
     controller.stop();
 
-    EXPECT_NE(sink.text.find(R"("event":"policy.reload")"), std::string::npos); // SIGHUP 트리거됨
+    EXPECT_NE(sink.text.find(R"("trigger":"reload")"), std::string::npos); // SIGHUP 트리거됨
     EXPECT_NE(sink.text.find(R"("groups":2)"), std::string::npos); // 새 파일(group 2개) 적용됨
 
-    // 전역 logger가 stack-local sink를 가리키므로 파괴 전에 떼어낸다(dangling 방지).
-    ddcs::logger::Logger::instance().clear_sink(sink);
     std::filesystem::remove(path);
 }
 
@@ -166,10 +215,9 @@ TEST(ControllerTest, SighupWithMalformedPolicyKeepsOldPolicy) {
     );
 
     CapturingSink sink;
+    ScopedLogger logger{sink, ddcs::logger::Level::info}; // policy.load / policy.load.* 가 보이게
     Controller::Config cfg{};
     cfg.policy_path = path;
-    cfg.log_level = ddcs::logger::Level::info; // policy.load / policy.load.* 가 보이게
-    cfg.log_sink = &sink;
 
     Controller controller{cfg};
     controller.start(); // 유효한 정책 A 로드 -> "policy.load" 1회
@@ -177,21 +225,16 @@ TEST(ControllerTest, SighupWithMalformedPolicyKeepsOldPolicy) {
     // 깨진 JSON으로 교체 후 SIGHUP -> json parse 실패 -> set_policy 미호출(옛 정책 유지)
     write_file(path, "{ this is not json");
     ::raise(SIGHUP);
-    for (int i = 0;
-         i < 10 && sink.text.find(R"("event":"policy.load.parse_fail")") == std::string::npos;
-         ++i) {
+    for (int i = 0; i < 10 && sink.text.find(R"("reason":"parse")") == std::string::npos; ++i) {
         controller.run_once(std::chrono::milliseconds{20});
     }
     controller.stop();
 
-    EXPECT_NE(sink.text.find(R"("event":"policy.reload")"), std::string::npos); // SIGHUP 처리됨
-    EXPECT_NE(
-        sink.text.find(R"("event":"policy.load.parse_fail")"), std::string::npos
-    ); // malformed 거부
+    EXPECT_NE(sink.text.find(R"("trigger":"reload")"), std::string::npos); // SIGHUP 처리됨
+    EXPECT_NE(sink.text.find(R"("event":"policy.load.fail")"), std::string::npos); // malformed 거부
     // 성공 토큰은 부팅 1회 그대로 -- 재적용이 없었다 = 옛 정책 유지.
     EXPECT_EQ(count_substr(sink.text, R"("event":"policy.load")"), 1U);
 
-    ddcs::logger::Logger::instance().clear_sink(sink);
     std::filesystem::remove(path);
 }
 
@@ -204,28 +247,25 @@ TEST(ControllerTest, SighupWithInvalidPolicyKeepsOldPolicy) {
     );
 
     CapturingSink sink;
+    ScopedLogger logger{sink, ddcs::logger::Level::info};
     Controller::Config cfg{};
     cfg.policy_path = path;
-    cfg.log_level = ddcs::logger::Level::info;
-    cfg.log_sink = &sink;
 
     Controller controller{cfg};
     controller.start();
 
-    // 파싱은 되지만 low_load/mode 누락 -> parse_policy nullopt -> policy.load.invalid (set_policy
-    // 미호출)
+    // 파싱은 되지만 low_load/mode 누락 -> parse_policy nullopt -> policy.load.fail reason=invalid
+    // (set_policy 미호출)
     write_file(path, R"({"policy":{"groups":{"alpha":{"high_load":80}}}})");
     ::raise(SIGHUP);
-    for (int i = 0;
-         i < 10 && sink.text.find(R"("event":"policy.load.invalid")") == std::string::npos; ++i) {
+    for (int i = 0; i < 10 && sink.text.find(R"("reason":"invalid")") == std::string::npos; ++i) {
         controller.run_once(std::chrono::milliseconds{20});
     }
     controller.stop();
 
-    EXPECT_NE(sink.text.find(R"("event":"policy.load.invalid")"), std::string::npos);
+    EXPECT_NE(sink.text.find(R"("reason":"invalid")"), std::string::npos);
     EXPECT_EQ(count_substr(sink.text, R"("event":"policy.load")"), 1U); // 옛 정책 유지
 
-    ddcs::logger::Logger::instance().clear_sink(sink);
     std::filesystem::remove(path);
 }
 

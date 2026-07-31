@@ -23,19 +23,12 @@ DeviceId make_device_id(std::uint8_t seed) {
     return DeviceId{bytes};
 }
 
-TEST(SessionTest, DefaultConstructedIsIdle) {
-    Session const session;
-
-    EXPECT_FALSE(session.valid());
-    EXPECT_EQ(session.state(), Session::State::idle);
-}
-
 TEST(SessionTest, ConstructionStartsHandshaking) {
     ManualClock clock;
     clock.advance(10s);
     Session const session{ConnectionId{7}, clock.now()};
 
-    EXPECT_TRUE(session.valid());
+    EXPECT_FALSE(session.active());
     EXPECT_EQ(session.state(), Session::State::handshaking);
     EXPECT_EQ(session.conn(), ConnectionId{7});
     EXPECT_EQ(session.last_seen(), clock.now());
@@ -63,14 +56,12 @@ TEST(SessionTest, ConfirmTransitionsToActiveAndUpdatesSeen) {
     ASSERT_TRUE(session.confirm(clock.now()));
 
     EXPECT_EQ(session.state(), Session::State::active);
+    EXPECT_TRUE(session.active());
     EXPECT_EQ(session.last_seen(), clock.now()); // liveness 측정 시작점 = ack 수신
 }
 
 TEST(SessionTest, ConfirmRejectsWhenNotConfirming) {
     ManualClock clock;
-
-    Session idle_agent;
-    EXPECT_FALSE(idle_agent.confirm(clock.now()));
 
     Session session{ConnectionId{7}, clock.now()};
     EXPECT_FALSE(session.confirm(clock.now())); // handshaking: bind 전 ack는 무효
@@ -90,9 +81,6 @@ TEST(SessionTest, BindRejectsNilDevice) {
 
 TEST(SessionTest, BindRejectsWhenNotHandshaking) {
     ManualClock clock;
-
-    Session idle_agent;
-    EXPECT_FALSE(idle_agent.bind(make_device_id(0x01), clock.now()));
 
     Session session{ConnectionId{7}, clock.now()};
     ASSERT_TRUE(session.bind(make_device_id(0x01), clock.now()));

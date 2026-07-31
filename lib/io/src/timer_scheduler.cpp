@@ -4,7 +4,7 @@
 #include "ddcs/io/channel.hpp"
 #include "ddcs/io/channel_handler.hpp"
 #include "ddcs/io/detail/timer_queue.hpp"
-#include "ddcs/io/detail/timer_registration_table.hpp"
+#include "ddcs/io/detail/timer_registry.hpp"
 #include "ddcs/io/fd.hpp"
 #include "ddcs/io/reactor.hpp"
 #include "ddcs/io/throw_errno.hpp"
@@ -31,7 +31,7 @@ using namespace std::chrono_literals;
 
 [[nodiscard]]
 itimerspec make_timerfd_spec(std::chrono::nanoseconds delay) noexcept {
-    // NOTE: it_value가 0이면 timerfd가 disarm되므로 즉시 만료도 최소 1ns로 무장한다.
+    // it_value가 0이면 timerfd가 disarm되므로 즉시 만료도 최소 1 ns로 설정한다.
     if (delay <= 0ns) {
         delay = 1ns;
     }
@@ -57,11 +57,6 @@ itimerspec make_timerfd_spec(std::chrono::nanoseconds delay) noexcept {
 
 class TimerScheduler::Impl final : ChannelHandler {
 public:
-    enum class State {
-        ready,
-        active,
-    };
-
     explicit Impl(Reactor& reactor)
         : reactor_(reactor),
           clock_(default_clock_) {}
@@ -81,53 +76,48 @@ public:
     }
 
     void start() {
-        if (state_ == State::active) {
+        if (channel_.valid()) {
             return;
         }
 
-        io::Fd fd{::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)};
+        Fd fd{::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC)};
         if (!fd.valid()) {
-            io::throw_errno(errno, "timerfd_create");
+            throw_errno(errno, "timerfd_create");
         }
 
-        if (!channel_.init(
-                std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this
-            )) {
-            io::throw_errno(EINVAL, "timer channel init failed");
-        }
+        channel_.init(std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this);
 
-        if (!reactor_.add(channel_)) {
-            channel_.reset();
-            io::throw_errno(EINVAL, "reactor add timer channel failed");
+        if (auto const result = reactor_.add(channel_); !result) {
+            channel_.close();
+            throw_errno(result.err, "reactor add timer channel failed");
         }
 
         try {
             update_timerfd();
-            state_ = State::active;
         } catch (...) {
-            stop_timerfd();
+            stop();
             throw;
         }
     }
 
     void stop() noexcept {
-        if (state_ != State::active) {
-            return;
+        if (channel_.registered()) {
+            reactor_.remove(channel_);
         }
-
-        stop_timerfd();
-        state_ = State::ready;
+        if (channel_.valid()) {
+            channel_.close();
+        }
     }
 
     [[nodiscard]] bool active() const noexcept {
-        return state_ == State::active;
+        return channel_.registered();
     }
 
-    [[nodiscard]] TimerId schedule(std::chrono::nanoseconds delay, TimerHandler& handler) {
+    [[nodiscard]] TimerToken schedule(std::chrono::nanoseconds delay, TimerHandler& handler) {
         auto const deadline = clock_.now() + delay;
         auto const previous_deadline = next_deadline();
 
-        TimerId const id = timer_registrations_.insert(handler);
+        TimerToken const id = timer_registrations_.insert(handler);
         timer_queue_.push(deadline, id);
 
         if (!previous_deadline || deadline < *previous_deadline) {
@@ -136,7 +126,7 @@ public:
         return id;
     }
 
-    void cancel(TimerId id) {
+    void cancel(TimerToken id) {
         prune_cancelled();
 
         auto const next_timer = timer_queue_.top();
@@ -167,7 +157,7 @@ public:
             if (handler != nullptr) {
                 handler->on_expired(timer->id);
             }
-            // CAUTION: 콜백이 stop을 호출하면 channel이 해제되므로 즉시 멈춘다.
+            // 콜백이 stop을 호출하면 channel이 해제되므로 즉시 멈춘다.
             if (!channel_.registered()) {
                 return;
             }
@@ -177,7 +167,7 @@ public:
     }
 
 private:
-    [[nodiscard]] std::optional<detail::TimerQueue::time_point> next_deadline() {
+    [[nodiscard]] std::optional<detail::TimerQueue::time_point> next_deadline() noexcept {
         prune_cancelled();
 
         auto const next_timer = timer_queue_.top();
@@ -188,7 +178,7 @@ private:
     }
 
     // PERF: cancel은 등록 slot만 무효화하고, stale해진 heap entry는 top에 올라왔을 때 제거한다.
-    void prune_cancelled() {
+    void prune_cancelled() noexcept {
         while (auto const next_timer = timer_queue_.top()) {
             if (timer_registrations_.contains(next_timer->id)) {
                 return;
@@ -215,7 +205,7 @@ private:
                 if (err == EINTR) {
                     continue;
                 }
-                io::throw_errno(err, "read timerfd");
+                throw_errno(err, "read timerfd");
             }
             return has_expiration;
         }
@@ -235,26 +225,16 @@ private:
         }
 
         if (::timerfd_settime(channel_.fd(), 0, &spec, nullptr) < 0) {
-            io::throw_errno(errno, "timerfd_settime");
-        }
-    }
-
-    void stop_timerfd() noexcept {
-        if (channel_.registered()) {
-            reactor_.remove(channel_);
-        }
-        if (channel_.valid()) {
-            channel_.reset();
+            throw_errno(errno, "timerfd_settime");
         }
     }
 
     Reactor& reactor_;
     common::SteadyClock default_clock_;
     common::Clock& clock_;
-    State state_ = State::ready;
     Channel channel_;
     detail::TimerQueue timer_queue_;
-    detail::TimerRegistrationTable timer_registrations_;
+    detail::TimerRegistry timer_registrations_;
 };
 
 TimerScheduler::TimerScheduler(Reactor& reactor)
@@ -279,11 +259,11 @@ bool TimerScheduler::active() const noexcept {
     return impl_->active();
 }
 
-TimerId TimerScheduler::schedule(std::chrono::nanoseconds delay, TimerHandler& handler) {
+TimerToken TimerScheduler::schedule(std::chrono::nanoseconds delay, TimerHandler& handler) {
     return impl_->schedule(delay, handler);
 }
 
-void TimerScheduler::cancel(TimerId id) {
+void TimerScheduler::cancel(TimerToken id) {
     impl_->cancel(id);
 }
 

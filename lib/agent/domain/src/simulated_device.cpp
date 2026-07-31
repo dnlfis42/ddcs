@@ -56,7 +56,7 @@ double SimulatedDevice::next_noise() noexcept {
     return 2.0 * u - 1.0;
 }
 
-Status SimulatedDevice::query() {
+device::Status SimulatedDevice::query() {
     double const dt = cfg_.tick_seconds;
 
     load_ += load_rate(cfg_, mode_) * dt;
@@ -71,7 +71,7 @@ Status SimulatedDevice::query() {
     }
     temp_ = std::clamp(temp_, cfg_.temp_ambient, cfg_.temp_max);
 
-    return Status{.mode = mode_, .load = load_, .temp = temp_};
+    return device::Status{.mode = mode_, .load = load_, .temp = temp_};
 }
 
 bool SimulatedDevice::apply(device::Mode mode) {

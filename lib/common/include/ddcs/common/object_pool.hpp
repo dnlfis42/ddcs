@@ -26,6 +26,8 @@ concept pool_constructible_from = std::constructible_from<T, std::decay_t<Args> 
 
 } // namespace detail::object_pool
 
+// T 객체를 미리 만들어두고 재사용하는 오브젝트 풀.
+// acquire()가 돌려주는 Handle이 소멸하면 객체는 소멸 대신 reset() 후 풀로 반환된다.
 template <detail::object_pool::resettable T>
 class ObjectPool {
 private:
@@ -66,9 +68,10 @@ public:
         Slot* slot_ = nullptr;
     };
 
-    // handle 소멸 시 객체는 reset() 후 pool로 반환된다.
     using Handle = std::unique_ptr<T, Deleter>;
 
+    // args를 복사해 보관하고 이후 모든 슬롯의 T를 그 인자로 생성한다.
+    // 첫 chunk는 지연 생성되며, 첫 acquire()/reserve() 시점에 채워진다.
     template <std::size_t ChunkSize = 64, typename... Args>
         requires(ChunkSize > 0) && detail::object_pool::pool_constructible_from<T, Args...>
     [[nodiscard]] static ObjectPool create(Args&&... args) {
@@ -112,7 +115,8 @@ public:
         }
     }
 
-    // CAUTION: 발급한 handle보다 pool이 먼저 소멸하면 std::terminate된다.
+    // 객체 하나를 빌려 Handle로 돌려준다. 가용 슬롯이 없으면 chunk를 하나 더 늘려서라도 성공한다.
+    // CAUTION: 발급한 Handle보다 풀이 먼저 소멸하면 std::terminate된다.
     [[nodiscard]] Handle acquire() {
         if (available_head_ == nullptr) [[unlikely]] {
             add_chunk();

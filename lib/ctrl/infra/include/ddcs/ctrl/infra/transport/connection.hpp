@@ -10,7 +10,6 @@
 #include "ddcs/net/stream_io.hpp"
 
 #include <cstddef>
-#include <cstdint>
 #include <queue>
 #include <utility>
 
@@ -23,19 +22,9 @@ class Server;
 // Server가 소유하는 TCP connection slot
 class Connection final : private io::ChannelHandler {
 public:
-    enum class State : std::uint8_t {
-        idle,
-        ready,   // fd와 Channel은 준비됐지만 Server 소유 전
-        tracked, // Server map이 소유함. Reactor 등록 전이거나 해제된 후
-        active,  // tracked + Channel이 Reactor에 등록되어 이벤트가 흐름
-    };
-
-    // ok | full | would_block | peer_closed | error. agent transport Connection과 공유한다.
-    using IoResult = net::StreamResult;
-
-    static constexpr std::size_t rx_buffer_capacity = 1 << 12;
-
-    Connection() = default;
+    // rx ring 용량은 정책이라 위(Server)가 정해 주입한다.
+    explicit Connection(std::size_t rx_buffer_size)
+        : rx_buffer_(rx_buffer_size) {}
     ~Connection() override = default;
 
     Connection(Connection const&) = delete;
@@ -43,7 +32,8 @@ public:
     Connection(Connection&&) noexcept = delete;
     Connection& operator=(Connection&&) noexcept = delete;
 
-    [[nodiscard]] bool init(
+    // 전제조건: idle(reset된) connection + 유효한 fd
+    void init(
         Server& server, port::ConnectionId id, PeerAddress peer, io::Fd&& fd,
         io::ChannelEvents interests
     ) noexcept;
@@ -57,16 +47,12 @@ public:
         return peer_;
     }
 
-    [[nodiscard]] State state() const noexcept {
-        return state_;
-    }
-
     [[nodiscard]] io::Channel& channel() noexcept {
         return channel_;
     }
 
-    [[nodiscard]] io::Channel const& channel() const noexcept {
-        return channel_;
+    [[nodiscard]] bool registered() const noexcept {
+        return channel_.registered();
     }
 
     void reset() noexcept;
@@ -76,15 +62,11 @@ private:
 
     void on_ready(io::Channel& channel, io::ChannelEvents events) override;
 
-    // 상태 전이는 Server가 결정하고, 여기서는 그 사실만 기록한다.
-    [[nodiscard]] bool mark_tracked() noexcept; // ready(접수) 또는 active(해체)를 tracked로
-    [[nodiscard]] bool mark_active() noexcept;  // tracked를 active로
+    // syscall 결과만 보고한다. 결과 어휘는 agent transport Connection과 공유한다.
+    [[nodiscard]] net::ReceiveResult receive();
+    [[nodiscard]] net::TransmitResult transmit();
 
-    // syscall 결과만 보고하고 상태 전이는 Server가 결정한다.
-    [[nodiscard]] IoResult receive();  // full | would_block | peer_closed | error
-    [[nodiscard]] IoResult transmit(); // ok | would_block | error
-
-    // framing 헬퍼(wire::frame::extract_frames)에 rx ring을 직접 넘기기 위한 접근자
+    // framing 헬퍼(wire::frame::dispatch_frames)에 rx ring을 직접 넘기기 위한 접근자
     [[nodiscard]] common::CircularBuffer& rx_buffer() noexcept {
         return rx_buffer_;
     }
@@ -100,9 +82,8 @@ private:
     Server* server_ = nullptr;
     port::ConnectionId id_;
     PeerAddress peer_;
-    State state_ = State::idle;
     io::Channel channel_;
-    common::CircularBuffer rx_buffer_{rx_buffer_capacity};
+    common::CircularBuffer rx_buffer_;
     std::queue<port::MessageBuffer> tx_queue_;
 };
 

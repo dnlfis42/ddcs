@@ -6,20 +6,22 @@
 namespace ddcs::ctrl::app::device {
 
 std::map<std::string, GroupAggregate> aggregate_groups(
-    port::DeviceRoster& roster, domain::DeviceRegistry const& devices,
+    port::ActiveDevices& active_devices, domain::DeviceRegistry const& devices,
     domain::GroupPolicy const& policy
 ) {
     std::map<std::string, GroupAggregate> groups;
-    roster.for_each_active([&](domain::DeviceId id) {
+    active_devices.for_each_active([&](domain::DeviceId id) {
         auto const* shadow = devices.find(id);
-        if (shadow == nullptr || shadow->group.empty() || !policy.contains(shadow->group)) {
-            return; // 정책 밖 group은 제외 -- label cardinality를 config group으로 한정
+        if (shadow == nullptr || !shadow->status || shadow->group.empty() ||
+            !policy.contains(shadow->group)) {
+            return; // 미관측이거나 정책 밖 group이면 제외 -- 기본값과 config 밖 label을 차단
         }
+
         auto& a = groups[shadow->group];
-        a.devices += 1;
-        a.load_sum += shadow->status.load;
-        a.temp_sum += shadow->status.temp;
-        a.by_mode[ddcs::device::encode_mode(shadow->status.mode)] += 1;
+        a.device_count += 1;
+        a.load_sum += shadow->status->load;
+        a.temp_sum += shadow->status->temp;
+        a.by_mode[ddcs::device::encode_mode(shadow->status->mode)] += 1;
     });
     return groups;
 }
