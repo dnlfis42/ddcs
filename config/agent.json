@@ -5,6 +5,7 @@
   "transport": {
     "host": "127.0.0.1",
     "port": 8080,
+    "rx_buffer_size": 4096,
     "reconnect_base_delay_ms": 200,
     "reconnect_max_delay_ms": 5000
   },

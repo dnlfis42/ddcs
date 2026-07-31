@@ -12,7 +12,8 @@
   "transport": {
     "bind_address": "0.0.0.0",
     "port": 8080,
-    "accept_backlog": 128
+    "accept_backlog": 128,
+    "rx_buffer_size": 4096
   },
   "session": {
     "handshake_timeout_ms": 3000,
