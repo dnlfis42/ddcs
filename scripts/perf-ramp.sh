@@ -2,15 +2,15 @@
 # DDCS 성능 램프: agent 수를 늘려가며 컨트롤러(단일 스레드 리액터)의 포화 지표를 캡처한다.
 #
 # 핵심 지표 = sweep tick 작업 소요(us). 한 tick은 명령 재전송 + monitor sweep + 정책 평가를
-# 한 스레드에서 처리하므로, 이 시간이 sweep 주기(기본 1s = 1,000,000us)에 근접하면 한 코어가 포화다.
-# pending 누적 증가나 evicted 급증도 "컨트롤러가 못 따라감"의 신호다.
+# 한 스레드에서 처리하므로, 이 시간이 sweep 주기(기본 1s = 1,000,000us)에 근접하면 한 코어가 포화에 이른다.
+# pending이 쌓이거나 evicted가 급증하는 것도 컨트롤러가 못 따라간다는 신호이다.
 #
 # 사용법: scripts/perf-ramp.sh
 #   DDCS_PERF_LEVELS="30 60 120"  총 agent 수 단계(3으로 나뉘어 zone별 분배; 3의 배수 권장)
 #   DDCS_PERF_SOAK=25             단계별 측정 창(초)
 #
 # 주의: agent 프로세스도 같은 호스트 CPU를 먹으므로 cpu_pct는 호스트 경합에 오염될 수 있다.
-#       오염 없는 순수 신호는 sweep_avg_us(컨트롤러가 tick당 실제로 일한 시간)다.
+#       오염되지 않는 신호는 컨트롤러가 tick당 실제로 일한 시간인 sweep_avg_us이다.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/demo-lib.sh"
 
 COMPOSE=docker-compose.scale.yml
@@ -64,6 +64,6 @@ for total in $LEVELS; do
 done
 
 narrate "해석"
-info "sweep_avg_us/max 가 sweep 주기(1,000,000us=1s)에 근접 -> 단일 코어 포화."
-info "여유가 크면 이론 한계 ~= 1,000,000 / (agent당 sweep us 증가분) 으로 외삽."
-info "pending이 단조 증가하거나 evicted가 튀는 레벨이 실질 한계(컨트롤러가 못 따라감)."
+info "sweep_avg_us/max가 sweep 주기(1,000,000us=1s)에 근접하면 단일 코어가 포화에 이른 것이다."
+info "여유가 크면 1,000,000을 agent당 sweep us 증가분으로 나눠 이론 한계를 외삽한다."
+info "pending이 단조 증가하거나 evicted가 튀기 시작하는 레벨에서 컨트롤러가 더는 따라가지 못한다."

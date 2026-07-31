@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # DDCS 데모 시나리오 공용 헬퍼. 실행하지 말고 source 한다.
-# - 각 시나리오는 COMPOSE 와 (선택) SERVICES 를 정하고 stack_up/stack_down 으로 스택을 관리한다.
-# - 단언은 assert_* 로 누적되고 summary 가 종료코드를 정한다(실패 1건이라도 있으면 비정상 종료).
-# - 메트릭은 controller 의 raw 노출(:9000)을 직접 읽는다(Grafana 불필요, CI 친화적).
+# - 각 시나리오는 COMPOSE와 (선택) SERVICES를 정하고 stack_up/stack_down으로 스택을 관리한다.
+# - 단언은 assert_*로 누적되고 summary가 종료코드를 정한다. 실패가 하나라도 있으면 비정상 종료한다.
+# - 메트릭은 controller의 raw 노출(:9000)을 직접 읽어 Grafana 없이도 CI에서 돌아간다.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,21 +25,21 @@ info()    { printf '  %s%s%s\n' "$C_D" "$*" "$C_0"; }
 compose() { docker compose -f "$ROOT/docker/$COMPOSE" "$@"; }
 
 # 라벨 포함 메트릭 1개의 값. 없으면 빈 문자열. 예: metric 'ddcs_connections '
-# (# HELP / # TYPE 주석 줄은 제외해야 값 대신 "HELP"를 집지 않는다.)
+# (# HELP / # TYPE 주석 줄은 제외해야 값 대신 "HELP"를 읽지 않는다.)
 metric() { curl -s --max-time 5 "$METRICS_URL" | grep -F "$1" | grep -v '^#' | awk '{print $2}' | head -1; }
 # 정수 메트릭(없으면 0)
 metric_int() { local v; v="$(metric "$1")"; printf '%s' "${v%%.*}"; [ -n "${v%%.*}" ] || printf '0'; }
 
 # controller 로그에서 substring 발생 횟수
 logcount() { docker logs "$CTRL" 2>&1 | grep -c "$1"; }
-# policy.hot 을 한 번이라도 띄운 distinct device 수
-hot_distinct() { docker logs "$CTRL" 2>&1 | grep '"event":"policy.hot"' | grep -oiE '"device":"[0-9a-f-]+"' | sort -u | wc -l; }
-# 특정 device 로 나간 command.dispatch 횟수
+# 과열 latch에 들어간 적 있는 distinct device 수
+hot_distinct() { docker logs "$CTRL" 2>&1 | grep '"event":"policy.thermal.update"' | grep '"thermal":"hot"' | grep -oiE '"device":"[0-9a-f-]+"' | sort -u | wc -l; }
+# 특정 device로 나간 command.dispatch 횟수
 dispatch_count() { docker logs "$CTRL" 2>&1 | grep '"event":"command.dispatch"' | grep -c "$1"; }
-# 특정 device 의 session.registered 횟수(재접속이면 2 이상)
-register_count() { docker logs "$CTRL" 2>&1 | grep '"event":"session.registered"' | grep -c "$1"; }
+# 특정 device의 등록 확정 횟수(재접속이면 2 이상)
+register_count() { docker logs "$CTRL" 2>&1 | grep '"event":"session.connection.register.accept"' | grep -c "$1"; }
 
-# 조건이 참이 될 때까지 1초 간격 폴링(최대 timeout 초). predicate 는 eval 되는 문자열.
+# 조건이 참이 될 때까지 1초 간격으로 폴링한다(최대 timeout 초). predicate는 eval 되는 문자열이다.
 wait_for() { # desc timeout predicate
     local desc="$1" timeout="$2" pred="$3" i=0
     printf '  %s대기: %s%s ' "$C_D" "$desc" "$C_0"
@@ -65,7 +65,7 @@ assert_eq() { # desc actual expected
     if [ "${2:-x}" = "$3" ]; then _pass "$1 (=$2)"; else _fail "$1 (got '${2:-}', want '$3')"; fi
 }
 
-# 항상 빌드한다(소스 미변경이면 레이어 캐시로 수 초). stale 이미지로 데모가 옛 바이너리를 돌 일이 없다.
+# 항상 빌드한다. 소스가 그대로면 레이어 캐시로 수 초에 끝나고, stale 이미지 탓에 데모가 옛 바이너리로 도는 일도 없다.
 ensure_images() {
     narrate "이미지 빌드 (미변경이면 캐시로 수 초)..."
     compose build
@@ -79,9 +79,9 @@ preflight() {
     command -v curl >/dev/null 2>&1 || { echo "필요: curl" >&2; return 1; }
 }
 
-# 관측 스택(prometheus/grafana)은 데모 단언에 불필요해 controller+agent 만 띄운다.
+# 관측 스택(prometheus/grafana)은 데모 단언에 필요 없어 controller+agent만 띄운다.
 # 실패(대개 호스트 포트 8080/9000 충돌)는 삼키지 않고 비정상 종료로 알린다.
-stack_up() { # 추가 인자(예: --scale ...)와 띄울 서비스 목록
+stack_up() { # 추가 인자(예: --scale 등)와 띄울 서비스 목록
     preflight || return 1
     ensure_images || return 1
     info "스택 기동: $COMPOSE ($*)"
@@ -96,9 +96,9 @@ stack_down() {
     compose down --remove-orphans >/dev/null 2>&1 || true
 }
 
-# EXIT 에서 항상 정리. INT/TERM 은 exit 로 바꾼다 -- bash 트랩은 핸들러 후 실행을 재개하므로,
-# 그냥 stack_down 만 걸면 Ctrl-C 시 죽은 스택에 대고 나머지가 계속 돌며 거짓 FAIL을 쏟는다.
-# exit 로 바꾸면 단일 EXIT 트랩이 한 번만 정리한다.
+# EXIT에서 항상 정리하고, INT/TERM은 exit로 바꾼다. bash 트랩은 핸들러가 끝나면 실행을 재개하므로
+# 그냥 stack_down만 걸면 Ctrl-C 시 죽은 스택에 대고 나머지가 계속 돌며 거짓 FAIL이 잇따른다.
+# exit로 바꾸면 단일 EXIT 트랩이 한 번만 정리한다.
 arm_cleanup() {
     trap 'stack_down' EXIT
     trap 'exit 130' INT TERM

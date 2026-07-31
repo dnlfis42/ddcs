@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# DDCS 데모: per-device thermal -- 같은 Group 안에서 과열된 device만 safe로 빠진다(걔만 safe).
+# DDCS 데모: per-device thermal. 같은 Group 안에서 과열된 device만 safe로 빠진다(걔만 safe).
 # zone당 다수 device를 띄우고, 한 스냅샷에 performance와 safe가 동시에 존재함을 보인다
-# (그룹 단위 트립이면 한 zone은 전부 같은 모드여야 한다 -> 동시 혼재 = device 단위 트립).
+# 그룹 단위 트립이면 한 zone은 전부 같은 모드여야 하므로, 동시 혼재가 곧 device 단위 트립의 증거다.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/demo-lib.sh"
 
 COMPOSE=docker-compose.scale.yml
@@ -26,7 +26,8 @@ curl -s --max-time 5 "$METRICS_URL" | grep '^ddcs_group_devices' | sort | sed "s
 
 # 분포 샘플링: (1) 한 zone에 performance와 safe가 동시 존재(=per-device 분기), 그리고 (2) zone의
 # safe 수가 직전 스냅샷보다 줄어드는 순간(=과열 device가 resume_temp 아래로 식어 base mode로 회복).
-# policy.cool 같은 회복 로그 이벤트가 없으므로 safe 수 감소가 회복의 유일한 런타임 witness다.
+# 회복은 policy.thermal.update의 thermal=cool로도 남지만, 메트릭만 보는 이 데모에서는
+# safe 수 감소가 회복을 확인할 유일한 런타임 근거다.
 info "약 28초간 분포 샘플링 (per-device 분기 + 과열 회복 관측)"
 mix_seen=0
 recover_seen=0
@@ -42,7 +43,7 @@ for i in $(seq 1 14); do
             mix_seen=1
             info "샘플 $i: $z performance=$p safe=$s (동시 혼재)"
         fi
-        # safe 수가 직전보다 감소 = 그 device가 safe -> base mode로 회복(resume_temp 아래로 식음)
+        # safe 수가 직전보다 줄면 그 device가 resume_temp 아래로 식어 base mode로 돌아온 것이다
         if [ -n "${prev_safe[$z]:-}" ] && [ "$s" -lt "${prev_safe[$z]}" ]; then
             recover_seen=1
             info "샘플 $i: $z safe ${prev_safe[$z]} -> $s (과열 회복)"
@@ -54,7 +55,7 @@ done
 hot=$(hot_distinct)
 
 narrate "단언"
-assert_ge "모든 device가 한 번 이상 개별 과열 트립(policy.hot)" "$hot" "$EXPECTED"
+assert_ge "모든 device가 한 번 이상 개별 과열 트립(thermal=hot)" "$hot" "$EXPECTED"
 assert_ge "한 Group 안에 performance와 safe가 동시 존재(과열된 device만 safe)" "$mix_seen" 1
 assert_ge "과열 device가 resume_temp 아래로 식어 base mode로 회복(safe 수 감소 관측)" "$recover_seen" 1
 
