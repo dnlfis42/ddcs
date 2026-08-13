@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [debug, asan, release]
+    steps:
+      - uses: actions/checkout@v4
+      # workflow preset 하나가 configure + build + ctest를 모두 수행한다.
+      # debug: 개발 기본, asan: ASan/UBSan 위생 검사, release: -O3 + 경고 = 에러
+      - name: cmake --workflow --preset ${{ matrix.preset }}
+        run: cmake --workflow --preset ${{ matrix.preset }}
