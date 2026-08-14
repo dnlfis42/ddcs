@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# DDCS 성능 측정 전제 검사. 검사만 하고 아무것도 바꾸지 않으며, FAIL이 있으면 고치는 명령을
+# DDCS 성능 측정 전제 검사. 검사만 하고 아무것도 바꾸지 않으며, FAIL이 있으면 수정 명령을
 # 출력하고 비정상 종료한다. perf-ramp.sh가 시작 시 이 스크립트를 게이트로 실행한다
-# (DDCS_PERF_SKIP_PREFLIGHT=1 로 우회 가능하지만, 그렇게 잰 수치는 표에 싣지 않는 게 맞다).
+# (DDCS_PERF_SKIP_PREFLIGHT=1 로 우회할 수 있지만, 그렇게 잰 수치는 표에 싣지 않는다).
 #
-# 종료 상태
-#   0  모든 검사 통과 (WARN은 통과로 본다)
-#   1  FAIL 있음
+# 종료 상태:
+#   0   모든 검사 통과 (WARN은 통과로 본다)
+#   1   FAIL 있음
 #
 # 고정하는 환경:
 # - CPU governor = performance, turbo 비활성. 이 둘로 전 코어를 기저 주파수에 고정한다.
@@ -14,11 +14,12 @@
 # - 실행 중 컨테이너 0, 고아 containerd-shim 0, 스왑 사용 최소, 가용 메모리 확보, 유휴 load.
 # - ARP 이웃 테이블 상한(500대 이상 컨테이너 전제).
 # 끝에 측정 기록에 함께 남길 환경 요약을 출력한다.
+
 set -u
 
 PASS=0; FAIL=0; WARN=0
 ok()   { PASS=$((PASS + 1)); printf '  [PASS] %s\n' "$1"; }
-bad()  { FAIL=$((FAIL + 1)); printf '  [FAIL] %s\n         고치는 명령: %s\n' "$1" "$2"; }
+bad()  { FAIL=$((FAIL + 1)); printf '  [FAIL] %s\n         수정 명령: %s\n' "$1" "$2"; }
 note() { WARN=$((WARN + 1)); printf '  [WARN] %s\n' "$1"; }
 
 echo "성능 측정 전제 검사"
@@ -55,7 +56,7 @@ fi
 
 # 4. 실행 중 컨테이너 0 (데몬이 죽어 있으면 개수가 0으로 위장하므로 접근부터 확인한다)
 if ! docker ps -q >/dev/null 2>&1; then
-    bad "docker 데몬에 접근할 수 없다" "sudo systemctl start docker"
+    bad "docker 데몬 접근 불가" "sudo systemctl start docker"
     running=0
 else
     running=$(docker ps -q | wc -l)
@@ -82,9 +83,9 @@ swap_used_kb=$(awk '/SwapTotal/{t=$2} /SwapFree/{f=$2} END{print t-f}' /proc/mem
 if [ "$swap_used_kb" -lt 131072 ]; then
     ok "스왑 사용 $((swap_used_kb / 1024))MB"
 elif [ "$swap_used_kb" -lt 1048576 ]; then
-    note "스왑 사용 $((swap_used_kb / 1024))MB (과거 압박의 잔류. 원하면 sudo swapoff -a && sudo swapon -a)"
+    note "스왑 사용 $((swap_used_kb / 1024))MB (이전 메모리 압박의 흔적. 원하면 sudo swapoff -a && sudo swapon -a)"
 else
-    bad "스왑 사용 $((swap_used_kb / 1024))MB (직전 압박 흔적이 큼)" \
+    bad "스왑 사용 $((swap_used_kb / 1024))MB (이전 메모리 압박의 흔적이 큼)" \
         "원인 프로세스 정리 후: sudo swapoff -a && sudo swapon -a"
 fi
 
@@ -116,16 +117,16 @@ else
 fi
 
 echo
-echo "환경 요약 (측정 기록에 함께 남길 것):"
-printf '  kernel   : %s\n' "$(uname -r)"
-printf '  cpu      : %s\n' "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //')"
-printf '  clock    : governor=%s no_turbo=%s cur_avg=%sMHz\n' \
+echo "환경 요약:"
+printf '  kernel : %s\n' "$(uname -r)"
+printf '  cpu    : %s\n' "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //')"
+printf '  clock  : governor=%s no_turbo=%s cur_avg=%sMHz\n' \
     "$(echo "$governors" | head -1)" \
     "$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || echo '-')" \
     "$(grep MHz /proc/cpuinfo | awk '{s+=$4; n++} END{printf "%.0f", s/n}')"
-printf '  memory   : available %sGB, swap used %sMB\n' "$((avail_kb / 1048576))" "$((swap_used_kb / 1024))"
-printf '  docker   : %s\n' "$(docker --version 2>/dev/null || echo unknown)"
-printf '  arp      : gc_thresh3=%s\n' "$th3"
+printf '  memory : available %sGB, swap used %sMB\n' "$((avail_kb / 1048576))" "$((swap_used_kb / 1024))"
+printf '  docker : %s\n' "$(docker --version 2>/dev/null || echo unknown)"
+printf '  arp    : gc_thresh3=%s\n' "$th3"
 
 printf '\n결과: %d pass, %d warn, %d fail\n' "$PASS" "$WARN" "$FAIL"
 [ "$FAIL" -eq 0 ]

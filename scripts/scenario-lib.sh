@@ -5,6 +5,7 @@
 # - 각 시나리오는 COMPOSE와 (선택) SERVICES를 정하고 stack_up/stack_down으로 스택을 관리한다.
 # - 단언은 assert_*가 누적하고 summary가 종료코드를 정한다. 실패가 하나라도 있으면 비정상 종료한다.
 # - 메트릭은 controller의 raw 노출(:9000)을 직접 읽어 Grafana 없이도 CI에서 돌아간다.
+
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,9 +33,9 @@ metric() { curl -s --max-time 5 "$METRICS_URL" | awk -v m="$1" '$1 == m {print $
 # 정수 메트릭(없으면 0)
 metric_int() { local v; v="$(metric "$1")"; printf '%s' "${v%%.*}"; [ -n "${v%%.*}" ] || printf '0'; }
 
-# controller 로그에서 substring 발생 횟수
+# Controller 로그에서 substring 발생 횟수
 logcount() { docker logs "$CTRL" 2>&1 | grep -c "$1"; }
-# 과열 latch에 들어간 적 있는 distinct device 수
+# 한 번이라도 hot으로 전환된 distinct Device 수
 hot_distinct() { docker logs "$CTRL" 2>&1 | grep '"event":"policy.thermal.update"' | grep '"thermal":"hot"' | grep -oiE '"device":"[0-9a-f-]+"' | sort -u | wc -l; }
 # 특정 device로 나간 command.dispatch 횟수
 dispatch_count() { docker logs "$CTRL" 2>&1 | grep '"event":"command.dispatch"' | grep -c "$1"; }
@@ -62,7 +63,7 @@ dispatched_at_least() { [ "$(dispatch_count "$1")" -ge "$2" ]; }
 registered_at_least() { [ "$(register_count "$1")" -ge "$2" ]; }
 
 soak() { # seconds, reason
-    info "안정화 대기 ${1}s ($2)"
+    info "대기 ${1}s ($2)"
     sleep "$1"
 }
 
@@ -78,7 +79,7 @@ assert_eq() { # desc actual expected
 
 # 항상 빌드한다. 소스가 그대로면 레이어 캐시로 수 초에 끝나고, stale 이미지 탓에 시나리오가 옛 바이너리로 도는 일도 없다.
 ensure_images() {
-    narrate "이미지 빌드 (미변경이면 캐시로 수 초에 끝난다)"
+    narrate "이미지 빌드"
     compose build
 }
 
@@ -107,13 +108,13 @@ stack_up() { # 추가 인자(예: --scale 등)와 띄울 서비스 목록
     ensure_images || return 1
     info "스택 기동: $COMPOSE ($*)"
     if ! compose up -d "$@" >/dev/null; then
-        echo "스택 기동 실패: docker compose up 에러(포트 충돌?). 위 stderr 확인." >&2
+        echo "오류: docker compose up이 실패했습니다(대개 호스트 포트 8080/9000 충돌). 위 출력에서 원인을 확인하십시오." >&2
         return 1
     fi
 }
 
 stack_down() {
-    info "스택 정리"
+    narrate "스택 정리"
     compose down --remove-orphans >/dev/null 2>&1 || true
 }
 
