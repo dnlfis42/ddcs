@@ -15,6 +15,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 
 namespace ddcs::agent::infra::transport {
@@ -152,6 +153,12 @@ void Connector::connect() {
     }
     io::Fd sock{raw};
 
+    // ack와 outcome처럼 짧은 write가 중간 read 없이 연달아 나가는 구간에서 Nagle이
+    // 두 번째 write를 상대 ACK(delayed-ACK 최대 40ms)까지 붙잡는다.
+    // Controller(acceptor.cpp)와 대칭으로 양쪽 모두 Nagle을 끈다.
+    int const nodelay = 1;
+    (void)::setsockopt(sock.get(), IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = ::htons(port_);
@@ -256,7 +263,7 @@ void Connector::handle_connected(io::ChannelEvents events) {
 
             wire::frame::dispatch_frames(
                 message_pool_,
-                // get_rx: 연결이 살아있는 동안만 rx ring 제공(on_recv 중 close되면 nullptr -> 종료)
+                // get_rx: 연결이 살아있는 동안만 rx ring 제공(on_recv가 연결을 끊으면 nullptr -> 종료)
                 [this]() -> common::CircularBuffer* {
                     return connection_.state() == Connection::State::connected
                                ? &connection_.rx_buffer()
