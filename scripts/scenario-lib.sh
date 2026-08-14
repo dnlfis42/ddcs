@@ -1,7 +1,9 @@
 # shellcheck shell=bash
-# DDCS 데모 시나리오 공용 헬퍼. 실행하지 말고 source 한다.
+#
+# DDCS 시나리오 공용 헬퍼. 실행하지 말고 source 한다.
+#
 # - 각 시나리오는 COMPOSE와 (선택) SERVICES를 정하고 stack_up/stack_down으로 스택을 관리한다.
-# - 단언은 assert_*로 누적되고 summary가 종료코드를 정한다. 실패가 하나라도 있으면 비정상 종료한다.
+# - 단언은 assert_*가 누적하고 summary가 종료코드를 정한다. 실패가 하나라도 있으면 비정상 종료한다.
 # - 메트릭은 controller의 raw 노출(:9000)을 직접 읽어 Grafana 없이도 CI에서 돌아간다.
 set -u
 
@@ -11,9 +13,9 @@ CTRL="${DDCS_CONTROLLER_CONTAINER:-ddcs-controller}"
 COMPOSE="${COMPOSE:-docker-compose.yml}"
 
 if [ -t 1 ]; then
-    C_G=$'\033[32m'; C_R=$'\033[31m'; C_Y=$'\033[33m'; C_B=$'\033[1m'; C_D=$'\033[2m'; C_0=$'\033[0m'
+    C_G=$'\033[32m'; C_R=$'\033[31m'; C_B=$'\033[1m'; C_D=$'\033[2m'; C_0=$'\033[0m'
 else
-    C_G=; C_R=; C_Y=; C_B=; C_D=; C_0=
+    C_G=; C_R=; C_B=; C_D=; C_0=
 fi
 
 _PASS=0
@@ -24,9 +26,9 @@ info()    { printf '  %s%s%s\n' "$C_D" "$*" "$C_0"; }
 
 compose() { docker compose -f "$ROOT/docker/$COMPOSE" "$@"; }
 
-# 라벨 포함 메트릭 1개의 값. 없으면 빈 문자열. 예: metric 'ddcs_connections '
-# (# HELP / # TYPE 주석 줄은 제외해야 값 대신 "HELP"를 읽지 않는다.)
-metric() { curl -s --max-time 5 "$METRICS_URL" | grep -F "$1" | grep -v '^#' | awk '{print $2}' | head -1; }
+# 라벨 없는 메트릭 1개의 값. 없으면 빈 문자열. 이름 전체 일치라 접두어가 같은
+# 다른 메트릭이나 # HELP 줄과 섞이지 않는다.
+metric() { curl -s --max-time 5 "$METRICS_URL" | awk -v m="$1" '$1 == m {print $2; exit}'; }
 # 정수 메트릭(없으면 0)
 metric_int() { local v; v="$(metric "$1")"; printf '%s' "${v%%.*}"; [ -n "${v%%.*}" ] || printf '0'; }
 
@@ -39,16 +41,25 @@ dispatch_count() { docker logs "$CTRL" 2>&1 | grep '"event":"command.dispatch"' 
 # 특정 device의 등록 확정 횟수(재접속이면 2 이상)
 register_count() { docker logs "$CTRL" 2>&1 | grep '"event":"session.connection.register.accept"' | grep -c "$1"; }
 
-# 조건이 참이 될 때까지 1초 간격으로 폴링한다(최대 timeout 초). predicate는 eval 되는 문자열이다.
-wait_for() { # desc timeout predicate
-    local desc="$1" timeout="$2" pred="$3" i=0
+# 조건이 참이 될 때까지 1초 간격으로 확인한다(최대 timeout 초).
+# 셋째 인자부터가 조건 명령이고, 확인할 때마다 그대로 실행한다.
+wait_for() { # desc timeout command [arg...]
+    local desc="$1" timeout="$2" i=0
+    shift 2
     printf '  %s대기: %s%s ' "$C_D" "$desc" "$C_0"
     while [ "$i" -lt "$timeout" ]; do
-        if eval "$pred" >/dev/null 2>&1; then printf '%sok%s\n' "$C_G" "$C_0"; return 0; fi
+        if "$@" >/dev/null 2>&1; then printf '%sok%s\n' "$C_G" "$C_0"; return 0; fi
         sleep 1; i=$((i + 1)); printf '.'
     done
     printf '%stimeout%s\n' "$C_R" "$C_0"; return 1
 }
+
+# wait_for에 넘길 조건. 라벨 없는 메트릭 값을 기준과 비교한다.
+metric_at_least() { [ "$(metric_int "$1")" -ge "$2" ]; }
+metric_at_most() { [ "$(metric_int "$1")" -le "$2" ]; }
+# 특정 device의 dispatch/등록 횟수가 기준 이상인지 확인한다.
+dispatched_at_least() { [ "$(dispatch_count "$1")" -ge "$2" ]; }
+registered_at_least() { [ "$(register_count "$1")" -ge "$2" ]; }
 
 soak() { # seconds, reason
     info "안정화 대기 ${1}s ($2)"
@@ -65,22 +76,32 @@ assert_eq() { # desc actual expected
     if [ "${2:-x}" = "$3" ]; then _pass "$1 (=$2)"; else _fail "$1 (got '${2:-}', want '$3')"; fi
 }
 
-# 항상 빌드한다. 소스가 그대로면 레이어 캐시로 수 초에 끝나고, stale 이미지 탓에 데모가 옛 바이너리로 도는 일도 없다.
+# 항상 빌드한다. 소스가 그대로면 레이어 캐시로 수 초에 끝나고, stale 이미지 탓에 시나리오가 옛 바이너리로 도는 일도 없다.
 ensure_images() {
-    narrate "이미지 빌드 (미변경이면 캐시로 수 초)..."
+    narrate "이미지 빌드 (미변경이면 캐시로 수 초에 끝난다)"
     compose build
 }
 
 # docker / compose v2 / curl 선행 확인. 없으면 명확히 실패한다.
 preflight() {
-    command -v docker >/dev/null 2>&1 || { echo "필요: docker" >&2; return 1; }
-    docker compose version >/dev/null 2>&1 ||
-        { echo "필요: docker compose v2 (구 docker-compose v1은 미지원)" >&2; return 1; }
-    command -v curl >/dev/null 2>&1 || { echo "필요: curl" >&2; return 1; }
+    command -v docker >/dev/null 2>&1 || {
+        echo "오류: 'docker' 명령을 찾을 수 없습니다." >&2
+        echo "설치: https://docs.docker.com/engine/install/ 안내를 따르십시오." >&2
+        return 1
+    }
+    docker compose version >/dev/null 2>&1 || {
+        echo "오류: docker compose v2가 필요합니다(구 docker-compose v1은 지원하지 않습니다)." >&2
+        return 1
+    }
+    command -v curl >/dev/null 2>&1 || {
+        echo "오류: 'curl' 명령을 찾을 수 없습니다." >&2
+        echo "설치: sudo apt install curl" >&2
+        return 1
+    }
 }
 
-# 관측 스택(prometheus/grafana)은 데모 단언에 필요 없어 controller+agent만 띄운다.
-# 실패(대개 호스트 포트 8080/9000 충돌)는 삼키지 않고 비정상 종료로 알린다.
+# 관측 스택(prometheus/grafana)은 시나리오 단언에 필요 없어 controller+agent만 띄운다.
+# 실패(대개 호스트 포트 8080/9000 충돌)는 감추지 않고 비정상 종료로 알린다.
 stack_up() { # 추가 인자(예: --scale 등)와 띄울 서비스 목록
     preflight || return 1
     ensure_images || return 1
@@ -105,6 +126,6 @@ arm_cleanup() {
 }
 
 summary() {
-    printf '\n%s===== 결과: %d passed, %d failed =====%s\n' "$C_B" "$_PASS" "$_FAIL" "$C_0"
+    printf '\n%s===== 결과: %d pass, %d fail =====%s\n' "$C_B" "$_PASS" "$_FAIL" "$C_0"
     [ "$_FAIL" -eq 0 ]
 }

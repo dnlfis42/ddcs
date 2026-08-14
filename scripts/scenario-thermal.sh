@@ -1,40 +1,50 @@
 #!/usr/bin/env bash
-# DDCS 데모: per-device thermal. 같은 Group 안에서 과열된 device만 safe로 빠진다(걔만 safe).
-# zone당 다수 device를 띄우고, 한 스냅샷에 performance와 safe가 동시에 존재함을 보인다
-# 그룹 단위 트립이면 한 zone은 전부 같은 모드여야 하므로, 동시 혼재가 곧 device 단위 트립의 증거다.
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/demo-lib.sh"
+#
+# 시나리오: thermal
+#
+# 같은 zone에서 과열된 device만 safe로 빠지는지(장치 단위 트립) 검증한다.
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scenario-lib.sh"
 
 COMPOSE=docker-compose.scale.yml
-PER_ZONE="${DDCS_DEMO_PER_ZONE:-5}"
+PER_ZONE="${DDCS_SCENARIO_PER_ZONE:-5}"
+case "$PER_ZONE" in
+'' | *[!0-9]*)
+    echo "오류: DDCS_SCENARIO_PER_ZONE는 양의 정수여야 합니다: $PER_ZONE" >&2
+    exit 2 ;;
+esac
 arm_cleanup
 
 narrate "시나리오: per-device thermal (걔만 safe)"
 info "zone당 ${PER_ZONE}대씩 띄워 개별 과열 트립을 관측한다"
-EXPECTED=$((PER_ZONE * 3))
+EXPECTED=$((PER_ZONE * 4))
 stack_up --scale "agent-zone-a=$PER_ZONE" --scale "agent-zone-b=$PER_ZONE" \
-    --scale "agent-zone-c=$PER_ZONE" controller agent-zone-a agent-zone-b agent-zone-c || exit 1
+    --scale "agent-zone-c=$PER_ZONE" --scale "agent-zone-d=$PER_ZONE" \
+    controller agent-zone-a agent-zone-b agent-zone-c agent-zone-d || exit 1
 
-wait_for "agent ${EXPECTED}대 연결" 60 \
-    "[ \"\$(metric_int \"ddcs_connections \")\" -ge $EXPECTED ]" || exit 1
+wait_for "agent ${EXPECTED}대 연결" 60 metric_at_least ddcs_connections "$EXPECTED" || exit 1
 soak 3 "연결 안정화"
-info "연결된 device 수: $(metric_int "ddcs_connections ")"
+info "연결된 device 수: $(metric_int ddcs_connections)"
 
-soak "${DDCS_DEMO_SOAK:-70}" "mode-구동 load/temp가 high_temp(65)에 도달하며 트립 누적"
+soak "${DDCS_SCENARIO_SOAK:-70}" "mode가 구동하는 load/temp가 high_temp(65)에 도달하며 트립 누적"
 
 narrate "현재 모드 분포 (ddcs_group_devices):"
 curl -s --max-time 5 "$METRICS_URL" | grep '^ddcs_group_devices' | sort | sed "s/^/  ${C_D}/;s/$/${C_0}/"
 
-# 분포 샘플링: (1) 한 zone에 performance와 safe가 동시 존재(=per-device 분기), 그리고 (2) zone의
-# safe 수가 직전 스냅샷보다 줄어드는 순간(=과열 device가 resume_temp 아래로 식어 base mode로 회복).
-# 회복은 policy.thermal.update의 thermal=cool로도 남지만, 메트릭만 보는 이 데모에서는
-# safe 수 감소가 회복을 확인할 유일한 런타임 근거다.
+# 한 스냅샷 안의 혼재(장치 단위 분기)와 safe 수 감소(회복)를 찾는다.
 info "약 28초간 분포 샘플링 (per-device 분기 + 과열 회복 관측)"
 mix_seen=0
 recover_seen=0
 declare -A prev_safe
 for i in $(seq 1 14); do
     snap=$(curl -s --max-time 5 "$METRICS_URL") # 동시성 주장이라 한 스냅샷에서 같이 읽는다
-    for z in zone_a zone_b zone_c; do
+    # 빈 스냅샷을 0으로 읽으면 safe 수 감소로 오판해 회복 단언이 거짓 통과한다. 샘플을 버린다.
+    if [ -z "$snap" ]; then
+        info "샘플 $i: 스냅샷 수집 실패라 건너뛴다"
+        sleep 2
+        continue
+    fi
+    for z in zone_a zone_b zone_c zone_d; do
         s=$(printf '%s\n' "$snap" | grep -F "ddcs_group_devices{group=\"$z\",mode=\"safe\"}" | awk '{print $2}')
         p=$(printf '%s\n' "$snap" | grep -F "ddcs_group_devices{group=\"$z\",mode=\"performance\"}" | awk '{print $2}')
         s=${s:-0}
@@ -46,7 +56,7 @@ for i in $(seq 1 14); do
         # safe 수가 직전보다 줄면 그 device가 resume_temp 아래로 식어 base mode로 돌아온 것이다
         if [ -n "${prev_safe[$z]:-}" ] && [ "$s" -lt "${prev_safe[$z]}" ]; then
             recover_seen=1
-            info "샘플 $i: $z safe ${prev_safe[$z]} -> $s (과열 회복)"
+            info "샘플 $i: $z safe ${prev_safe[$z]}에서 $s로 감소 (과열 회복)"
         fi
         prev_safe[$z]=$s
     done
