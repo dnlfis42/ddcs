@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+#
+# DDCS 성능 측정 전제 검사. 검사만 하고 아무것도 바꾸지 않으며, FAIL이 있으면 고치는 명령을
+# 출력하고 비정상 종료한다. perf-ramp.sh가 시작 시 이 스크립트를 게이트로 실행한다
+# (DDCS_PERF_SKIP_PREFLIGHT=1 로 우회 가능하지만, 그렇게 잰 수치는 표에 싣지 않는 게 맞다).
+#
+# 종료 상태
+#   0  모든 검사 통과 (WARN은 통과로 본다)
+#   1  FAIL 있음
+#
+# 고정하는 환경:
+# - CPU governor = performance, turbo 비활성. 이 둘로 전 코어를 기저 주파수에 고정한다.
+#   turbo를 켠 채 재면 노트북 열 상태에 따라 클럭이 오르내려 레벨 간 비교가 흔들린다.
+# - 실행 중 컨테이너 0, 고아 containerd-shim 0, 스왑 사용 최소, 가용 메모리 확보, 유휴 load.
+# - ARP 이웃 테이블 상한(500대 이상 컨테이너 전제).
+# 끝에 측정 기록에 함께 남길 환경 요약을 출력한다.
+set -u
+
+PASS=0; FAIL=0; WARN=0
+ok()   { PASS=$((PASS + 1)); printf '  [PASS] %s\n' "$1"; }
+bad()  { FAIL=$((FAIL + 1)); printf '  [FAIL] %s\n         고치는 명령: %s\n' "$1" "$2"; }
+note() { WARN=$((WARN + 1)); printf '  [WARN] %s\n' "$1"; }
+
+echo "성능 측정 전제 검사"
+
+# 1. CPU governor
+governors=$(cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor 2>/dev/null | sort -u)
+if [ "$governors" = "performance" ]; then
+    ok "CPU governor = performance (전 코어)"
+else
+    bad "CPU governor = [$(echo "$governors" | tr '\n' ' ')] (performance 아님)" \
+        "echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
+fi
+
+# 2. turbo 비활성 (intel_pstate 기준. 없는 플랫폼이면 건너뛴다)
+if [ -r /sys/devices/system/cpu/intel_pstate/no_turbo ]; then
+    if [ "$(cat /sys/devices/system/cpu/intel_pstate/no_turbo)" = "1" ]; then
+        ok "turbo 비활성 (기저 주파수 고정)"
+    else
+        bad "turbo 활성 상태 (열 상태 따라 클럭 변동)" \
+            "echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo"
+    fi
+else
+    note "intel_pstate 없음: turbo 고정 검사 생략 (플랫폼에 맞게 별도 고정 권장)"
+fi
+
+# 3. ARP 이웃 테이블 상한 (500+ 컨테이너 전제)
+th3=$(cat /proc/sys/net/ipv4/neigh/default/gc_thresh3 2>/dev/null || echo 0)
+if [ "$th3" -ge 4096 ]; then
+    ok "ARP gc_thresh3 = $th3"
+else
+    bad "ARP gc_thresh3 = $th3 (기본 1024는 컨테이너 600대쯤부터 신규 SYN을 응답 없이 버린다)" \
+        "sudo sysctl -w net.ipv4.neigh.default.gc_thresh1=2048 net.ipv4.neigh.default.gc_thresh2=4096 net.ipv4.neigh.default.gc_thresh3=8192"
+fi
+
+# 4. 실행 중 컨테이너 0 (데몬이 죽어 있으면 개수가 0으로 위장하므로 접근부터 확인한다)
+if ! docker ps -q >/dev/null 2>&1; then
+    bad "docker 데몬에 접근할 수 없다" "sudo systemctl start docker"
+    running=0
+else
+    running=$(docker ps -q | wc -l)
+    if [ "$running" -eq 0 ]; then
+        ok "실행 중 컨테이너 0"
+    else
+        bad "실행 중 컨테이너 $running개" "docker compose -f docker/docker-compose.yml down; docker compose -f docker/docker-compose.scale.yml down"
+    fi
+fi
+
+# 5. 고아 containerd-shim 0 (컨테이너를 대량으로 만들었다 부순 뒤 수천 개가 남는 사례 있음)
+# pgrep -c는 매치 0이어도 "0"을 출력하며 실패 코드를 주므로 || 폴백을 붙이면 안 된다.
+shims=$(pgrep -fc 'containerd-shim-runc-v2 -namespace' 2>/dev/null)
+shims=${shims:-0}
+if [ "$shims" -le "$running" ]; then
+    ok "고아 containerd-shim 없음 (shim $shims)"
+else
+    bad "containerd-shim $shims개 vs 실행 컨테이너 $running개 (고아 잔존)" \
+        "sudo pkill -f containerd-shim-runc-v2 && sudo systemctl restart docker"
+fi
+
+# 6. 스왑 사용
+swap_used_kb=$(awk '/SwapTotal/{t=$2} /SwapFree/{f=$2} END{print t-f}' /proc/meminfo)
+if [ "$swap_used_kb" -lt 131072 ]; then
+    ok "스왑 사용 $((swap_used_kb / 1024))MB"
+elif [ "$swap_used_kb" -lt 1048576 ]; then
+    note "스왑 사용 $((swap_used_kb / 1024))MB (과거 압박의 잔류. 원하면 sudo swapoff -a && sudo swapon -a)"
+else
+    bad "스왑 사용 $((swap_used_kb / 1024))MB (직전 압박 흔적이 큼)" \
+        "원인 프로세스 정리 후: sudo swapoff -a && sudo swapon -a"
+fi
+
+# 7. 가용 메모리 (1000대 ~= 컨테이너 몫 수 GB + 여유)
+avail_kb=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
+if [ "$avail_kb" -ge 8388608 ]; then
+    ok "가용 메모리 $((avail_kb / 1048576))GB"
+elif [ "$avail_kb" -ge 6291456 ]; then
+    note "가용 메모리 $((avail_kb / 1048576))GB (1000대는 빠듯할 수 있음)"
+else
+    bad "가용 메모리 $((avail_kb / 1048576))GB (< 6GB)" "브라우저·IDE 등 대형 프로세스를 닫을 것"
+fi
+
+# 8. 유휴 load
+load1=$(awk '{print $1}' /proc/loadavg)
+if awk "BEGIN{exit !($load1 < 2.0)}"; then
+    ok "loadavg(1m) = $load1"
+else
+    note "loadavg(1m) = $load1 (유휴가 아님. 다른 작업이 돌고 있으면 수치가 오염된다)"
+fi
+
+# 9. CPU를 크게 먹는 다른 프로세스
+# ps의 %CPU는 생애 평균이라 방금 태어난 ps 자신이 ~100%로 찍힌다. 자기 자신은 제외.
+hogs=$(ps -eo pcpu,comm --sort=-pcpu | awk 'NR>1 && $1>10 && $2!="ps" {printf "%s(%.0f%%) ", $2, $1}')
+if [ -z "$hogs" ]; then
+    ok "CPU 10%+ 점유 프로세스 없음"
+else
+    note "CPU 점유 큰 프로세스: $hogs(측정 전 종료 권장)"
+fi
+
+echo
+echo "환경 요약 (측정 기록에 함께 남길 것):"
+printf '  kernel   : %s\n' "$(uname -r)"
+printf '  cpu      : %s\n' "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //')"
+printf '  clock    : governor=%s no_turbo=%s cur_avg=%sMHz\n' \
+    "$(echo "$governors" | head -1)" \
+    "$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || echo '-')" \
+    "$(grep MHz /proc/cpuinfo | awk '{s+=$4; n++} END{printf "%.0f", s/n}')"
+printf '  memory   : available %sGB, swap used %sMB\n' "$((avail_kb / 1048576))" "$((swap_used_kb / 1024))"
+printf '  docker   : %s\n' "$(docker --version 2>/dev/null || echo unknown)"
+printf '  arp      : gc_thresh3=%s\n' "$th3"
+
+printf '\n결과: %d pass, %d warn, %d fail\n' "$PASS" "$WARN" "$FAIL"
+[ "$FAIL" -eq 0 ]
