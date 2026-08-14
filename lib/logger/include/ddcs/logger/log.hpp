@@ -32,7 +32,7 @@ constexpr std::string_view to_string(Level level) noexcept {
     return "UNKNOWN";
 }
 
-// 대소문자를 무시하고 매칭한다.
+// 대소문자를 가리지 않는다.
 // "warning"은 Warn의 alias
 // 알 수 없는 이름이면 nullopt
 std::optional<Level> parse_level(std::string_view text) noexcept;

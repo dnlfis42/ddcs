@@ -32,7 +32,7 @@ public:
           devices_{devices},
           commands_{commands} {}
 
-    // load/핫리로드 apply: commanded만 비움, latch 보존
+    // load/핫리로드 적용: commanded만 비움, latch 보존
     void set_policy(domain::GroupPolicy policy);
 
     // 주기 호출(조립 루트 tick)

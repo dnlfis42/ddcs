@@ -103,7 +103,7 @@ void write_frame(int fd, std::uint8_t type, std::string_view body) {
 }
 
 // reactor + server + mock observer 조립. accept는 on_accepted로 직접 주입
-// observer는 server보다 먼저 선언: server dtor가 notify하므로 server가 먼저 파괴돼야 한다.
+// observer는 server보다 먼저 선언: server dtor가 통지하므로 server가 먼저 파괴돼야 한다.
 struct ServerFixture {
     Reactor reactor;
     MockObserver observer;
@@ -123,7 +123,7 @@ struct ServerFixture {
 };
 
 // connection pool은 첫 chunk를 지연 생성하므로 rx 링 용량 위반은 생성자가 아니라 첫 accept에서
-// 드러난다. 설정이 2의 거듭제곱도 하한도 아닌 값이어도 accept가 살아남아야 한다.
+// 드러난다. 설정이 2의 거듭제곱도 하한도 아닌 값이어도 accept가 그대로 동작해야 한다.
 TEST(FrameServerTest, UnfitRxBufferSizeStillAcceptsAndDelivers) {
     for (std::size_t const requested : {std::size_t{512}, std::size_t{1028}, std::size_t{5000}}) {
         ServerFixture f{requested};
@@ -334,7 +334,7 @@ TEST(FrameServerTest, DisconnectInsideOnMessageIsSafe) {
 
     Reactor reactor;
     DisconnectingObserver observer;
-    Server server{reactor, 0, 8, 4096}; // observer보다 늦게 생성 (dtor에서 notify하므로 먼저 파괴)
+    Server server{reactor, 0, 8, 4096}; // observer보다 늦게 생성 (dtor에서 통지하므로 먼저 파괴)
     observer.server = &server;
     ASSERT_TRUE(server.init(observer, observer));
     ASSERT_TRUE(server.start());

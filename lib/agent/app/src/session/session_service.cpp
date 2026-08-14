@@ -92,7 +92,7 @@ void SessionService::on_recv(MessageBuffer payload) {
 void SessionService::on_disconnected() {
     // app 타이머 취소는 Outbound::disconnect() 계약대로 transport가 일괄 수행한다.
     state_ = State::idle;
-    // 재연결은 새 세션이다. controller 재시작으로 command_id가 1부터 재발급될 수 있으므로
+    // 재연결은 새 세션이다. controller가 재시작하면 command_id를 1부터 재발급할 수 있으므로
     // dedup 기억을 세션 경계에서 비운다.
     last_command_id_ = 0;
     last_command_code_ = msg::CommandOutcome::Code::success;
@@ -142,7 +142,7 @@ void SessionService::handle_command(msg::CommandRequest const& req) {
         return;
     }
 
-    send_command_ack(req.command_id); // decode 성공 후, apply 전 ACK
+    send_command_ack(req.command_id); // 디코딩 성공 후, apply 전 ACK
 
     // 실패 사유는 code로 wire에 실어 Controller도 같은 어휘를 쓴다.
     msg::CommandOutcome::Code code = msg::CommandOutcome::Code::success;

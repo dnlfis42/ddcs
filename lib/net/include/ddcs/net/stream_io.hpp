@@ -103,7 +103,7 @@ transmit_from(int fd, std::queue<common::PoolHandle<common::LinearBuffer>>& que)
             continue;
         }
         if (n == 0) {
-            // send()가 0을 반환하는 경우는 사실상 없지만 errno가 설정되지 않으므로
+            // send()가 0을 반환하는 경우는 사실상 없지만 errno도 설정하지 않으므로
             // 아래의 stale errno 판독을 막기 위해 명시적으로 처리한다.
             return {.code = TransmitResult::Code::error};
         }

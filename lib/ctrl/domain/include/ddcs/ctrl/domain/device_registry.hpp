@@ -10,7 +10,7 @@
 
 namespace ddcs::ctrl::domain {
 
-// DeviceShadow 저장소 (uuid = DeviceId 키). Shadow는 재접속을 가로질러 유지된다.
+// DeviceShadow 저장소 (uuid = DeviceId 키). Shadow는 재접속을 넘어 유지된다.
 // connection과의 binding은 app::session::SessionRegistry가 별도로 관리한다.
 class DeviceRegistry {
 public:

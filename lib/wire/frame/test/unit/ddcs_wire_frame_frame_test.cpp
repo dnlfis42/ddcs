@@ -187,7 +187,7 @@ TEST(WireFrameTest, GoodFrameDecodedWholePayload) {
     ASSERT_EQ(d.size(), 4u); // `[type][body]`
     EXPECT_EQ(static_cast<std::uint8_t>(d[0]), 0x42u);
     EXPECT_EQ(std::memcmp(d.data() + 1, "abc", 3), 0);
-    EXPECT_EQ(rx.size(), 0u); // 완전히 소비됨
+    EXPECT_EQ(rx.size(), 0u); // 완전히 소비함
 }
 
 TEST(WireFrameTest, ZeroLengthFrameDecoded) {
@@ -299,7 +299,7 @@ TEST(WireFrameTest, DispatchStopsWhenGetRxTurnsNull) {
         [](DecodeResult) { FAIL() << "unexpected on_error"; }
     );
 
-    EXPECT_EQ(frames, 1); // 두 번째 frame은 배달되지 않는다
+    EXPECT_EQ(frames, 1); // 두 번째 frame은 배달하지 않는다
 }
 
 } // namespace

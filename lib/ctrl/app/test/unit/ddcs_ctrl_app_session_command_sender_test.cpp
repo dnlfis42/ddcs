@@ -47,7 +47,7 @@ DeviceId make_device_id(std::uint8_t seed) {
     return DeviceId{bytes};
 }
 
-// 송신된 command_request를 decode해 기록하는 대역. frame 헤더 자리가 보존됐는지도 검사한다.
+// 송신된 command_request를 디코딩해 기록하는 대역. frame 헤더 자리가 보존됐는지도 검사한다.
 class FakeMessageSender final : public MessageSender {
 public:
     struct Sent {

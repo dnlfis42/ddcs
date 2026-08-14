@@ -315,7 +315,7 @@ TEST(PolicyServiceTest, DeviceLeftClearsBeliefSoReconnectRecommands) {
     EXPECT_EQ(f.sender.sent[1].mode, Mode::safe);
 }
 
-// 핫리로드(set_policy 재적용)가 과열 latch를 보존: 데드밴드에서 식는 중 reload해도 조기 해제 X.
+// 핫리로드(set_policy 재적용)가 과열 latch를 보존: 데드밴드에서 식는 중 리로드해도 조기 해제 X.
 TEST(PolicyServiceTest, ReloadPreservesThermalLatchInDeadband) {
     PolicyFixture f;
     DeviceId const id = f.enroll(0x01, "sensors", 90.0); // load busy(>80)

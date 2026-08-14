@@ -78,7 +78,7 @@ DecodeResult decode_frame(
 
     // ring을 변형하기 전에 pool 버퍼를 먼저 확보한다.
     // acquire는 풀 증설 시 bad_alloc을 던질 수 있는 유일한 연산이라
-    // consume 앞에 두면 throw해도 ring이 desync되지 않는다.
+    // consume 앞에 두면 던져도 ring이 어긋나지 않는다.
     auto payload = pool.acquire();
     if (!rx.consume(header_size)) {
         return DecodeResult::read_error;

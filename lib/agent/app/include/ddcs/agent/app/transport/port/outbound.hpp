@@ -8,8 +8,6 @@
 
 namespace ddcs::agent::app::transport::port {
 
-// outbound (driven) port
-// - app에서 transport 방향. transport가 구현, app이 호출
 class Outbound {
 public:
     virtual ~Outbound() = default;
@@ -21,7 +19,7 @@ public:
     // 동기 완결: 반환 전에 app 타이머 취소와 Inbound::on_disconnected 호출까지 끝난다.
     virtual void disconnect(DisconnectReason reason) = 0;
 
-    // frame header headroom이 예약된 송신 버퍼 획득. encode 후 send()로 넘긴다.
+    // frame header headroom이 예약된 송신 버퍼 획득. 인코딩 후 send()로 넘긴다.
     virtual MessageBuffer make_message_buffer() = 0;
     // message를 프레이밍해 송신한다.
     // - connected 아니면 드롭

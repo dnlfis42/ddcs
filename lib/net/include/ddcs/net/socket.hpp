@@ -9,7 +9,7 @@
 
 namespace ddcs::net {
 
-// 바인드된 소켓의 로컬 포트(호스트 바이트 순서). getsockname 실패면 nullopt(errno 유지)
+// `bind()`를 마친 소켓의 로컬 포트(호스트 바이트 순서). getsockname 실패면 nullopt(errno 유지)
 [[nodiscard]] inline std::optional<std::uint16_t> bound_port(int fd) noexcept {
     sockaddr_in addr{};
     socklen_t len{sizeof(addr)};

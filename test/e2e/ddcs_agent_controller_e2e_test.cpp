@@ -222,9 +222,11 @@ TEST(AgentControllerE2eTest, AgentRegistersAndReachesActive) {
         pump_until(*controller, *agent, [&] { return agent->session().state() == State::active; });
 
     ASSERT_TRUE(active);
-    EXPECT_TRUE(sink.contains(R"("event":"session.connection.register.accept")")
+    EXPECT_TRUE(
+        sink.contains(R"("event":"session.connection.register.accept")")
     ); // controller가 등록 확정
-    EXPECT_TRUE(sink.contains(R"("event":"session.connection.register.success")")
+    EXPECT_TRUE(
+        sink.contains(R"("event":"session.connection.register.success")")
     ); // agent가 응답 수신
 }
 
@@ -322,7 +324,7 @@ TEST(AgentControllerE2eTest, BackoffGrowsWhenPeerAcceptsButNeverRegisters) {
     cfg.controller_host = "127.0.0.1";
     cfg.controller_port = deaf.port(); // 진짜 컨트롤러 대신 귀먹은 리스너로
     cfg.reconnect_base_delay = std::chrono::milliseconds{base_ms};
-    cfg.reconnect_max_delay = std::chrono::milliseconds{640}; // 여러 단계 자랄 여유(cap)
+    cfg.reconnect_max_delay = std::chrono::milliseconds{640};     // 여러 단계 자랄 여유(cap)
     cfg.session.register_timeout = std::chrono::milliseconds{60}; // 빨리 timeout -> 사이클 빠르게
     cfg.session.heartbeat = std::chrono::milliseconds{50};
     cfg.session.status_report = std::chrono::milliseconds{50};

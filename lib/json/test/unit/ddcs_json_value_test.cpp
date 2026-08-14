@@ -29,7 +29,7 @@ TEST(JsonValueTest, ScalarTypePredicatesAndAccessors) {
 
     EXPECT_TRUE(Value{3.5}.is_number());
     EXPECT_EQ(Value{3.5}.as_double(), std::optional<double>{3.5});
-    EXPECT_EQ(Value{3.5}.as_int64(), std::nullopt); // double이면 as_int64는 strict하게 거절
+    EXPECT_EQ(Value{3.5}.as_int64(), std::nullopt); // double이면 as_int64는 정수로 변환하지 않고 거절
 
     EXPECT_TRUE(Value{"hi"}.is_string());
     EXPECT_EQ(Value{"hi"}.as_string(), std::optional<std::string_view>{"hi"});

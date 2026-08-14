@@ -125,7 +125,7 @@ void PolicyService::evaluate(common::Clock::time_point now) {
     policy_.for_each([&](std::string const& group, domain::GroupRule const& rule) {
         auto const it = agg.find(group);
         if (it == agg.end() || it->second.device_count == 0) {
-            return; // active device 없는 group은 skip
+            return; // active device 없는 group은 건너뛴다
         }
         double const avg = it->second.load_sum / static_cast<double>(it->second.device_count);
         domain::Regime& regime = regime_[group];

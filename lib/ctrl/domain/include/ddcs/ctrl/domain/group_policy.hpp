@@ -167,7 +167,7 @@ private:
 // 그룹에서 룰로 가는 정책. 순수 값객체(json 무지)이며 set_policy로 통째 교체되는 핫스왑 단위다.
 class GroupPolicy {
 public:
-    // 빌드 (있으면 갱신, 없으면 append, 삽입순 유지)
+    // 빌드 (있으면 갱신, 없으면 뒤에 추가, 삽입순 유지)
     void set(std::string group, GroupRule rule) {
         for (auto& [g, r] : rules_) {
             if (g == group) {

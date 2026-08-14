@@ -21,7 +21,7 @@ TEST(AgentTest, AssemblesStartsAndDispatchesWithoutController) {
 
     ddcs::agent::Agent::Config cfg{};
     cfg.controller_host = "127.0.0.1";
-    cfg.controller_port = 65000; // 리스너 없으면 connect refused되어 backoff
+    cfg.controller_port = 65000; // 리스너 없으면 connect refused로 backoff
 
     ddcs::agent::Agent agent{std::move(cfg), std::make_unique<ddcs::agent::domain::DummyDevice>()};
     agent.start();

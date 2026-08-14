@@ -7,7 +7,7 @@
 namespace ddcs::ctrl::app::device::port {
 
 // 명령 가능한(등록 확인된 active) device 열거 포트.
-// 연결 상태의 단일 진실은 구현이 가진다.
+// 연결 상태의 단일 진실은 구현이 소유한다.
 class ActiveDevices {
 public:
     virtual ~ActiveDevices() = default;

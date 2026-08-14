@@ -5,8 +5,6 @@
 
 namespace ddcs::agent::app::transport::port {
 
-// inbound (driving) port
-// - transport에서 app 방향. app이 구현, transport가 호출
 class Inbound {
 public:
     virtual ~Inbound() = default;

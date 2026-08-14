@@ -386,7 +386,7 @@ TEST(AgentConnectorTest, PeerCloseDisconnectsThenReconnectTimerReconnects) {
 // - 등록이 끝나지 않으면(매 연결 직후 disconnect) backoff가 지수적으로 자라야 한다.
 //   (jitter +/-25% 경계는 겹치지 않는다: attempt0 delay in [0.75,1.25]s, attempt1 in [1.5,2.5]s)
 //   따라서 두 번째 reconnect 타이머가 1.3s 창에서 만료되지 않으면 backoff가 자란 것이다.
-//   버그가 살아있으면  (reset이 TCP connect에서 일어나면) attempt가 0으로 묶여 1.3s 안에 만료된다.
+//   버그가 남아 있으면  (reset이 TCP connect에서 일어나면) attempt가 0으로 묶여 1.3s 안에 만료된다.
 TEST(AgentConnectorTest, BackoffGrowsWhileRegistrationNeverSucceeds) {
     ConnectorFixture f;
     f.handler.disconnect_on_connected =
@@ -415,13 +415,13 @@ TEST(AgentConnectorTest, BackoffGrowsWhileRegistrationNeverSucceeds) {
         << "reconnect fired within the base window; exponential backoff did not grow "
            "(backoff reset is happening on TCP connect instead of on registration success)";
 
-    // 충분히 advance하면 결국 만료(자란 backoff도 cap 30s 이내)되어 재연결한다.
+    // 시간을 충분히 흘리면 결국 만료(자란 backoff도 cap 30s 이내)되어 재연결한다.
     f.clock.advance(60s);
     f.timers.dispatch_expired();
     EXPECT_EQ(f.connector.state(), Connection::State::connecting);
 }
 
-// 등록 성공(notify_registered)이 매 연결마다 통지되면
+// 등록 성공(notify_registered)을 매 연결마다 통지하면
 // backoff는 base로 리셋되어 두 번째 reconnect 타이머도 base 창(1.3s)에서 만료된다.
 TEST(AgentConnectorTest, NotifyRegisteredKeepsBackoffAtBase) {
     ConnectorFixture f;
