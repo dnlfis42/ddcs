@@ -1,8 +1,10 @@
-# 스케일 테스트: zone_a/b/c 각 10대(총 30) 로 멀티그룹 정책 검증.
+# 스케일 테스트: zone_a/b/c/d 각 25대(총 100) 로 멀티그룹 정책 검증.
 #   docker compose -f docker/docker-compose.scale.yml up -d
 # 메인 compose 와 호스트 포트가 겹치므로 먼저:  docker compose -f docker/docker-compose.yml down
 # kick-old 가 아니라 그룹 집계가 목적이라 UUID 는 고정하지 않고 자가발급(ephemeral)한다.
-# 세 zone 은 의도적으로 부하 임계가 달라 서로 다르게 동작한다(controller.json 의 policy 참고).
+# 네 zone 은 의도적으로 부하 임계가 달라 서로 다르게 동작한다(controller.json 의 policy 참고).
+# 성능 램프(scripts/perf-ramp.sh)는 이 파일을 --scale 로 덮어써 총 1000대(zone당 250)까지 올린다.
+# controller 의 nofile ulimit 은 그 목표(연결 1000+)에 맞춘 값이다.
 services:
   controller:
     build:
@@ -14,6 +16,12 @@ services:
     ports:
       - "8080:8080"
       - "9000:9000"
+    # 측정 대상 보호: 호스트 메모리 압박 시 OOM killer가 agent 쪽을 먼저 고르게 한다.
+    oom_score_adj: -800
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     volumes:
       - ../config:/config:ro
     networks:
@@ -34,7 +42,7 @@ services:
     volumes:
       - ../config:/config:ro
     deploy:
-      replicas: 10
+      replicas: 25
     networks:
       - ddcs
 
@@ -49,7 +57,7 @@ services:
     volumes:
       - ../config:/config:ro
     deploy:
-      replicas: 10
+      replicas: 25
     networks:
       - ddcs
 
@@ -64,7 +72,22 @@ services:
     volumes:
       - ../config:/config:ro
     deploy:
-      replicas: 10
+      replicas: 25
+    networks:
+      - ddcs
+
+  agent-zone-d:
+    image: ddcs-agent:dev
+    depends_on:
+      - controller
+    environment:
+      DDCS_TRANSPORT_HOST: controller
+      DDCS_TRANSPORT_PORT: "8080"
+      DDCS_DEVICE_GROUP: zone_d
+    volumes:
+      - ../config:/config:ro
+    deploy:
+      replicas: 25
     networks:
       - ddcs
 

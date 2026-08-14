@@ -1,5 +1,5 @@
 # docker compose -f docker/docker-compose.yml up --build
-# controller 1 + agent 3 --- agent들은 DDCS_DEVICE_ID로 고정 식별 (kick-old 검증용)
+# controller 1 + agent 4 (zone당 1대) --- agent들은 DDCS_DEVICE_ID로 고정 식별 (kick-old 검증용)
 # 관측 스택: prometheus가 controller:9000(컨테이너 내부)을 scrape, grafana가 시각화
 # - 컨트롤 서버   : localhost:8080 (wire)
 # - 원시 메트릭   : http://localhost:9000/metrics
@@ -65,6 +65,21 @@ services:
       DDCS_TRANSPORT_PORT: "8080"
       DDCS_DEVICE_ID: "33333333-3333-3333-3333-333333333333"
       DDCS_DEVICE_GROUP: zone_c
+    volumes:
+      - ../config:/config:ro
+    networks:
+      - ddcs
+
+  agent-04:
+    image: ddcs-agent:dev
+    depends_on:
+      - controller
+      - agent-01
+    environment:
+      DDCS_TRANSPORT_HOST: controller
+      DDCS_TRANSPORT_PORT: "8080"
+      DDCS_DEVICE_ID: "44444444-4444-4444-4444-444444444444"
+      DDCS_DEVICE_GROUP: zone_d
     volumes:
       - ../config:/config:ro
     networks:

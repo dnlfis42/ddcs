@@ -6,11 +6,9 @@
     "sweep_interval_ms": 1000
   },
   "prometheus": {
-    "bind_address": "0.0.0.0",
     "port": 9000
   },
   "transport": {
-    "bind_address": "0.0.0.0",
     "port": 8080,
     "accept_backlog": 128,
     "rx_buffer_size": 4096
@@ -47,6 +45,15 @@
       "zone_c": {
         "high_load": 80,
         "low_load": 20,
+        "high_temp": 65,
+        "resume_temp": 50,
+        "high_load_mode": "performance",
+        "low_load_mode": "normal",
+        "high_temp_mode": "safe"
+      },
+      "zone_d": {
+        "high_load": 75,
+        "low_load": 40,
         "high_temp": 65,
         "resume_temp": 50,
         "high_load_mode": "performance",
