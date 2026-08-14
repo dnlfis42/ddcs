@@ -82,6 +82,7 @@ void SessionService::sweep(common::Clock::time_point now) {
 }
 
 void SessionService::on_message(port::ConnectionId conn, port::MessageBuffer payload) {
+    ++metrics_.messages_received_total;
     auto const now = clock_.now();
     Session* const session = sessions_.find(conn);
     if (session == nullptr) {

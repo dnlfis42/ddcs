@@ -94,6 +94,18 @@ public:
     void on_device_released(ddcs::ctrl::domain::DeviceId) override {}
 };
 
+// 전송 계기 대역. 테스트가 값을 심어 노출 라인을 검증한다.
+class FakeTransportStatsSource final
+    : public ddcs::ctrl::app::transport::port::TransportStatsSource {
+public:
+    ddcs::ctrl::app::transport::port::TransportStats stats{};
+
+    [[nodiscard]] ddcs::ctrl::app::transport::port::TransportStats
+    transport_stats() const override {
+        return stats;
+    }
+};
+
 struct Fixture {
     ManualClock clock;
     SessionRegistry sessions;
@@ -110,7 +122,9 @@ struct Fixture {
                                    registration, status,       commands, release_sink,
                                    policy,       3s,           3s};
     ddcs::ctrl::app::metrics::DurationStats sweep;
-    MetricsService metrics{sessions, devices, sessions, commands, session_service, policy, sweep};
+    FakeTransportStatsSource transport;
+    MetricsService metrics{sessions,        devices, sessions, commands,
+                           session_service, policy,  sweep,    transport};
 
     ddcs::ctrl::domain::DeviceId activate(std::uint64_t conn, std::uint8_t seed) {
         ConnectionId const id{conn};
@@ -141,6 +155,30 @@ TEST(MetricsServiceTest, ScrapeReportsGauges) {
     EXPECT_TRUE(contains(text, "ddcs_connections 2"));
     EXPECT_TRUE(contains(text, "ddcs_devices_known 1"));
     EXPECT_TRUE(contains(text, "ddcs_commands_pending 0"));
+}
+
+TEST(MetricsServiceTest, ScrapeReportsTransportStats) {
+    Fixture f;
+    f.transport.stats = {
+        .tx_queued_messages = 7,
+        .connection_pool_capacity = 64,
+        .connection_pool_acquired = 3,
+        .message_pool_capacity = 128,
+        .message_pool_acquired = 5,
+    };
+
+    auto const text = f.metrics.scrape();
+
+    EXPECT_TRUE(contains(text, "# TYPE ddcs_tx_queued_messages gauge"));
+    EXPECT_TRUE(contains(text, "ddcs_tx_queued_messages 7"));
+    EXPECT_TRUE(contains(text, "# TYPE ddcs_pool_capacity gauge"));
+    EXPECT_TRUE(contains(text, "ddcs_pool_capacity{pool=\"connection\"} 64"));
+    EXPECT_TRUE(contains(text, "ddcs_pool_capacity{pool=\"message\"} 128"));
+    EXPECT_TRUE(contains(text, "ddcs_pool_acquired{pool=\"connection\"} 3"));
+    EXPECT_TRUE(contains(text, "ddcs_pool_acquired{pool=\"message\"} 5"));
+    // 유입량 counter는 세션 계층 수신마다 오른다. 이 픽스처는 메시지를 넣지 않으므로 0.
+    EXPECT_TRUE(contains(text, "# TYPE ddcs_messages_received_total counter"));
+    EXPECT_TRUE(contains(text, "ddcs_messages_received_total 0"));
 }
 
 TEST(MetricsServiceTest, ScrapeReportsSweepDuration) {
@@ -207,7 +245,7 @@ TEST(MetricsServiceTest, ScrapeReportsSupersedeAndStale) {
     auto const device = f.activate(1, 0xAA);
 
     auto const first = f.send(device);
-    f.send(device);                                            // 같은 device+type이라 supersede
+    f.send(device);                                           // 같은 device+type이라 supersede
     f.commands.settle(device, first, true, 0, f.clock.now()); // 대체된 id라서 stale
 
     auto const text = f.metrics.scrape();

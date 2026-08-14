@@ -53,6 +53,16 @@ void append_label_value(std::string& out, std::string const& value) {
     }
 }
 
+// pool 라벨 게이지 한 줄. 라벨값은 코드 상수라 이스케이프 불필요.
+void append_pool_gauge(std::string& out, char const* name, char const* pool, std::uint64_t value) {
+    out += name;
+    out += "{pool=\"";
+    out += pool;
+    out += "\"} ";
+    out += std::to_string(value);
+    out += '\n';
+}
+
 // group 라벨 게이지 한 줄 (locale-독립 double 포맷, json writer와 동일 규약).
 void append_group_gauge(
     std::string& out, char const* name, std::string const& group, double value
@@ -153,6 +163,12 @@ std::string MetricsService::scrape() {
         "Connections dropped for not completing registration in time.", "counter",
         session_service_.metrics().handshake_expired_total
     );
+    // 유입량 counter. 포화 판정의 분자: rate(received)가 유입, sweep 여유가 처리 한계.
+    append_metric(
+        out, "ddcs_messages_received_total",
+        "Messages arriving at the session layer from agents (all types).", "counter",
+        session_service_.metrics().messages_received_total
+    );
 
     // command RTT 분포(histogram). 평균(sum/count)이 숨기는 꼬리(p99 등)를 백분위로 본다.
     append_rtt_histogram(
@@ -177,6 +193,23 @@ std::string MetricsService::scrape() {
     append_metric(
         out, "ddcs_sweep_ticks_total", "Number of sweep ticks executed.", "counter", sweep_.count
     );
+
+    // 전송 자원 게이지. 상한 없는 송신 큐(느린 소비자)와 풀 성장(누수/폭주)의 유일한 계기.
+    auto const transport = transport_stats_.transport_stats();
+    append_metric(
+        out, "ddcs_tx_queued_messages",
+        "Messages waiting in per-connection send queues (all connections).", "gauge",
+        transport.tx_queued_messages
+    );
+    out +=
+        "# HELP ddcs_pool_capacity Object pool slot capacity (grows in chunks, never shrinks).\n";
+    out += "# TYPE ddcs_pool_capacity gauge\n";
+    append_pool_gauge(out, "ddcs_pool_capacity", "connection", transport.connection_pool_capacity);
+    append_pool_gauge(out, "ddcs_pool_capacity", "message", transport.message_pool_capacity);
+    out += "# HELP ddcs_pool_acquired Object pool slots currently in use.\n";
+    out += "# TYPE ddcs_pool_acquired gauge\n";
+    append_pool_gauge(out, "ddcs_pool_acquired", "connection", transport.connection_pool_acquired);
+    append_pool_gauge(out, "ddcs_pool_acquired", "message", transport.message_pool_acquired);
 
     // per-group 게이지. 집계 규칙은 정책 평가와 같은 aggregate_groups를 공유한다.
     auto const groups = device::aggregate_groups(active_devices_, devices_, policy_);

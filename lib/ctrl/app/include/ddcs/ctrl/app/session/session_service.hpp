@@ -52,6 +52,9 @@ public:
     struct Metrics {
         std::uint64_t handshake_expired_total{}; // 등록 단계 시한 초과
         std::uint64_t evicted_total{};           // active 침묵 evict
+        // 세션 계층에 도착한 수신 메시지(모든 타입, decode 이전). 유입 rate의 분자로,
+        // sweep 여유와 함께 봐야 단일 스레드의 포화 여부를 판정할 수 있다.
+        std::uint64_t messages_received_total{};
     };
 
     [[nodiscard]] Metrics const& metrics() const noexcept {
@@ -82,7 +85,7 @@ private:
     device::StatusService& status_service_;
     device::CommandService& command_service_;
     device::port::DeviceReleaseSink& release_sink_; // 세션 종료 device의 제어 상태 폐기 통지
-    domain::GroupPolicy const& group_policy_;       // 등록 시 미지 그룹 경고용 (읽기 전용)
+    domain::GroupPolicy const& group_policy_; // 등록 시 미지 그룹 경고용 (읽기 전용)
     std::chrono::nanoseconds handshake_timeout_;
     std::chrono::nanoseconds liveness_timeout_;
     std::vector<port::ConnectionId> stale_registering_; // sweep 재사용 버퍼

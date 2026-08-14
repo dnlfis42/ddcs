@@ -6,6 +6,7 @@
 #include "ddcs/ctrl/app/metrics/port/prometheus_source.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
 #include "ddcs/ctrl/app/session/session_service.hpp"
+#include "ddcs/ctrl/app/transport/port/transport_stats.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/domain/group_policy.hpp"
 
@@ -20,7 +21,7 @@ public:
         session::SessionRegistry const& sessions, domain::DeviceRegistry const& devices,
         device::port::ActiveDevices& active_devices, device::CommandService const& commands,
         session::SessionService const& session_service, domain::GroupPolicy const& policy,
-        DurationStats const& sweep
+        DurationStats const& sweep, transport::port::TransportStatsSource const& transport_stats
     ) noexcept
         : sessions_(sessions),
           devices_(devices),
@@ -28,7 +29,8 @@ public:
           commands_(commands),
           session_service_(session_service),
           policy_(policy),
-          sweep_(sweep) {}
+          sweep_(sweep),
+          transport_stats_(transport_stats) {}
 
     std::string scrape() override;
 
@@ -40,6 +42,7 @@ private:
     session::SessionService const& session_service_; // 시한 감시 카운터(evict/expired) 출처
     domain::GroupPolicy const& policy_; // per-group 메트릭을 정책 group으로 한정 (cardinality)
     DurationStats const& sweep_;        // sweep tick 작업 소요시간 통계
+    transport::port::TransportStatsSource const& transport_stats_; // 송신 큐 깊이·풀 사용률
 };
 
 } // namespace ddcs::ctrl::app::metrics

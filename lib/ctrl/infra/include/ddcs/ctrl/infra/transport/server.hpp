@@ -20,6 +20,7 @@ class ConnectionListener;
 class Disconnector;
 class MessageReceiver;
 class MessageSender;
+class TransportStatsSource;
 
 } // namespace ddcs::ctrl::app::transport::port
 
@@ -49,6 +50,7 @@ public:
 
     [[nodiscard]] port::Disconnector& disconnector() noexcept;
     [[nodiscard]] port::MessageSender& sender() noexcept;
+    [[nodiscard]] port::TransportStatsSource& stats_source() noexcept;
 
     [[nodiscard]] std::uint16_t port() const noexcept;
     [[nodiscard]] bool active() const noexcept;

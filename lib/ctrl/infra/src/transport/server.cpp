@@ -6,6 +6,7 @@
 #include "ddcs/ctrl/app/transport/port/disconnector.hpp"
 #include "ddcs/ctrl/app/transport/port/message_receiver.hpp"
 #include "ddcs/ctrl/app/transport/port/message_sender.hpp"
+#include "ddcs/ctrl/app/transport/port/transport_stats.hpp"
 #include "ddcs/ctrl/infra/transport/acceptor.hpp"
 #include "ddcs/ctrl/infra/transport/connection.hpp"
 #include "ddcs/io/reactor.hpp"
@@ -32,7 +33,9 @@ constexpr io::ChannelEvents base_connection_interests =
 
 } // namespace
 
-class Server::Impl final : public port::Disconnector, public port::MessageSender {
+class Server::Impl final : public port::Disconnector,
+                           public port::MessageSender,
+                           public port::TransportStatsSource {
 public:
     struct ReapEntry {
         port::ConnectionId id;
@@ -66,6 +69,19 @@ public:
 
         schedule_reap(*conn, reason);
         reap_scheduled();
+    }
+
+    // scrape 시점 스냅샷. 연결 수에 비례하는 순회지만 scrape 주기(수 초~수십 초)에만 돈다.
+    [[nodiscard]] port::TransportStats transport_stats() const override {
+        port::TransportStats stats{};
+        for (auto const& [id, conn] : connections_) {
+            stats.tx_queued_messages += conn->tx_queued();
+        }
+        stats.connection_pool_capacity = connection_pool_.capacity();
+        stats.connection_pool_acquired = connection_pool_.acquired_count();
+        stats.message_pool_capacity = message_pool_.capacity();
+        stats.message_pool_acquired = message_pool_.acquired_count();
+        return stats;
     }
 
     [[nodiscard]] port::MessageBuffer make_message_buffer() override {
@@ -456,6 +472,10 @@ port::Disconnector& Server::disconnector() noexcept {
 }
 
 port::MessageSender& Server::sender() noexcept {
+    return *impl_;
+}
+
+port::TransportStatsSource& Server::stats_source() noexcept {
     return *impl_;
 }
 

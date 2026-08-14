@@ -123,7 +123,7 @@ Controller::Impl::Impl(Config cfg)
       ),
       metrics_service_(
           session_registry_, device_registry_, session_registry_, command_service_,
-          session_service_, policy_service_.policy(), sweep_stats_
+          session_service_, policy_service_.policy(), sweep_stats_, transport_server_.stats_source()
       ) {}
 
 Controller::Impl::~Impl() {

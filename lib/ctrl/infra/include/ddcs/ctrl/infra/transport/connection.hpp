@@ -75,6 +75,11 @@ private:
         return tx_queue_.empty();
     }
 
+    // 송신 큐 깊이. 큐가 무상한이라 이 값이 유일한 감시 수단이다 (메트릭 노출용).
+    [[nodiscard]] std::size_t tx_queued() const noexcept {
+        return tx_queue_.size();
+    }
+
     void tx_enqueue(port::MessageBuffer&& buffer) {
         tx_queue_.push(std::move(buffer));
     }
