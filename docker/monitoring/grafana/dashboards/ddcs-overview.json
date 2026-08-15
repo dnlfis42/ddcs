@@ -1,7 +1,9 @@
 {
   "uid": "ddcs-overview",
   "title": "DDCS Controller Overview",
-  "tags": ["ddcs"],
+  "tags": [
+    "ddcs"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 2,
@@ -11,7 +13,31 @@
     "to": "now"
   },
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "group",
+        "label": "그룹별 정책",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "ddcs-prometheus"
+        },
+        "definition": "label_values(ddcs_group_devices, group)",
+        "query": "label_values(ddcs_group_devices, group)",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "sort": 1,
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [],
+        "hide": 0
+      }
+    ]
   },
   "annotations": {
     "list": []
@@ -40,7 +66,7 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 5,
+        "h": 6,
         "w": 6,
         "x": 0,
         "y": 1
@@ -76,7 +102,9 @@
         "justifyMode": "auto",
         "textMode": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         }
@@ -92,7 +120,7 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 5,
+        "h": 6,
         "w": 6,
         "x": 6,
         "y": 1
@@ -128,7 +156,9 @@
         "justifyMode": "auto",
         "textMode": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         }
@@ -144,7 +174,7 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 5,
+        "h": 6,
         "w": 6,
         "x": 12,
         "y": 1
@@ -188,7 +218,9 @@
         "justifyMode": "auto",
         "textMode": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         }
@@ -204,7 +236,7 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 5,
+        "h": 6,
         "w": 6,
         "x": 18,
         "y": 1
@@ -248,7 +280,9 @@
         "justifyMode": "auto",
         "textMode": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         }
@@ -263,7 +297,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 6
+        "y": 7
       },
       "panels": []
     },
@@ -277,10 +311,10 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 12,
+        "w": 24,
         "x": 0,
-        "y": 7
+        "y": 8
       },
       "targets": [
         {
@@ -333,7 +367,10 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["last", "max"]
+          "calcs": [
+            "last",
+            "max"
+          ]
         },
         "tooltip": {
           "mode": "multi",
@@ -351,10 +388,10 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 7
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 20
       },
       "targets": [
         {
@@ -400,10 +437,10 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 15
+        "h": 9,
+        "w": 8,
+        "x": 8,
+        "y": 20
       },
       "targets": [
         {
@@ -451,10 +488,10 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 15
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 20
       },
       "targets": [
         {
@@ -499,7 +536,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 29
       },
       "panels": []
     },
@@ -513,10 +550,10 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 12,
+        "w": 16,
         "x": 0,
-        "y": 24
+        "y": 30
       },
       "targets": [
         {
@@ -554,7 +591,10 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["last", "max"]
+          "calcs": [
+            "last",
+            "max"
+          ]
         },
         "tooltip": {
           "mode": "multi",
@@ -572,10 +612,10 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 24
+        "h": 12,
+        "w": 8,
+        "x": 16,
+        "y": 30
       },
       "targets": [
         {
@@ -623,7 +663,9 @@
         "textMode": "value_and_name",
         "orientation": "horizontal",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         }
@@ -639,10 +681,10 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
+        "h": 12,
         "w": 24,
         "x": 0,
-        "y": 32
+        "y": 42
       },
       "targets": [
         {
@@ -686,13 +728,13 @@
     {
       "id": 40,
       "type": "row",
-      "title": "그룹(zone)별 정책",
+      "title": "그룹별 정책",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 40
+        "y": 54
       },
       "panels": []
     },
@@ -706,15 +748,15 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
+        "h": 12,
         "w": 12,
         "x": 0,
-        "y": 41
+        "y": 67
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "ddcs_group_load_avg",
+          "expr": "ddcs_group_load_avg{group=~\"$group\"}",
           "legendFormat": "{{group}}"
         }
       ],
@@ -737,7 +779,11 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["last", "min", "max"]
+          "calcs": [
+            "last",
+            "min",
+            "max"
+          ]
         },
         "tooltip": {
           "mode": "multi",
@@ -755,15 +801,15 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 41
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 55
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "ddcs_group_devices",
+          "expr": "ddcs_group_devices{group=~\"$group\"}",
           "legendFormat": "{{group}} · {{mode}}"
         }
       ],
@@ -787,7 +833,9 @@
         "legend": {
           "displayMode": "table",
           "placement": "right",
-          "calcs": ["lastNotNull"]
+          "calcs": [
+            "lastNotNull"
+          ]
         },
         "tooltip": {
           "mode": "multi",
@@ -805,15 +853,15 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
+        "h": 12,
         "w": 12,
-        "x": 0,
-        "y": 49
+        "x": 12,
+        "y": 67
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "ddcs_group_temp_avg",
+          "expr": "ddcs_group_temp_avg{group=~\"$group\"}",
           "legendFormat": "{{group}}"
         }
       ],
@@ -836,7 +884,11 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["last", "min", "max"]
+          "calcs": [
+            "last",
+            "min",
+            "max"
+          ]
         },
         "tooltip": {
           "mode": "multi",
@@ -853,7 +905,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 79
       },
       "panels": []
     },
@@ -867,10 +919,10 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 12,
+        "w": 24,
         "x": 0,
-        "y": 58
+        "y": 80
       },
       "targets": [
         {
@@ -909,7 +961,10 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["last", "max"]
+          "calcs": [
+            "last",
+            "max"
+          ]
         },
         "tooltip": {
           "mode": "multi",
@@ -927,10 +982,10 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
+        "h": 12,
         "w": 12,
-        "x": 12,
-        "y": 58
+        "x": 0,
+        "y": 92
       },
       "targets": [
         {
@@ -964,7 +1019,10 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["last", "max"]
+          "calcs": [
+            "last",
+            "max"
+          ]
         },
         "tooltip": {
           "mode": "multi",
@@ -982,10 +1040,10 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 66
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 92
       },
       "targets": [
         {
@@ -1014,7 +1072,10 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["last", "max"]
+          "calcs": [
+            "last",
+            "max"
+          ]
         },
         "tooltip": {
           "mode": "multi",
@@ -1032,10 +1093,10 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 66
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 104
       },
       "targets": [
         {
@@ -1064,7 +1125,10 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["last", "max"]
+          "calcs": [
+            "last",
+            "max"
+          ]
         },
         "tooltip": {
           "mode": "multi",
@@ -1082,10 +1146,10 @@
         "uid": "ddcs-prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 66
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 104
       },
       "targets": [
         {
@@ -1119,7 +1183,10 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["last", "max"]
+          "calcs": [
+            "last",
+            "max"
+          ]
         },
         "tooltip": {
           "mode": "multi",
