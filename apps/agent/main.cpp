@@ -35,7 +35,8 @@ std::string_view trim(std::string_view s) noexcept {
     return s.substr(first, s.find_last_not_of(" \t\r\n") - first + 1);
 }
 
-// 인스턴스별 device 신원. env(DDCS_DEVICE_ID) > 파일 읽기 > 생성+기록(자가발급) 순으로 해석.
+// 인스턴스별 device 신원. env(DDCS_DEVICE_ID) > 파일 읽기 > 생성 순으로 해석한다.
+// 파일 경로를 지정하지 않으면 기록하지 않고 기동할 때마다 새로 발급한다.
 ddcs::common::Uuid load_device_uuid() {
     if (auto const value = ddcs::config::env::get("DDCS_DEVICE_ID")) {
         if (auto u = ddcs::common::parse_uuid(*value)) {
@@ -45,9 +46,16 @@ ddcs::common::Uuid load_device_uuid() {
         LOG_CONFIG_VALUE_INVALID("env", "DDCS_DEVICE_ID", "uuid", *value);
     }
 
-    std::filesystem::path const path{
-        ddcs::config::env::get("DDCS_DEVICE_ID_FILE").value_or("data/agent.uuid")
-    };
+    auto const configured = ddcs::config::env::get("DDCS_DEVICE_ID_FILE");
+    if (!configured) {
+        // 신원을 남기지 않는 쪽을 고른 것이다. 한 디렉터리에서 여러 대를 띄워도
+        // 같은 DeviceId로 등록해 서로를 kick-old로 끊어내는 일이 없다.
+        ddcs::common::Uuid const fresh = ddcs::common::Uuid::random();
+        LOG_DEVICE_ID(fresh.to_string(), "ephemeral");
+        return fresh;
+    }
+
+    std::filesystem::path const path{*configured};
     LOG_CONFIG_PATH("DDCS_DEVICE_ID_FILE", path.string());
 
     if (std::ifstream in{path}) {
