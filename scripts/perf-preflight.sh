@@ -18,11 +18,12 @@
 set -u
 
 PASS=0; FAIL=0; WARN=0
-ok()   { PASS=$((PASS + 1)); printf '  [PASS] %s\n' "$1"; }
-bad()  { FAIL=$((FAIL + 1)); printf '  [FAIL] %s\n         수정 명령: %s\n' "$1" "$2"; }
-note() { WARN=$((WARN + 1)); printf '  [WARN] %s\n' "$1"; }
+ok()   { PASS=$((PASS + 1)); printf '[PASS]  %s\n' "$1"; }
+note() { WARN=$((WARN + 1)); printf '[WARN]  %s\n' "$1"; }
+bad()  { FAIL=$((FAIL + 1)); printf '[FAIL]  %s\n         수정 명령: %s\n' "$1" "$2"; }
 
 echo "성능 측정 전제 검사"
+echo
 
 # 1. CPU governor
 governors=$(cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor 2>/dev/null | sort -u)
@@ -117,16 +118,17 @@ else
 fi
 
 echo
-echo "환경 요약:"
-printf '  kernel : %s\n' "$(uname -r)"
-printf '  cpu    : %s\n' "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //')"
-printf '  clock  : governor=%s no_turbo=%s cur_avg=%sMHz\n' \
+echo "환경 요약"
+echo
+printf 'kernel  %s\n' "$(uname -r)"
+printf 'cpu     %s\n' "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //')"
+printf 'clock   governor=%s no_turbo=%s cur_avg=%sMHz\n' \
     "$(echo "$governors" | head -1)" \
     "$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || echo '-')" \
     "$(grep MHz /proc/cpuinfo | awk '{s+=$4; n++} END{printf "%.0f", s/n}')"
-printf '  memory : available %sGB, swap used %sMB\n' "$((avail_kb / 1048576))" "$((swap_used_kb / 1024))"
-printf '  docker : %s\n' "$(docker --version 2>/dev/null || echo unknown)"
-printf '  arp    : gc_thresh3=%s\n' "$th3"
+printf 'memory  available %sGB, swap used %sMB\n' "$((avail_kb / 1048576))" "$((swap_used_kb / 1024))"
+printf 'docker  %s\n' "$(docker --version 2>/dev/null || echo unknown)"
+printf 'arp     gc_thresh3=%s\n' "$th3"
 
 printf '\n결과: %d pass, %d warn, %d fail\n' "$PASS" "$WARN" "$FAIL"
 [ "$FAIL" -eq 0 ]
