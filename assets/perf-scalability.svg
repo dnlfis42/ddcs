@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 360" role="img" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title>Agent 수에 따른 sweep 평균과 명령 왕복 시간</title>
+
+  <!-- 표면 -->
+  <rect x="0.5" y="0.5" width="879" height="359" rx="8" fill="#fcfcfb" stroke="#e1e0d9"/>
+
+  <!-- 범례 -->
+  <g font-size="12" fill="#52514e">
+    <circle cx="70" cy="24" r="4" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+    <text x="80" y="28">zone 4개 분배</text>
+    <circle cx="180" cy="24" r="4" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/>
+    <text x="190" y="28">단일 Group</text>
+  </g>
+
+  <!-- 패널 제목 -->
+  <g font-size="13" font-weight="600" fill="#52514e">
+    <text x="64" y="58">sweep 평균 (us)</text>
+    <text x="520" y="58">명령 왕복 시간 (ms)</text>
+  </g>
+
+  <!-- 패널 A: sweep_avg_us -->
+  <g>
+    <!-- 격자 -->
+    <g stroke="#e1e0d9" stroke-width="1">
+      <line x1="64" y1="240" x2="420" y2="240"/>
+      <line x1="64" y1="184" x2="420" y2="184"/>
+      <line x1="64" y1="128" x2="420" y2="128"/>
+      <line x1="64" y1="72"  x2="420" y2="72"/>
+    </g>
+    <line x1="64" y1="296" x2="420" y2="296" stroke="#c3c2b7" stroke-width="1"/>
+    <!-- y 눈금 -->
+    <g font-size="11" fill="#898781" text-anchor="end" font-variant-numeric="tabular-nums">
+      <text x="58" y="300">0</text>
+      <text x="58" y="244">1,000</text>
+      <text x="58" y="188">2,000</text>
+      <text x="58" y="132">3,000</text>
+      <text x="58" y="76">4,000</text>
+    </g>
+    <!-- x 눈금 -->
+    <g font-size="11" fill="#898781" text-anchor="middle" font-variant-numeric="tabular-nums">
+      <text x="64" y="314">0</text>
+      <text x="153" y="314">250</text>
+      <text x="242" y="314">500</text>
+      <text x="331" y="314">750</text>
+      <text x="420" y="314">1,000</text>
+    </g>
+    <text x="242" y="336" font-size="11" fill="#898781" text-anchor="middle">Agent 수</text>
+    <!-- 계열 -->
+    <polyline points="99.6,277.4 135.2,262 170.8,240.4 206.4,227.2 242,208.4 277.6,197.4 313.2,158.9 348.8,160.3 384.4,151.9 420,86.9"
+      fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <polyline points="153,257.3 242,204.9 331,179.7 420,112.6"
+      fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <g fill="#2a78d6" stroke="#fcfcfb" stroke-width="2">
+      <circle cx="99.6" cy="277.4" r="4"/><circle cx="135.2" cy="262" r="4"/><circle cx="170.8" cy="240.4" r="4"/>
+      <circle cx="206.4" cy="227.2" r="4"/><circle cx="242" cy="208.4" r="4"/><circle cx="277.6" cy="197.4" r="4"/>
+      <circle cx="313.2" cy="158.9" r="4"/><circle cx="348.8" cy="160.3" r="4"/><circle cx="384.4" cy="151.9" r="4"/>
+      <circle cx="420" cy="86.9" r="4"/>
+    </g>
+    <g fill="#eb6834" stroke="#fcfcfb" stroke-width="2">
+      <circle cx="153" cy="257.3" r="4"/><circle cx="242" cy="204.9" r="4"/>
+      <circle cx="331" cy="179.7" r="4"/><circle cx="420" cy="112.6" r="4"/>
+    </g>
+    <!-- 끝점 라벨 (패널 사이 여백 사용) -->
+    <g font-size="11" fill="#52514e">
+      <text x="428" y="84">3,734us</text>
+      <text x="428" y="98" font-size="10" fill="#898781">주기 1초의 0.37%</text>
+      <text x="428" y="120">3,275us</text>
+    </g>
+  </g>
+
+  <!-- 패널 B: rtt_ms -->
+  <g>
+    <g stroke="#e1e0d9" stroke-width="1">
+      <line x1="520" y1="221.3" x2="876" y2="221.3"/>
+      <line x1="520" y1="146.7" x2="876" y2="146.7"/>
+      <line x1="520" y1="72"    x2="876" y2="72"/>
+    </g>
+    <line x1="520" y1="296" x2="876" y2="296" stroke="#c3c2b7" stroke-width="1"/>
+    <g font-size="11" fill="#898781" text-anchor="end" font-variant-numeric="tabular-nums">
+      <text x="514" y="300">0</text>
+      <text x="514" y="225.3">5</text>
+      <text x="514" y="150.7">10</text>
+      <text x="514" y="76">15</text>
+    </g>
+    <g font-size="11" fill="#898781" text-anchor="middle" font-variant-numeric="tabular-nums">
+      <text x="520" y="314">0</text>
+      <text x="609" y="314">250</text>
+      <text x="698" y="314">500</text>
+      <text x="787" y="314">750</text>
+      <text x="874" y="314" text-anchor="end">1,000</text>
+    </g>
+    <text x="698" y="336" font-size="11" fill="#898781" text-anchor="middle">Agent 수</text>
+    <polyline points="555.6,281.1 591.2,266.1 626.8,251.2 662.4,221.3 698,206.4 733.6,191.5 769.2,146.7 804.8,146.7 840.4,131.7 876,86.9"
+      fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <polyline points="609,251.2 698,176.5 787,116.8 876,86.9"
+      fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <g fill="#2a78d6" stroke="#fcfcfb" stroke-width="2">
+      <circle cx="555.6" cy="281.1" r="4"/><circle cx="591.2" cy="266.1" r="4"/><circle cx="626.8" cy="251.2" r="4"/>
+      <circle cx="662.4" cy="221.3" r="4"/><circle cx="698" cy="206.4" r="4"/><circle cx="733.6" cy="191.5" r="4"/>
+      <circle cx="769.2" cy="146.7" r="4"/><circle cx="804.8" cy="146.7" r="4"/><circle cx="840.4" cy="131.7" r="4"/>
+      <circle cx="876" cy="86.9" r="4"/>
+    </g>
+    <g fill="#eb6834" stroke="#fcfcfb" stroke-width="2">
+      <circle cx="609" cy="251.2" r="4"/><circle cx="698" cy="176.5" r="4"/>
+      <circle cx="787" cy="116.8" r="4"/><circle cx="876" cy="86.9" r="4"/>
+    </g>
+    <text x="870" y="74" font-size="11" fill="#52514e" text-anchor="end">14ms (두 구성 동일)</text>
+  </g>
+</svg>

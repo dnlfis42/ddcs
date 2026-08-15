@@ -1,0 +1,391 @@
+<mxfile host="65bd71144e">
+    <diagram id="ddcs-services" name="서비스 구조">
+        <mxGraphModel dx="1513" dy="1159" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1240" pageHeight="620" background="#ffffff" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;" parent="1" vertex="1">
+                    <mxGeometry x="920" y="40" width="320" height="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-op" value="&lt;b&gt;운영자&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 12px;&quot; color=&quot;#7f7f7f&quot;&gt;controller.json 정책 작성&lt;br&gt;SIGHUP 리로드&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry y="240" width="160" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-ctrl" value="&lt;b&gt;Controller&lt;/b&gt;&lt;div&gt;&lt;font style=&quot;font-size: 12px;&quot; color=&quot;#7f7f7f&quot;&gt;싱글 스레드 epoll 리액터 · sweep 1s&lt;/font&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8EEFA;strokeColor=#2B4CE8;strokeWidth=2;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=20;align=center;verticalAlign=top;spacingTop=14;" parent="1" vertex="1">
+                    <mxGeometry x="280" y="40" width="400" height="480" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-svc1" value="&lt;b&gt;SessionService&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;3-way 등록 · liveness · kick-old&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="120" width="320" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-svc2" value="&lt;b&gt;PolicyService&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;Group 부하 히스테리시스 · Device별 온도 보호&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="200" width="320" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-svc3" value="&lt;b&gt;CommandService&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;명령 상관 · 재전송 · supersede&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="280" width="320" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-svc4" value="&lt;b&gt;DeviceShadow 저장소&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;메모리 위의 상태 사본 · key = DeviceId&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="360" width="320" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-svc5" value="&lt;b&gt;HTTP metrics :9000&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;Prometheus 텍스트 형식 · pull 전용&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="440" width="320" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-agent-g2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;" parent="1" vertex="1">
+                    <mxGeometry x="910" y="50" width="320" height="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-agent" value="&lt;b&gt;&lt;font style=&quot;font-size: 20px;&quot;&gt;Agent × N&lt;/font&gt;&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 12px;&quot; color=&quot;#7f7f7f&quot;&gt;각자 Device 1대 · 지수 백오프 + jitter 재접속&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=18;align=center;verticalAlign=top;spacingTop=12;" parent="1" vertex="1">
+                    <mxGeometry x="900" y="60" width="320" height="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-device" value="&lt;b&gt;Device&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;상태와 신원의 원본&lt;br/&gt;load · temp · Mode&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F2F3;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="940" y="140" width="240" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-cap" value="1 Agent : 1 Device : 1 Session" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Noto Sans KR;fontSize=12;fontColor=#7F7F7F;" parent="1" vertex="1">
+                    <mxGeometry x="900" y="260" width="320" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-prom" value="&lt;b&gt;Prometheus&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;메트릭 수집 :9090&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="430" width="160" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-graf" value="&lt;b&gt;Grafana&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;대시보드 :3000&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="1080" y="430" width="160" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-e-op" value="" style="html=1;endArrow=block;endFill=1;rounded=0;dashed=1;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="p1-op" target="p1-ctrl" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-e-a2c" value="&lt;font style=&quot;font-size: 12px;&quot;&gt;Register · Status · Heartbeat&lt;/font&gt;" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#2B4CE8;strokeWidth=2;fontFamily=Noto Sans KR;fontSize=13;fontColor=#2B4CE8;labelBackgroundColor=#FFFFFF;verticalAlign=bottom;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="900" y="139.49" as="sourcePoint"/>
+                        <mxPoint x="680" y="139.49" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p1-e-c2a" value="&lt;font style=&quot;font-size: 12px;&quot;&gt;Command&lt;/font&gt;" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#2B4CE8;strokeWidth=2;fontFamily=Noto Sans KR;fontSize=13;fontColor=#2B4CE8;labelBackgroundColor=#FFFFFF;verticalAlign=top;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="680" y="180" as="sourcePoint"/>
+                        <mxPoint x="900" y="180" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p1-wire" value="wire TCP :8080" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Noto Sans KR;fontSize=15;fontStyle=1;fontColor=#2B4CE8;" parent="1" vertex="1">
+                    <mxGeometry x="710" y="140" width="160" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-e-scrape" value="scrape" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#6E6E6E;strokeWidth=1.5;fontFamily=Noto Sans KR;fontSize=12;fontColor=#7F7F7F;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;verticalAlign=top;" parent="1" source="p1-prom" target="p1-svc5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p1-e-promql" value="PromQL" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#6E6E6E;strokeWidth=1.5;fontFamily=Noto Sans KR;fontSize=12;fontColor=#7F7F7F;labelBackgroundColor=#FFFFFF;verticalLabelPosition=bottom;verticalAlign=top;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="p1-prom" target="p1-graf" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="ddcs-pipeline" name="제어 루프">
+        <mxGraphModel dx="1513" dy="1159" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1240" pageHeight="620" background="#ffffff" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="p2-ctrl" value="&lt;b&gt;Controller&lt;/b&gt;&lt;div&gt;&lt;font style=&quot;font-size: 12px;&quot; color=&quot;#7f7f7f&quot;&gt;싱글 스레드 리액터&lt;/font&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8EEFA;strokeColor=#2B4CE8;strokeWidth=2;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=20;align=center;verticalAlign=top;spacingTop=14;" parent="1" vertex="1">
+                    <mxGeometry x="640" y="40" width="380" height="400" as="geometry"/>
+                </mxCell>
+                <mxCell id="86KOFqyB0zK_WWBK4OHa-3" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" vertex="1" parent="1">
+                    <mxGeometry x="700" y="120" width="280" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="86KOFqyB0zK_WWBK4OHa-2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" vertex="1" parent="1">
+                    <mxGeometry x="690" y="130" width="280" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="86KOFqyB0zK_WWBK4OHa-1" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;" vertex="1" parent="1">
+                    <mxGeometry x="20" y="20" width="360" height="390" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-agent-g2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;" parent="1" vertex="1">
+                    <mxGeometry x="10" y="30" width="360" height="390" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-agent" value="&lt;b&gt;Agent × N&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;각자 Device 1대&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=20;align=center;verticalAlign=top;spacingTop=14;" parent="1" vertex="1">
+                    <mxGeometry y="40" width="360" height="400" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-device" value="&lt;b&gt;Device&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;상태와 신원의 원본&lt;br/&gt;load · temp · Mode&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F2F3;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="120" width="280" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-apply" value="&lt;b&gt;④ Mode 적용&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;적용 결과가 load · temp에 반영&lt;br/&gt;→ 다음 보고에 나타남&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="280" width="280" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-shadow" value="&lt;b&gt;DeviceShadow&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;메모리 위의 상태 사본 · key = DeviceId&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="680" y="140" width="280" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-policy" value="&lt;b&gt;② sweep 평가 — 1s 주기&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;Group 평균 load 히스테리시스 → Base Mode&lt;br/&gt;Device별 온도 보호 → Effective Mode&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="680" y="280" width="280" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-e-apply" value="" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" parent="1" source="p2-apply" target="p2-device" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-e-sweep" value="" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="p2-shadow" target="p2-policy" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-e1" value="① status_report — wire TCP · 1s 주기" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#2B4CE8;strokeWidth=2;fontFamily=Noto Sans KR;fontSize=13;fontColor=#2B4CE8;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="p2-device" target="p2-shadow" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-e3" value="③ set_mode — 변경 Device에만&lt;br/&gt;재전송 · 멱등 · supersede" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#2B4CE8;strokeWidth=2;fontFamily=Noto Sans KR;fontSize=13;fontColor=#2B4CE8;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="p2-policy" target="p2-apply" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-prom" value="&lt;b&gt;Prometheus&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;메트릭 수집 :9090&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="640" y="520" width="160" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-graf" value="&lt;b&gt;Grafana&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;대시보드 :3000&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="880" y="520" width="140" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p2-e-scrape" value="scrape /metrics :9000" style="html=1;endArrow=block;endFill=1;rounded=0;dashed=1;strokeColor=#6E6E6E;strokeWidth=1.5;fontFamily=Noto Sans KR;fontSize=12;fontColor=#7F7F7F;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=0;exitDx=0;exitDy=0;" parent="1" source="p2-prom" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="720" y="510" as="sourcePoint"/>
+                        <mxPoint x="720" y="440" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p2-e-promql" value="PromQL" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#6E6E6E;strokeWidth=1.5;fontFamily=Noto Sans KR;fontSize=12;fontColor=#7F7F7F;labelBackgroundColor=#FFFFFF;verticalLabelPosition=bottom;verticalAlign=top;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="p2-prom" target="p2-graf" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="ddcs-data-pipeline" name="데이터 파이프라인">
+        <mxGraphModel dx="1765" dy="1352" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="720" background="#ffffff" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="p3-h1" value="&lt;b&gt;Agent : &lt;/b&gt;&lt;font color=&quot;#2b4ce8&quot;&gt;&lt;b&gt;측정 · 인코딩&lt;/b&gt;&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Noto Sans KR;fontSize=18;fontColor=#111111;" parent="1" vertex="1">
+                    <mxGeometry x="50" width="280" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-h2" value="&lt;b&gt;wire : &lt;/b&gt;&lt;font color=&quot;#2b4ce8&quot;&gt;&lt;b&gt;프레이밍&lt;/b&gt;&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Noto Sans KR;fontSize=18;fontColor=#111111;" parent="1" vertex="1">
+                    <mxGeometry x="390" width="290" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-h3" value="&lt;b&gt;Controller : &lt;/b&gt;&lt;font color=&quot;#2b4ce8&quot;&gt;&lt;b&gt;검증 · 사본&lt;/b&gt;&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Noto Sans KR;fontSize=18;fontColor=#111111;" parent="1" vertex="1">
+                    <mxGeometry x="730" width="280" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-h4" value="&lt;b&gt;정책 : &lt;/b&gt;&lt;font color=&quot;#2b4ce8&quot;&gt;&lt;b&gt;판정 · 발행&lt;/b&gt;&lt;/font&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Noto Sans KR;fontSize=18;fontColor=#111111;" parent="1" vertex="1">
+                    <mxGeometry x="1070" width="290" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-ha1" value="" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#7F7F7F;strokeWidth=1.5;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="40" y="40" as="sourcePoint"/>
+                        <mxPoint x="340" y="40" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p3-ha2" value="" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#7F7F7F;strokeWidth=1.5;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="380" y="40" as="sourcePoint"/>
+                        <mxPoint x="680" y="40" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p3-ha3" value="" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#7F7F7F;strokeWidth=1.5;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="720" y="40" as="sourcePoint"/>
+                        <mxPoint x="1020" y="40" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p3-ha4" value="" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#7F7F7F;strokeWidth=1.5;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1060" y="40" as="sourcePoint"/>
+                        <mxPoint x="1360" y="40" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p3-o1" value="agent 프로세스" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Noto Sans KR;fontSize=12;fontColor=#7F7F7F;" parent="1" vertex="1">
+                    <mxGeometry x="50" y="50" width="280" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-o2" value="wire TCP :8080" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Noto Sans KR;fontSize=12;fontColor=#7F7F7F;" parent="1" vertex="1">
+                    <mxGeometry x="390" y="50" width="280" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-o3" value="ctrl 프로세스 — 싱글 스레드 리액터" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Noto Sans KR;fontSize=12;fontColor=#7F7F7F;" parent="1" vertex="1">
+                    <mxGeometry x="720" y="50" width="630" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-b1a" value="&lt;b&gt;SimulatedDevice&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;Mode별 변화율을 보고 주기마다 적분&lt;br/&gt;load · temp (+ noise · jitter)&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="80" width="300" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-b1b" value="&lt;b&gt;status_report 인코딩&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;encode_mode : Mode → u8&lt;br/&gt;Mode ↔ wire 매핑은 device 모듈이 소유&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="220" width="300" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-b2a" value="&lt;b&gt;message 조립&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;[type][body] · little-endian&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="380" y="80" width="300" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-b2b" value="&lt;b&gt;frame 조립 — zero-copy&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;4B 헤더(magic · length) · big-endian&lt;br/&gt;헤드룸에 길이 제자리 기입 → 복사 0&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="380" y="220" width="300" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-b3a" value="&lt;b&gt;rx 링버퍼 → frame 추출&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;완전한 frame만 디코딩&lt;br/&gt;불변식 : 링 용량 ≥ 최대 frame 1028B&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="720" y="80" width="300" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-b3b" value="&lt;b&gt;검증 → DeviceShadow 갱신&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;decode_mode · isfinite 검사&lt;br/&gt;비유한 값은 버리고 직전 유효값 유지&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="720" y="220" width="300" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-b4a" value="&lt;b&gt;sweep 평가 — 1s 주기&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;Group 평균 load → 히스테리시스 밴드&lt;br/&gt;Device별 temp → thermal 판정&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="1060" y="80" width="300" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-b4b" value="&lt;b&gt;명령 발행 — CommandService&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;Effective Mode 변경 시만 set_mode&lt;br/&gt;재전송 · 멱등 · supersede&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="1060" y="220" width="300" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-i1" value="" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="p3-b1a" target="p3-b1b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-i2" value="" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="p3-b2a" target="p3-b2b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-i3" value="" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="p3-b3a" target="p3-b3b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-i4" value="" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="p3-b4a" target="p3-b4b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-s1" value="" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#2B4CE8;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="p3-b1b" target="p3-b2a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-s2" value="" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#2B4CE8;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="p3-b2b" target="p3-b3a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-s3" value="" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#2B4CE8;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="p3-b3b" target="p3-b4a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-d1" value="{ load f64 · temp f64 · mode u8 }" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F2F3;strokeColor=none;fontColor=#111111;fontFamily=Courier New;fontSize=14;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="340" width="300" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-d2" value="DD C5 00 12 11 …&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;magic · length · type · body&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F2F3;strokeColor=none;fontColor=#111111;fontFamily=Courier New;fontSize=14;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="380" y="340" width="300" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-d3" value="DeviceShadow { load · temp · mode }&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;key = DeviceId&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F2F3;strokeColor=none;fontColor=#111111;fontFamily=Courier New;fontSize=14;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="720" y="340" width="300" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-d4" value="command_request&lt;br/&gt;[ id u64 ][ set_mode ][ mode u8 ]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F2F3;strokeColor=none;fontColor=#111111;fontFamily=Courier New;fontSize=14;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="1060" y="340" width="300" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-z" value="&lt;b&gt;frame 바이트 레이아웃&lt;/b&gt;&amp;nbsp;&amp;nbsp;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;헤더는 big-endian · message는 little-endian · payload ≤ 1024B&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#7F7F7F;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="380" y="440" width="640" height="180" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-z1" value="&lt;b&gt;magic u16&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;0xDDC5&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8EEFA;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="400" y="500" width="120" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-z2" value="&lt;b&gt;length u16&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;payload 크기&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8EEFA;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="520" y="500" width="120" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-z3" value="&lt;b&gt;type u8&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;0x11 = status_report&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="640" y="500" width="120" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-z4" value="&lt;b&gt;body 17B&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;mode u8 · load f64 · temp f64&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="760" y="500" width="240" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-zc1" value="frame 헤더 4B" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Noto Sans KR;fontSize=12;fontColor=#7F7F7F;" parent="1" vertex="1">
+                    <mxGeometry x="410" y="590" width="220" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-zc2" value="payload = message" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Noto Sans KR;fontSize=12;fontColor=#7F7F7F;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="590" width="340" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-zl1" value="" style="html=1;endArrow=none;dashed=1;rounded=0;strokeColor=#B8B8B8;strokeWidth=1.5;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="380" y="400" as="sourcePoint"/>
+                        <mxPoint x="380" y="440" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p3-zl2" value="" style="html=1;endArrow=none;dashed=1;rounded=0;strokeColor=#B8B8B8;strokeWidth=1.5;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="680" y="400" as="sourcePoint"/>
+                        <mxPoint x="1020" y="440" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p3-m" value="&lt;b&gt;명령 왕복 실측 (RTT)&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;p50 0.6 ms · p99 40.7 ms&lt;br/&gt;30대 · 3시간 · 76,635건 · 유실 0&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F2F3;strokeColor=none;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="1060" y="440" width="300" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="p3-ret" value="하행 — command_request 전송 · Agent가 decode_mode 후 적용 → 다음 status_report에 반영" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#2B4CE8;strokeWidth=2;fontFamily=Noto Sans KR;fontSize=13;fontColor=#2B4CE8;labelBackgroundColor=#FFFFFF;entryX=0.5;entryY=1;entryDx=0;entryDy=0;verticalAlign=top;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" parent="1" target="p3-d1" edge="1" source="p3-m">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1220" y="540" as="sourcePoint"/>
+                        <Array as="points">
+                            <mxPoint x="1210" y="640"/>
+                            <mxPoint x="190" y="640"/>
+                        </Array>
+                        <mxPoint x="170" y="510" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="ddcs-modules" name="모듈 구조">
+        <mxGraphModel dx="1246" dy="954" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1240" pageHeight="760" background="#ffffff" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="m-apps" value="&lt;b&gt;apps&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;apps/ctrl · apps/agent&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="60" width="240" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="m-side" value="controller / agent (양측 동일 구조)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8EEFA;strokeColor=#2B4CE8;strokeWidth=2;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+                    <mxGeometry x="320" y="40" width="400" height="440" as="geometry"/>
+                </mxCell>
+                <mxCell id="m-facade" value="&lt;b&gt;facade&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;ctrl · agent — 공개 파사드&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="110" width="320" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="m-infra" value="&lt;b&gt;infra&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;ctrl::infra · agent::infra — 전송 어댑터&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="200" width="320" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="m-app" value="&lt;b&gt;app&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;ctrl::app · agent::app — use-case&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="290" width="320" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="m-domain" value="&lt;b&gt;domain&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;ctrl::domain · agent::domain — 순수 도메인&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="360" y="380" width="320" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="m-proto" value="&lt;b&gt;프로토콜&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;wire::frame&lt;br/&gt;wire::message&lt;br/&gt;wire::command&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="190" width="240" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="m-shared" value="&lt;b&gt;공유 도메인&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;device&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="760" y="380" width="240" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="m-base" value="&lt;b&gt;기반 / OS&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size: 12px;&quot; color=&quot;#7f7f7f&quot;&gt;common&amp;nbsp;&lt;/font&gt;&lt;span style=&quot;color: rgb(127, 127, 127); font-size: 12px;&quot;&gt;· json&amp;nbsp;&lt;/span&gt;&lt;span style=&quot;color: rgb(127, 127, 127); font-size: 12px;&quot;&gt;· logger&amp;nbsp;&lt;/span&gt;&lt;span style=&quot;color: rgb(127, 127, 127); font-size: 12px;&quot;&gt;· config&amp;nbsp;&lt;/span&gt;&lt;span style=&quot;color: rgb(127, 127, 127); font-size: 12px;&quot;&gt;· io&amp;nbsp;&lt;/span&gt;&lt;span style=&quot;color: rgb(127, 127, 127); font-size: 12px;&quot;&gt;· net&lt;/span&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=15;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="560" width="960" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="e1" value="" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#6E6E6E;strokeWidth=1.5;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" parent="1" source="m-apps" target="m-facade" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="250" y="100" as="sourcePoint"/>
+                        <Array as="points">
+                            <mxPoint x="520" y="90"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e2" value="" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="m-facade" target="m-infra" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e3" value="" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="m-infra" target="m-app" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e4" value="" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="m-app" target="m-domain" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e5" value="" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="m-facade" target="m-app" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="700" y="140"/>
+                            <mxPoint x="700" y="320"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e6" value="" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="m-facade" target="m-domain" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="340" y="140"/>
+                            <mxPoint x="340" y="410"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e7" value="" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="m-infra" target="m-proto" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e8" value="" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="m-domain" target="m-shared" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e9" value="" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" parent="1" source="m-proto" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="120" y="280" as="sourcePoint"/>
+                        <mxPoint x="160" y="560" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e10" value="" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" parent="1" source="m-shared" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="880" y="560" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e11" value="" style="html=1;endArrow=block;endFill=1;rounded=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#6E6E6E;strokeWidth=1.5;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" parent="1" source="m-app" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="280" y="320"/>
+                            <mxPoint x="280" y="510"/>
+                        </Array>
+                        <mxPoint x="280" y="560" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
