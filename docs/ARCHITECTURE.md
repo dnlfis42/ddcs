@@ -1,284 +1,287 @@
 # DDCS 아키텍처
 
-단일 **Controller**가 다수의 **Agent**를 조율하고, 각 Agent는 정확히 하나의 **Device**를 호스팅한다(1 agent : 1 device : 1 session).
-상태와 신원의 진실의 원천은 Agent 쪽 Device에 있고, Controller는 그 투영인 **DeviceShadow**만 보관한다.
-Controller는 각 Device를 Group 단위 **Policy**로 자동 조율한다. 사람이 직접 명령을 내리는 API는 없으며, 명령은 오직 정책 엔진이 발행한다.
+단일 **Controller**가 다수의 **Agent**를 제어하고, 각 Agent는 정확히 하나의 **Device**를 맡습니다(1 agent : 1 device : 1 session).
+상태와 신원의 원본은 Agent 쪽 Device에 있고, Controller는 그 사본인 **DeviceShadow**만 유지하며, 각 Device를 Group 단위 **Policy**로 자동 제어합니다.
+사람이 직접 명령을 발행하는 API는 없으며, 명령은 정책 엔진만 발행합니다.
 
 ## 목차
 
-1. [시스템 컨텍스트](#1-시스템-컨텍스트)
-2. [코드 구조 (모듈 지도)](#2-코드-구조-모듈-지도)
-3. [런타임 모델: 단일 스레드 리액터](#3-런타임-모델-단일-스레드-리액터)
-4. [전송과 프로토콜](#4-전송과-프로토콜)
-5. [세션 생명주기](#5-세션-생명주기)
-6. [정책 엔진](#6-정책-엔진)
-7. [명령 RPC와 상관](#7-명령-rpc와-상관)
-8. [에이전트 재접속](#8-에이전트-재접속)
-9. [관측성](#9-관측성)
-10. [설정](#10-설정)
+1. [시스템 컨텍스트](#1-시스템-컨텍스트): 구성 요소와 통신 경로
+2. [코드 구조](#2-코드-구조): 계층별 단방향 의존
+3. [런타임 모델](#3-런타임-모델): 스레드 하나가 모든 상태를 소유
+4. [전송과 프로토콜](#4-전송과-프로토콜): 프레이밍 불변식과 버퍼 관리
+5. [Session 생명주기](#5-session-생명주기): 등록, liveness, 축출
+6. [정책 엔진](#6-정책-엔진): 부하와 온도 두 축의 히스테리시스
+7. [명령 RPC](#7-명령-rpc): 유실과 중복 하에서의 멱등 적용
+8. [Agent 재접속](#8-agent-재접속): 지수 백오프와 jitter
+9. [설계 결정](#9-설계-결정): 기각한 대안과 감수한 비용
+10. [한계점](#10-한계점): 신뢰 경계와 알려진 제약
 
 ## 1. 시스템 컨텍스트
 
-시스템은 단일 Controller와 다수의 Agent(각각 Device 하나), 그리고 외부 행위자인 operator와 Prometheus로 구성된다.
+![시스템 컨텍스트](../assets/architecture-services.svg)
 
-전체 관계는 다음 다이어그램과 같다:
+_그림 1. Controller 내부 구조와 외부 인터페이스_
 
-```mermaid
-graph LR
-  oper["operator"]
-  prom["Prometheus"]
-  subgraph ctrl["Controller (단일 서버)"]
-    subgraph core["Core"]
-      session["세션 관리"]
-      policy["정책 엔진"]
-    end
-    shadows["DeviceShadow 저장소<br/>key = DeviceId"]
-    metrics["HTTP metrics :9000"]
-  end
-  subgraph agents["Agent x N (클라이언트)"]
-    device["Device<br/>DeviceId, 진실의 원천"]
-  end
+|구성 요소|역할|
+|---|---|
+|**Controller**|다수 Device의 집합적 Mode를 Group 단위 Policy로 제어하는 단일 서버. Agent를 통해 각 Device를 Status로 관측하고 Command로 조작합니다.|
+|**Agent**|하나의 Device를 맡아 Controller에 등록하고 Status를 보고하며 명령을 적용하는 클라이언트.|
+|**Device**|Agent가 제어하는 실제 장치. 상태와 신원의 원본.|
+|**DeviceShadow**|Controller가 DeviceId로 유지하는 Device 상태의 사본. Session이 끝나도 남아 재접속 후에도 유지됩니다.|
 
-  oper -. "controller.json 정책<br/>부팅 로드 + SIGHUP 리로드" .-> core
-  agents -- "Register / Status / Heartbeat" --> core
-  core -- "Command (정책이 발행)" --> agents
-  prom -- "scrape" --> metrics
-  core -. "보고된 Status를 캐시" .-> shadows
-  session <--> policy
+시스템 경계 밖에서는 운영자가 `config/controller.json`에 인라인 정책을 작성하고(런타임 명령 API는 없습니다), Prometheus가 메트릭(`:9000`)을 수집합니다.
+
+Controller 쪽에는 Agent라는 엔티티가 따로 없습니다.
+Controller는 상대를 **Session**(휘발성 연결 관계)과 **DeviceShadow**(DeviceId로 지속되는 사본)로만 모델링하며, "Agent"라는 이름은 클라이언트 액터와 agent 측 코드에만 존재합니다.
+
+## 2. 코드 구조
+
+코드는 `lib/`의 라이브러리 모듈과 `apps/`의 두 실행 파일(`ctrl`, `agent`)로 나뉘며, 의존은 아래 표의 위에서 아래 방향으로만 발생합니다.
+
+|모듈|계층|책임|
+|---|---|---|
+|`common`|기반|순수 C++ 값 타입 (strong id, uuid, 버퍼, object pool, 시계, endian)|
+|`json` / `logger` / `config`|기반|JSON 파싱/쓰기, JSONL 구조화 로깅(싱글턴), 단일 파일 JSON 설정 로더|
+|`io` / `net`|OS|epoll 리액터, timerfd/signalfd, `Fd` RAII 래퍼 / 저수준 소켓(`stream_io`, `socket`)|
+|`device`|공유 도메인|양쪽이 공유하는 `Mode`(safe/normal/performance)와 wire 매핑|
+|`wire::frame` / `wire::message` / `wire::command`|프로토콜|프레이밍(4 byte 헤더, payload는 opaque) / message(`[type][body]`) 코덱 / command 타입과 body 코덱|
+|`ctrl::domain` / `agent::domain`|domain|순수 도메인. `DeviceShadow`/`DeviceRegistry`/`GroupPolicy` / `Device` 구현(시뮬레이션·더미)|
+|`ctrl::app` / `agent::app`|app|use-case 서비스. Session/Command/Policy/Status/Registration/Metrics / Session 로직과 메시지 버퍼 관리|
+|`ctrl::infra` / `agent::infra`|infra|어댑터. Acceptor/Server와 Prometheus HTTP 서버 / Connector(연결·백오프)|
+|`ctrl` / `agent`|facade|공개 파사드. infra를 CMake PRIVATE 의존으로 숨깁니다|
+|`apps/ctrl`, `apps/agent`|실행|설정 로드, 의존성 조립, `run()` 호출|
+
+디렉터리 배치는 이렇습니다.
+
+```text
+apps/       # 실행 파일 (ctrl, agent)
+lib/
+├── common/ # 공용 유틸리티: strong id, uuid, 버퍼, object pool, 시계, endian
+├── json/   # JSON 파싱/쓰기
+├── logger/ # JSON Lines(JSONL) 구조화 로깅
+├── config/ # 단일 파일 JSON 설정 로더
+├── io/     # epoll 리액터, timerfd/signalfd, RAII fd
+├── net/    # 저수준 소켓 (stream_io, socket)
+├── device/ # 양쪽이 공유하는 Mode(safe/normal/performance)와 wire 매핑
+├── wire/   # 3계층 프로토콜: frame(프레이밍), message(메시지), command(명령)
+├── ctrl/   # Controller 측: domain -> app -> infra -> facade
+└── agent/  # Agent 측: domain -> app -> infra -> facade
+cmake/      # 빌드 옵션 / sanitizer / coverage / testing 모듈
+config/     # 런타임 JSON 설정 (controller / agent, 정책 포함)
+scripts/    # 로컬 실행(run.sh), 검증 시나리오(scenario.sh), 단계별 성능 측정(perf-ramp.sh), 커버리지(coverage-report.sh)
+docker/     # Dockerfile + compose (core / scale / 관측 스택)
+docs/       # ARCHITECTURE / DECISION / PROTOCOL / SCENARIO / CONFIG / METRICS / LOG
+test/e2e/   # Controller <-> Agent E2E
+data/       # DDCS_DEVICE_ID_FILE을 지정했을 때의 agent UUID 저장 위치 (런타임 생성, gitignore 대상)
 ```
 
-각 행위자의 역할은 다음과 같다:
+![모듈 의존 그래프](../assets/architecture-modules.svg)
 
-| 행위자           | 역할                                                                                                                             |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **Controller**   | 다수 Device의 집합적 Mode를 Group 단위 Policy로 조율하는 단일 서버. Agent를 통해 각 Device를 관측(Status)하고 구동(Command)한다. |
-| **Agent**        | 하나의 Device를 호스팅해 Controller에 등록하고 Status를 보고하며 명령을 적용하는 클라이언트.                                     |
-| **Device**       | Agent가 제어하는 실제 장치. 상태와 신원의 진실의 원천.                                                                           |
-| **DeviceShadow** | Controller가 DeviceId로 보관하는 Device의 캐시 투영. 재접속을 가로질러 지속된다(Session보다 오래 산다).                          |
-| operator         | `config/controller.json`의 인라인 정책을 주입한다. 런타임 명령 API는 없다. (어휘 밖 외부 행위자)                                 |
-| Prometheus       | Controller의 HTTP 메트릭 엔드포인트(`:9000`)를 긁는다. (어휘 밖 외부 행위자)                                                     |
+_그림 2. 모듈 의존 그래프_
 
-Controller 쪽에는 Agent라는 엔티티가 따로 없다. Controller는 상대를 **Session**(휘발성 연결 관계)과 **DeviceShadow**(DeviceId로 지속되는 캐시)로만 모델링하고, "Agent"라는 이름은 클라이언트 액터와 agent-side 코드에만 존재한다.
+각 측(`ctrl`/`agent`)은 동일하게 domain, app, infra, facade 순서로 계층화되며, 의존은 상위에서 하위로만 향합니다.
+의존이 향하는 지점은 app의 port 계약입니다.
 
-## 2. 코드 구조 (모듈 지도)
+> 피어를 Connection 단위로 잇고, 그 위에서 크기가 유한한 typed Message를 주고받는다.
 
-코드는 `lib/`의 라이브러리 모듈과 `apps/`의 두 실행 파일(`ctrl`, `agent`)로 나뉘고, 의존은 위에서 아래로 한 방향으로만 흐른다.
+wire 프로토콜은 이 계약을 충족하는 메커니즘이므로, 계약 안의 내부 변경은 port와 app에 영향을 주지 않으며, namespace도 메커니즘(`sfp`)이 아니라 계약의 관심사(`transport`)로 명명합니다.
+같은 이유로 wire 코덱은 `device`에 의존하지 않습니다.
+`Mode`는 wire에서 raw `u8`로만 다니고, 바이트 매핑(`device::encode_mode`/`decode_mode`)은 `device` 모듈이 소유하며, 변환은 app 계층이 수행합니다.
 
-모듈별 레이어와 책임은 다음과 같다:
+## 3. 런타임 모델
 
-| 모듈                      | 레이어      | 책임                                                                                                                    |
-| ------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `common`                  | 기반        | 순수 C++ 값 타입 (strong id, uuid, 버퍼, object pool, 시계, endian)                                                     |
-| `json`                    | 직렬화      | JSON 파싱/쓰기                                                                                                          |
-| `logger`                  | 관측        | JSON Lines(JSONL) 구조화 로깅 (싱글턴)                                                                                  |
-| `config`                  | 설정        | 단일 파일 JSON 설정 로더                                                                                                |
-| `io`                      | OS          | epoll 리액터, timerfd/signalfd, `Fd` RAII(Resource Acquisition Is Initialization, 자원 획득이 곧 초기화), `throw_errno` |
-| `net`                     | OS          | 소켓 프리미티브 (`stream_io`, `socket`)                                                                                 |
-| `device`                  | 도메인 커널 | 공유 어휘 `Mode`(safe/normal/performance)와 그 wire 매핑                                                                |
-| `wire::frame`             | 프로토콜    | 프레이밍(4B 헤더: magic+length). payload는 opaque                                                                       |
-| `wire::message`           | 프로토콜    | message(`[type][body]`)와 command 코덱                                                                                  |
-| `ctrl::domain`            | controller  | `DeviceShadow`/`DeviceRegistry`/`GroupPolicy` 등 순수 도메인                                                            |
-| `ctrl::app`               | controller  | Session/Command/Policy/Status/Registration/Metrics 서비스 (use-case)                                                    |
-| `ctrl::infra`             | controller  | Acceptor/Server, Prometheus HTTP 서버 (어댑터)                                                                          |
-| `ctrl`                    | controller  | 컨트롤러 공개 파사드                                                                                                    |
-| `agent::domain`           | agent       | `Device` 구현 (시뮬레이션/더미)                                                                                         |
-| `agent::app`              | agent       | 세션 로직, 메시지 버퍼 관리 (use-case)                                                                                  |
-| `agent::infra`            | agent       | Connector(연결/백오프) 어댑터                                                                                           |
-| `agent`                   | agent       | 에이전트 공개 파사드                                                                                                    |
-| `apps/ctrl`, `apps/agent` | 실행        | 설정 로드 + 조립 + run()                                                                                                |
+각 프로세스(`ctrl`, `agent`)는 **싱글 스레드 edge-triggered epoll 리액터** 하나로 동작하며, `lib/`와 `apps/` 어디에도 스레드, 뮤텍스, atomic이 없습니다.
+모든 콜백이 한 OS 스레드에서 실행되므로 락 경합과 데이터 레이스가 구조적으로 발생하지 않는 대신, 콜백 하나가 오래 점유하면 전체가 지연됩니다.
+그래서 기동 시 정책 파일 읽기와 Agent의 1회 DNS 조회를 제외한 주요 경로는 전부 논블로킹입니다.
 
-```mermaid
-graph TD
-  apps["apps (실행)<br/>apps/ctrl, apps/agent"]
-  subgraph side["controller / agent -- 양측 동일 계층"]
-    facade["facade (공개 API)<br/>ctrl, agent"]
-    infra["infra (전송 어댑터)<br/>ctrl::infra, agent::infra"]
-    app["app (use-case)<br/>ctrl::app, agent::app"]
-    domain["domain (순수 도메인)<br/>ctrl::domain, agent::domain"]
-    facade --> infra
-    facade --> app
-    facade --> domain
-    infra --> app
-    app --> domain
-  end
-  shared["공유 하부 (한 방향 의존)<br/>프로토콜: wire::frame, wire::message<br/>커널: device<br/>기반/OS: io, net, json, logger, config, common"]
-
-  apps --> facade
-  side --> shared
-```
-
-각 측(`ctrl`/`agent`)은 동일하게 **domain -> app -> infra -> facade**로 계층화되고, 의존은 한 방향(아래로)으로만 흐른다.
-
-- **domain**: 순수 도메인 상태/규칙(`common`/`device`에만 의존).
-- **app**: use-case 서비스. `<side>::app::transport::port`(계약)와 `<side>::app::session`(세션 로직)을 포함한다.
-- **infra**: 계약을 충족하는 어댑터(`<side>::infra::transport`). `io`/`net`/`wire::frame`을 알지만 상대(peer)는 모른다.
-- **facade**: 공개 API. infra를 PRIVATE로 숨긴다.
-
-의존의 루트는 port 계약("피어를 Connection 단위로 잇고 그 위에서 크기-유한한 typed Message를 주고받는다")이고, wire 프로토콜은 이 계약을 충족하는 메커니즘이라 계약 안의 내부 변경은 port와 app에 닿지 않는다. namespace도 메커니즘(`sfp`)이 아니라 계약 concern(`transport`)으로 명명한다.
-
-wire 코덱은 `device`에 의존하지 않는다. `wire::message`는 `Mode`를 raw `u8`로만 싣고, 어휘<->바이트 매핑(`device::encode_mode`/`decode_mode`)은 `device` 커널이 소유하며, 번역은 app 어댑터 경계에서 일어난다.
-
-## 3. 런타임 모델: 단일 스레드 리액터
-
-각 프로세스(`ctrl`, `agent`)는 **단일 스레드 edge-triggered epoll 리액터** 하나로 동작하며, `lib/`/`apps/` 어디에도 스레드/뮤텍스/atomic이 없다. 동시성은 한 OS 스레드 위의 협력적 I/O 멀티플렉싱이고, 모든 콜백이 그 스레드에서 실행된다.
-
-`io::Reactor`가 `epoll_wait`로 블록하고, 준비된 fd마다 소유 `Channel`의 핸들러를 호출한다.
-
-리액터에 등록되는 여러 **게스트**는 다음과 같다:
-
-- `io::TimerScheduler`: 하나의 timerfd에 다수 논리 타이머를 deadline 최소힙으로 멀티플렉싱
-- `io::SignalSource`: signalfd로 SIGINT/SIGTERM(=`stop()`)을 reactor 콜백으로 변환. Agent는 SIGINT/SIGTERM을 등록하고, Controller는 정책 핫리로드를 위해 SIGHUP을 추가로 등록한다.
-- 전송 서버/커넥터: Controller는 `Acceptor` + N개 Connection, Agent는 단일 Connection
-- Prometheus HTTP 서버: 같은 리액터의 "두 번째 게스트"
-
-Controller의 주기 도메인 작업은 단일 **sweep 타이머**가 구동한다: 매 tick마다 명령 재전송 sweep, 핸드셰이크/liveness 만료 축출, 정책 평가를 순서대로 수행하고 다음 tick을 다시 예약한다.
+`io::Reactor`가 `epoll_wait`에서 대기하고, 준비된 fd마다 그 fd를 소유한 `Channel`의 핸들러를 호출합니다.
+timerfd(`TimerScheduler`, 하나의 fd로 다수의 논리 타이머를 deadline 최소힙으로 관리), signalfd(`SignalSource`, 양쪽의 SIGINT/SIGTERM과 Controller의 SIGHUP), 전송 서버/커넥터, Prometheus HTTP 서버가 모두 같은 `Channel` 디스패치 경로를 거칩니다.
 
 ```mermaid
 sequenceDiagram
-  participant K as epoll
-  participant R as Reactor (단일 스레드)
+  participant E as epoll
+  participant R as Reactor (싱글 스레드)
   participant H as Channel 핸들러
-  R->>K: epoll_wait
-  K-->>R: 준비된 fd 목록
+  R->>E: epoll_wait
+  E-->>R: 준비된 fd 목록
   loop 각 ready 이벤트
-    R->>R: 토큰(generation+fd)으로 Channel 해석
-    Note over R: stale 토큰이면 skip
+    R->>R: 토큰(generation + fd)으로 Channel 조회
+    Note over R: stale 토큰이면 건너뜀
     R->>H: on_ready(events)
-    Note over H: accept / recv+framing+dispatch / send<br/>매 wakeup마다 EAGAIN까지 drain
+    Note over H: accept, recv, send
   end
+  Note over R: 루프 종료 후 다시 epoll_wait
 ```
 
-리액터는 게스트 종류를 구분하지 않아, timerfd(타이머)/signalfd(시그널)/소켓이 모두 같은 `Channel` 디스패치 경로(위 `H`)를 탄다.
+_그림 3. 리액터 이벤트 루프_
 
-세션 레지스트리, 명령 장부, 정책 상태가 모두 한 스레드에서만 만져지므로 락이 없다. 콜백 안에서 블로킹/CPU 바운드 작업을 하면 루프 전체가 멈추므로, 부팅 시 정책 파일 읽기와 Agent의 1회 DNS 조회를 제외한 핫패스는 전부 논블로킹이다.
+edge-triggered 모드에서는 상태 변화 시점에만 통지가 오므로, 각 핸들러는 깨어날 때마다 `EAGAIN`이 반환될 때까지 읽고 씁니다.
+중간에 멈추면 남은 데이터에 대한 통지가 다시 오지 않습니다.
 
-epoll 토큰에는 raw 포인터 대신 `(generation<<32 | fd)`를 싣고 fd가 닫혀 재사용되면 generation을 올려서, 커널이 close 직전에 큐잉한 [stale](GLOSSARY.md#세션) 이벤트가 재사용된 fd의 다른 Channel로 오배달되는 use-after-free를 막는다.
+Controller의 주기 도메인 작업은 단일 **sweep 타이머**가 실행합니다.
+매 tick마다 명령 재전송, 만료 Session 축출, 정책 평가를 순서대로 수행하며, sweep 한 번의 소요 시간이 주기에 근접하면 코어 하나로 감당할 수 있는 한계입니다(실측은 [README 성능 절](../README.md#성능)).
 
-연결 해체는 deferred-reap으로 미룬다. 콜백(`on_message`)이 전송을 재진입해 `send()`/`disconnect()`를 부를 수 있어서, Controller 서버는 연결을 reap 큐에 넣고 콜백 종료 후 안전 지점에서 해체하며, frame 추출 루프는 매 반복 rx 버퍼를 재조회해 콜백 안에서 해제된 연결을 만나면 깨끗이 끝난다.
+싱글 스레드라도 fd 재사용과 콜백 재진입은 여전히 위험이므로, 세 가지 안전장치로 대응합니다:
 
-리소스 안전은 RAII 규약 두 가지가 떠받친다.
-
-- `io::Fd`는 이동 전용 소유자이고, `io::Channel`은 **여전히 리액터에 등록된 채 close되면 `std::terminate`** 한다(닫기 전에 반드시 등록 해제). 게스트는 리액터보다 먼저 파괴되어야 한다.
-- `common::ObjectPool`은 발급한 핸들보다 오래 살아야 한다(아니면 terminate). 그래서 풀은 핸들을 쥔 연결/큐보다 먼저 선언된다.
-
-단일 스레드 리액터의 확장 한계는 sweep tick의 작업 시간이 결정한다. 실측표와 선형 외삽, loopback 주의는 [README 성능 절](../README.md#성능)이 담는다.
+- **토큰 generation**: epoll 토큰에 raw 포인터 대신 `(generation << 32 | fd)`를 담고, fd가 닫혀 재사용되면 generation을 올립니다.
+  close 직전에 큐에 남은 stale 이벤트가 재사용된 fd의 다른 Channel로 오배달되는 use-after-free를 막습니다.
+- **deferred-reap**: 콜백(`on_message`)이 전송을 재진입해 `send()`나 `disconnect()`를 호출할 수 있으므로, 연결 해체는 reap 큐에 넣어 콜백이 끝난 안전 지점으로 미룹니다.
+  frame 추출 루프는 매 반복 rx 버퍼를 다시 조회해, 콜백 안에서 해제된 연결을 만나면 정상 종료합니다.
+- **RAII 규약**: `io::Channel`은 리액터에 등록된 상태로 close되면, `common::ObjectPool`은 발급한 핸들보다 먼저 파괴되면 `std::terminate`를 호출합니다.
+  그래서 닫기 전에 반드시 등록을 해제하고, 풀은 핸들을 쥔 연결이나 큐보다 먼저 선언합니다.
 
 ## 4. 전송과 프로토콜
 
-wire 포맷과 의미론은 [PROTOCOL.md](PROTOCOL.md)가 권위이고, 이 절은 구현이 지키는 불변식만 담는다.
+wire 포맷과 의미론은 [PROTOCOL.md](PROTOCOL.md)가 기준이며, 이 절은 구현이 지키는 불변식만 다룹니다.
 
-프레이밍은 양방향 모두 `wire::frame`이 소유하고 양측 transport가 공유한다. 수신 루프(`extract_frames`)는 rx 링버퍼에서 완전한 frame을 풀링된 버퍼로 뽑아내고, 송신 조립(`reserve_header_room`/`seal`)은 헤더 헤드룸을 미리 확보해 길이 헤더를 제자리에서 prepend하므로 복사가 없다.
+![데이터 파이프라인](../assets/architecture-data-pipeline.svg)
 
-불변식은 다음과 같다:
+_그림 4. 상태 보고에서 명령까지의 데이터 파이프라인_
 
-- **rx 버퍼 >= 최대 frame:** rx 링 용량은 2의 거듭제곱이면서 최대 frame(헤더 4 + payload 상한 1024 = 1028) 이상이어야 한다(현재 양측 4096). 양측 모두 `static_assert`로 컴파일 차단한다. 링을 1028 밑으로 줄이면 클램프가 아니라 프레이밍 교착이 난다.
-- **Mode<->wire 단일 출처:** 네 wire 경계(Controller의 명령 인코딩과 Status 디코딩, Agent의 명령 디코딩과 Status 인코딩)가 전부 `device::encode_mode`/`decode_mode`를 경유한다. 경계에 raw `static_cast<Mode>`를 재도입하면 컴파일은 통과하지만 enum 재정렬 시 조용히 어긋난다.
+프레이밍은 `wire::frame`이 단독으로 구현하고, 양측 transport가 이를 공유합니다.
+수신 루프(`dispatch_frames`)는 rx 링버퍼에서 완전한 frame을 풀에서 확보한 버퍼로 디코딩하고, 송신 조립(`encode_frame`)은 미리 확보한 헤더 헤드룸에 길이 헤더를 제자리에서 써넣으므로 복사가 발생하지 않습니다.
 
-## 5. 세션 생명주기
+- **rx 버퍼 ≥ 최대 frame**: rx 링 용량은 2의 거듭제곱이면서 최대 frame(헤더 4 + payload 상한 1024 = 1028) 이상이어야 합니다.
+  링이 최대 frame을 통째로 담지 못하면 부분 frame 대기가 끝나지 않아 프레이밍 교착이 발생합니다.
+  두 조건을 함께 만족시키는 지점은 `wire::frame::fit_rx_capacity()` 하나이며, 양측 transport가 설정값을 이 함수에 통과시킨 뒤 링을 생성하고, 보정이 발생하면 같은 이벤트(`transport.rx_buffer.adjust`)로 요청값과 실효값을 기록합니다.
+- **Mode ↔ wire 변환은 한 곳에서만**: 네 wire 경계(양측의 명령·`status_report` 인코딩/디코딩)가 전부 `device::encode_mode`/`decode_mode`를 거칩니다.
+  경계에 raw `static_cast<Mode>`를 재도입하면 컴파일은 통과하지만 enum 재정렬 시 진단 없이 어긋납니다.
 
-**Session**은 Controller가 한 TCP 연결을 한 DeviceId에 바인딩한 관계이다. 수명이 연결과 같아 끊기면 사라지고, 재접속은 완전히 새로운 Session이다. 재접속을 가로지르는 신원은 `register_request.uuid`(= DeviceId)가 운반한다.
+## 5. Session 생명주기
 
-세션 상태는 **idle -> handshaking -> confirming -> active**로 전이하며, 등록은 3-way 핸드셰이크이다.
+**Session**은 Controller가 하나의 TCP 연결을 하나의 DeviceId에 바인딩한 관계입니다.
+Session의 수명은 연결과 같아 연결이 끊기면 Session도 사라지며, 재접속 이후에도 유지되는 신원은 `register_request.uuid`(= DeviceId)가 담당합니다.
+
+|상태|의미|
+|---|---|
+|`idle`|연결 수립 직후, 아직 등록이 시작되지 않음|
+|`handshaking`|`register_request` 대기|
+|`confirming`|`register_ack` 대기|
+|`active`|등록 완료, liveness 측정 시작|
+
+핸드셰이크의 message 교환 절차는 [PROTOCOL.md](PROTOCOL.md#등록-3-way-핸드셰이크)에서 다루며, 이 절은 Controller 내부의 상태 표현과 제한 시간 관리를 다룹니다.
 
 ```mermaid
 sequenceDiagram
   participant A as Agent
   participant C as Controller
-  Note over A,C: TCP 연결 -> Session idle->handshaking
+  Note over A,C: TCP 연결 → idle → handshaking
   A->>C: register_request {uuid, group}
-  Note over C: enroll(uuid)->DeviceId / 미지 group은 경고만
+  Note over C: enroll(uuid)로 DeviceId 확보<br/>정의되지 않은 group은 경고만
   opt 같은 DeviceId가 이미 바인딩됨
-    C-->>C: 옛 연결 kick-old (new-wins)
+    C->>C: 기존 연결 kick-old
   end
-  C->>C: bind -> handshaking->confirming
+  C->>C: bind → confirming
   C-->>A: register_outcome {success}
   A->>C: register_ack
-  C->>C: confirm -> confirming->active (이 시점부터 liveness 측정)
-  A->>C: status (enter_active 즉시 1회)
-  loop active 정상 운영
-    A->>C: heartbeat / status / command_ack / command_outcome
-    Note over C: 정상 메시지마다 last_seen 갱신
+  C->>C: confirm → active (liveness 측정 시작)
+  A->>C: status (등록 완료 직후 1회)
+  loop active 상태
+    A->>C: heartbeat, status, command_ack, command_outcome
+    Note over C: 수신 message마다 last_seen 갱신
   end
-  Note over C: 주기 sweep: 핸드셰이크 단계 시한 초과 -> 종료<br/>active 침묵 시한 초과 -> 종료
+  Note over C: sweep 시 제한 시간 초과 검사<br/>handshake_timeout_ms 초과 → 종료<br/>liveness_timeout_ms 초과 → 종료
 ```
 
-핵심 규약은 다음과 같다:
+_그림 5. Session 상태 전이와 message 교환_
 
-- **bind는 요청 시점, liveness는 ack 시점.** Controller는 피어를 식별(`register_request` 디코딩)하는 즉시 Device 슬롯을 선점(bind)하지만, 운영 시계(liveness)는 `register_ack`를 받아 `active`가 된 뒤부터 돈다.
-- **단계별 시한.** Controller는 handshaking/confirming의 `last_seen`을 단계 전이에서만 갱신한다(임의 메시지로는 연장하지 않는다). 각 등록 단계가 독립 budget을 받아 느린/침묵 핸드셰이크를 잡는다. `SessionService`의 주기 sweep이 감시한다.
-- **active liveness는 모든 정상 트래픽의 합집합.** heartbeat/status/command_ack/command_outcome 어느 것이든 `last_seen`을 갱신한다. heartbeat는 body 없는 keepalive이다. 같은 sweep이 침묵 시한 초과 세션을 축출한다.
-- **상태별 수용.** handshaking은 `register_request`만, confirming은 `register_ack`만 받는다. 타입/방향이 어긋나거나 디코딩에 실패하면 프로토콜 위반으로 연결을 끊는다.
+핵심 규약은 다음과 같습니다:
 
-상태 결정의 단일 출처는 `SessionRegistry`이다: 연결을 1차 키로, Device를 [역색인](GLOSSARY.md#세션)으로 들고 **"Device당 바인딩된 연결 최대 1"** 불변식을 봉인한다. 같은 uuid의 새 `register_request`가 오면 옛 연결을 동기적으로 끊고 새 연결을 바인딩한다(kick-old, new-wins).
+- **bind는 요청 시점, liveness는 ack 시점**: Controller는 `register_request`를 디코딩하는 즉시 Device 슬롯을 선점(bind)하지만, liveness 측정은 `register_ack`를 받아 `active`가 된 뒤부터 시작합니다.
+- **단계별 제한 시간**: `handshaking`과 `confirming`의 `last_seen`은 단계 전이에서만 갱신하고 임의 message로는 연장하지 않으므로, 지연되거나 중단된 핸드셰이크를 단계별로 검출합니다.
+- **모든 수신 message가 liveness를 갱신**: `heartbeat`(body 없는 keepalive), `status_report`, `command_ack`, `command_outcome` 어느 것이든 `last_seen`을 갱신하며, 제한 시간을 초과한 Session은 sweep이 축출합니다.
+- **상태별 허용 message**: `handshaking`은 `register_request`만, `confirming`은 `register_ack`만 받습니다.
+  타입이나 방향이 어긋나거나 디코딩에 실패하면 프로토콜 위반으로 연결을 종료합니다.
 
-### Status와 liveness: non-finite 정책
+상태 결정은 `SessionRegistry`가 전담합니다.
+연결을 1차 키로 두고 Device를 역색인(Device 기준으로 연결을 찾는 색인)으로 관리하며, **"Device당 바인딩된 연결은 최대 1개"** 불변식을 보장합니다.
+같은 uuid로 새 `register_request`가 오면 기존 연결을 동기적으로 종료하고 새 연결을 바인딩합니다(kick-old).
 
-active 상태의 `status`는 디코딩 성공 시 **`update_seen(now)`를 먼저** 부르고, 그다음 `StatusService::update_status`로 Shadow를 갱신한다. `update_status`는 `load`/`temp`가 유한한지(`std::isfinite`)만 검사하고, **비유한(NaN/Inf)이면 Shadow를 건드리지 않고 last-good을 보존**한다. non-finite는 liveness 실패가 아니라 나쁜 샘플이라 버리고 직전 Shadow를 유지하며, kick은 오직 **wire 디코딩 실패**에만 적용한다. finiteness 검증은 status ingress가 단일(`StatusService`)인 동안 서비스 경계에 두고, ingress가 둘 이상 생기면 도메인으로 격상한다.
+### 5.1. non-finite status 처리
+
+`active` 상태의 `status_report`는 디코딩에 성공하면 `update_seen(now)`를 먼저 호출하고, 그다음 `StatusService::update_status`로 Shadow를 갱신합니다.
+`update_status`는 `load`와 `temp`가 유한한지(`std::isfinite`)만 검사하며, 비유한 값(NaN/Inf)이면 Shadow를 갱신하지 않고 직전 유효값을 유지합니다.
+non-finite는 liveness 실패가 아니라 유효하지 않은 샘플이므로 해당 값만 버리고, 연결 종료는 wire 디코딩 실패에만 적용합니다.
+finiteness 검증은 수신 경로가 `StatusService` 하나인 동안 서비스 경계에 두고, 경로가 둘 이상 생기면 도메인 계층으로 옮깁니다.
 
 ## 6. 정책 엔진
 
-Controller는 각 Device의 Mode를 **Group 단위로 자동** 제어한다. 사람 명령 API는 없다.
+Controller는 각 Device의 Mode를 **Group 단위로 자동** 제어합니다.
 
-- **Group**: 하나의 Policy를 공유하는 Device들의 논리적 묶음(예: zone_a/zone_b/zone_c). Agent가 등록 시 선언한다. 미지 Group 등록은 soft로 처리해, 막지 않고 경고만 한다.
-- **Mode**: 공유 어휘 `safe`/`normal`/`performance`. 정책의 출력이자 Device와 Controller가 공유하는 커널 어휘.
-- **Policy(GroupRule)**: Group별 규칙: load 히스테리시스(`high_load`/`low_load` + `high_load_mode`/`low_load_mode`)와 선택적 **온도 override**(`high_temp`/`resume_temp`/`high_temp_mode`).
+- **Group**: 하나의 Policy를 공유하는 Device의 논리적 묶음(예: `zone_a`~`zone_d`). Agent가 등록 시 지정하며, 정의되지 않은 Group도 경고만 남기고 받아들입니다.
+- **Mode**: `safe`/`normal`/`performance`. 정책의 출력이자 Device와 Controller가 공유하는 값입니다.
+- **Policy(`GroupRule`)**: Group별 규칙. load 히스테리시스(`high_load`/`low_load`와 각각의 목표 Mode)와 선택적 온도 예외(`high_temp`/`resume_temp`/`high_temp_mode`)로 구성됩니다.
 
-정책은 두 축을 합성하되 **적용 단위가 다르다**: load는 **Group 단위**(집합 부하), 온도는 **Device 단위**(개별 안전)이다.
+정책은 두 축을 합성하되 적용 단위가 다릅니다.
+load는 **Group 단위**(집합 부하), 온도는 **Device 단위**(개별 안전)입니다.
+`PolicyService::evaluate`는 매 sweep tick마다 두 패스로 수행합니다:
 
-`PolicyService::evaluate`는 매 sweep tick마다 두 패스로 돈다. (1) Group별로 active Device의 평균 load(`avg = sum/count`)를 집계해 히스테리시스 밴드로 Regime(busy/idle)과 그 Group의 **Base Mode**를 정한다. (2) 각 active Device가 **자기 Shadow 온도**로 thermal(hot/cool)을 따로 판정한다. Device의 **Effective Mode**는 "자기 thermal이 hot이면 `high_temp_mode`, 아니면 Group Base Mode"이고, 정책 엔진은 이 값이 **바뀐 Device에게만** `set_mode`를 발행한다.
+1. Group별로 active Device의 평균 load를 집계해, 히스테리시스 밴드로 Regime(busy/idle)과 그 Group의 **Base Mode**를 결정합니다.
+2. 각 active Device의 Shadow 온도로 thermal(hot/cool)을 개별 판정합니다.
 
-아래는 부하 축(Group Regime)의 상태기계이다.
+Device의 **Effective Mode**는 thermal이 hot이면 `high_temp_mode`, 아니면 Group의 Base Mode이며, 정책 엔진은 이 값이 **바뀐 Device에만** `set_mode`를 발행합니다.
+등록 직후라 아직 Status를 보고하지 않은 Device는 판단 근거가 없으므로 두 패스 모두에서 제외하고, 첫 보고부터 제어에 포함합니다.
 
 ```mermaid
 stateDiagram-v2
   [*] --> unknown : 최초 평가 (빈 regime)
   unknown --> busy : avg가 high_load 초과 / SetMode high_load_mode
   unknown --> idle : avg가 low_load 미만 / SetMode low_load_mode
-  unknown --> unknown : 밴드 안(low~high) / 무명령
+  unknown --> unknown : 밴드 안(low~high) / 명령 없음
   idle --> busy : avg가 high_load 초과 / SetMode high_load_mode
   busy --> idle : avg가 low_load 미만 / SetMode low_load_mode
-  busy --> busy : avg가 low_load 이상 / 무명령
-  idle --> idle : avg가 high_load 이하 / 무명령
+  busy --> busy : avg가 low_load 이상 / 명령 없음
+  idle --> idle : avg가 high_load 이하 / 명령 없음
 ```
 
-**busy/idle은 Mode 값이 아니라 Regime이다**(밴드 상단 초과 / 하단 미만). 어느 Regime이 어느 Mode를 목표로 할지는 Group마다 operator가 정한다. `config/controller.json`의 `policy.groups` 기본값(데모)은 다음과 같다:
+_그림 6. Group Regime 상태 기계_
 
-| Group  | high_load | low_load | high_load_mode | low_load_mode |
-| ------ | --------- | -------- | -------------- | ------------- |
-| zone_a | 70        | 30       | performance    | normal        |
-| zone_b | 60        | 45       | performance    | normal        |
-| zone_c | 80        | 20       | performance    | normal        |
+**busy/idle은 Mode 값이 아니라 Regime입니다**(밴드 상단 초과 / 하단 미만).
+어느 Regime이 어느 Mode를 목표로 할지는 Group마다 운영자가 지정합니다.
+`config/controller.json`의 기본값(시연용)은 다음과 같으며, 네 Group이 Mode 매핑(`performance`/`normal`/`safe`)과 온도 임계(`high_temp = 65`, `resume_temp = 50`)를 공유하고 부하 임계만 달라, 같은 부하 곡선에도 Group마다 다른 시점에 전환합니다:
 
-세 Group은 Mode 매핑(`high_load_mode=performance`/`low_load_mode=normal`/`high_temp_mode=safe`)과 온도 override(`high_temp=65`/`resume_temp=50`)를 공유하고 부하 임계(`high_load`/`low_load`)만 달라, 같은 부하 곡선에도 Group마다 다른 시점에 전환한다.
+|Group|high_load|low_load|high_load_mode|low_load_mode|
+|---|---|---|---|---|
+|zone_a|70|30|performance|normal|
+|zone_b|60|45|performance|normal|
+|zone_c|80|20|performance|normal|
+|zone_d|75|40|performance|normal|
 
-**온도 override**는 load 축과 무관하게 **Device별**로 동작하는 단방향 과열 보호이다. 어떤 active Device의 Shadow 온도가 `high_temp`를 넘으면 그 Device의 thermal이 hot으로 걸리고, load Regime과 무관하게 그 Device만 `high_temp_mode`로 간다. `resume_temp` 아래로 식으면 풀려 Group Base Mode로 복귀한다(`resume_temp < high_temp` [데드밴드](GLOSSARY.md#group-정책)). Group Regime이 미확정이면 정책 엔진은 `low_load_mode`를 baseline으로 써 thermal latch를 푼다.
+**온도 보호**는 load 축과 무관하게 Device별로 동작하는 단방향 과열 보호입니다.
+Shadow 온도가 `high_temp`를 넘으면 그 Device만 `high_temp_mode`로 전환되고, `resume_temp` 아래로 내려가면 Group Base Mode로 복귀합니다(`resume_temp < high_temp`인 데드밴드).
+Group Regime이 미확정이면 `low_load_mode`를 기준값으로 사용해 thermal 상태를 해제합니다.
 
 ```mermaid
 stateDiagram-v2
-  [*] --> cool : device 등록
-  cool --> hot : 자기 temp가 high_temp 초과 / 그 device만 high_temp_mode
-  hot --> cool : 자기 temp가 resume_temp 미만 / Group base mode 복귀
+  [*] --> cool : Device 등록
+  cool --> hot : temp가 high_temp 초과 / 해당 Device만 high_temp_mode
+  hot --> cool : temp가 resume_temp 미만 / Group Base Mode 복귀
   hot --> hot : resume_temp 이상 / 유지
   cool --> cool : high_temp 이하 / 유지
 ```
 
-이 폐루프는 Agent 쪽 `SimulatedDevice`가 닫는다: Mode별 초당 변화율을 매 보고 주기에 적분해 load/temp를 움직이고(performance는 부하를 빼며 발열, safe는 냉각), Device마다 초기값과 noise(`DDCS_SIM_NOISE`/`DDCS_SIM_JITTER`)가 달라 같은 Group 안에서도 thermal이 서로 다른 시점에 걸린다.
+_그림 7. Device thermal 상태 기계_
 
-밴드 조건 `low < high`는 ingress와 무관하게 항상 지켜야 하는 불변식이라 `GroupRule::try_make`가 도메인에서 강제한다(역전/동일이면 생성 거부).
+밴드 조건 `low < high`는 입력 경로와 무관한 불변식이므로 `GroupRule::create`가 도메인에서 검증합니다(역전되거나 동일하면 생성을 거부합니다).
 
-집계와 명령의 대상은 roster의 active 집합뿐이라 끊긴 Device의 stale Shadow가 평균을 오염시키지 않는다. 미보고 active Device는 기본 `load=0`으로 들어가고, Group을 선언하지 않은 Device와 빈 Group은 집계에서 제외한다.
+이 제어 루프의 반대편 절반은 Agent 쪽 `SimulatedDevice`가 담당합니다.
+Mode별 초당 변화율을 매 보고 주기에 적분해 load와 temp를 변화시키며(performance는 부하를 줄이는 대신 발열이 증가하고, safe는 냉각), Device마다 초기값과 noise가 달라 같은 Group 안에서도 thermal이 서로 다른 시점에 발생합니다.
 
-정책은 Device별로 "마지막에 보낸 Effective Mode"와 thermal 상태를 기억해 안 바뀌면 명령을 생략하고, Session이 끝나면(정상 종료/kick-old/liveness 축출) `SessionService`의 통지(`DeviceReleaseSink::on_device_left`)로 그 기억을 폐기해 재접속 Device가 다음 평가에서 반드시 현재 Effective Mode를 재명령받게 한다.
+집계와 명령의 대상은 active 집합뿐이므로 끊긴 Device의 stale Shadow는 평균에 반영되지 않고, 아직 보고하지 않은 active Device는 기본 `load = 0`으로 포함되며, Group 없는 Device와 빈 Group은 집계에서 제외합니다.
 
-명령의 전달 신뢰성(재전송/타임아웃/supersede)은 정책 엔진이 아니라 `CommandService`의 몫이다(다음 절). 정책은 "전환마다 1회"만 책임진다.
+정책은 Device별로 마지막에 발행한 Effective Mode의 기억(코드의 commanded belief)과 thermal 상태를 보관해, 변경이 없으면 명령을 생략합니다.
+Session이 끝나면(정상 종료, kick-old, liveness 축출) `SessionService`의 통지(`DeviceReleaseSink::on_device_released`)로 이 명령 기억을 폐기해, 다시 접속한 Device가 다음 평가에서 반드시 현재 Effective Mode를 다시 명령받게 합니다.
 
-## 7. 명령 RPC와 상관
+명령의 전달 신뢰성(재전송, 제한 시간, supersede)은 정책 엔진이 아니라 `CommandService`가 담당하며(7절), 정책 엔진의 책임은 전환마다 1회 발행까지입니다.
 
-전송은 Device당 하나의 TCP 연결이고 full-duplex다. 같은 소켓으로 Controller가 `command_request`(C->A)를 밀고 Agent가 `command_ack`/`command_outcome`(A->C)를 돌려보낸다. 별도 응답 채널은 없다. 외부 RPC(원격 프로시저 호출) 호출자도 없다: "발행자"는 Controller 자신의 정책 엔진이다.
+## 7. 명령 RPC
 
-왕복 흐름은 다음과 같다: 정책 엔진이 결정 -> `CommandService`가 추적/발신 -> Agent가 적용 -> `CommandService`가 정산.
+명령 RPC는 정책의 결정을 Device까지 전달하고 결과를 회수하며, 유실과 중복, 재접속 상황에서도 명령이 멱등하게 적용되도록 보장합니다.
+message 교환 규칙(대응 키, 재전송, 중복 제거)은 [PROTOCOL.md](PROTOCOL.md#명령-rpc)가 기준이며, 이 절은 그 규칙을 택한 근거와 Controller 내부 처리를 다룹니다.
 
-**정상 왕복** (command_id = N):
+전송은 Device당 하나의 TCP 연결이며 full-duplex입니다.
+같은 소켓으로 Controller가 `command_request`(C→A)를 보내고 Agent가 `command_ack`/`command_outcome`(A→C)으로 응답하며, 호출자는 Controller 자신의 정책 엔진입니다.
 
 ```mermaid
 sequenceDiagram
@@ -287,46 +290,69 @@ sequenceDiagram
   participant AG as Agent
   participant DEV as Device
   POL->>CS: dispatch(device, set_mode)
-  CS->>CS: id=N 발급 / 슬롯 등록 [device, N]
+  CS->>CS: id = N 발급, 슬롯 등록 [device, N]
   CS->>AG: command_request [N][set_mode]
   AG->>CS: command_ack [N]
-  Note over CS: acknowledge -> 마감시한 연장 (in-flight 유지)
+  Note over CS: acknowledge → 제한 시간 연장 (in-flight 유지)
   AG->>DEV: decode_mode + apply
   AG->>CS: command_outcome [N][success]
-  Note over CS: settle -> RTT 기록 / 슬롯 종료
+  Note over CS: settle → RTT 기록, 슬롯 종료
 ```
 
-**경합과 실패** (supersede / 재전송 dedup):
+_그림 8. 정상 왕복 (`command_id` = N)_
+
+예외 경로는 supersede와 재전송 두 가지입니다.
 
 ```mermaid
 sequenceDiagram
   participant POL as 정책 엔진
   participant CS as CommandService
   participant AG as Agent
-  Note over POL,AG: supersede -- 같은 (device, type)에 새 명령 M
+  Note over CS: 슬롯 [device, N] 미결 상태
   POL->>CS: dispatch(device, set_mode)
-  CS->>CS: 슬롯 [device, N] 폐기 / id=M 발급
+  CS->>CS: 슬롯 [device, N] 폐기, id = M 발급
   CS->>AG: command_request [M]
-  Note right of CS: 뒤늦은 N 응답은 슬롯 miss -> stale 카운트
-  Note over POL,AG: 재전송 -- timeout 시 동일 id M
-  CS->>AG: command_request [M] (재전송)
-  Note over AG: M == last_command_id -> dedup (재적용 안 함)
-  AG->>CS: command_ack [M] + 캐시된 outcome
+  AG-->>CS: command_outcome [N] (뒤늦은 응답)
+  Note over CS: 슬롯 miss → stale 카운트
 ```
 
-- **상관 키는 `(device, command_id)`**: 연결 단위가 아니다. `command_id`는 Controller 전역 단조 `u64`(1부터, 0은 invalid)라 모든 Device/모든 명령 타입에 걸쳐 유일하고, 재접속으로 리셋되지 않아 새 연결로 도착한 늦은 응답도 같은 Device면 유효하게 수용한다.
-- **supersede**: 범위는 `(device, command_type)` 계열. 같은 계열에 새 명령이 나면 옛 미결 슬롯을 폐기하고 새 `command_id`로 교체한다(계열당 미결 1개). TCP 순서 보장으로 Agent는 최신을 마지막에 적용한다.
-- **재전송 = 동일 `command_id`**: 타임아웃/실패 시 지수 backoff 후 같은 id로 재전송한다. Agent는 depth-1 dedup(직전 `command_id`만 기억)으로 중복을 흡수해, 재적용 없이 캐시된 ack/outcome를 회신한다(재적용은 dedup miss에서만).
-- **ACK-before-apply**: Agent는 `command_request` 디코딩 성공 시 먼저 ack를 보내고, 그다음 적용 후 outcome을 보낸다. ack 시점은 `command_type` 검증 전이라, ack는 "요청이 디코딩됨"만 뜻한다. 미지 `command_type`도 ack 후 failed outcome으로 처리한다. Controller는 ack로 "수신"과 "완료"를 분리해 느린 적용을 명령 유실로 오인하지 않는다.
-- **stale 응답**: 닫힌/대체된/미지의 `(device, command_id)`로 오는 응답은 위반이 아니라 supersede/재전송의 정상 부산물이다. 카운트만 하고 무시한다.
+_그림 9. supersede: 같은 (device, type)에 새 명령 발행_
 
-현재 명령 어휘(`set_mode`)는 멱등 상태 선언이라 at-least-once 전달과 depth-1 dedup으로 충분하다. **비멱등 명령 타입을 추가한다면** 그 타입은 수신측 dedup + outcome 재송신으로 격상해야 한다([PROTOCOL.md](PROTOCOL.md) 참고).
+```mermaid
+sequenceDiagram
+  participant CS as CommandService
+  participant AG as Agent
+  CS->>AG: command_request [M]
+  Note over CS: 제한 시간 초과, 응답 없음
+  CS->>AG: command_request [M] (재전송)
+  Note over AG: M == last_command_id → 재적용하지 않음
+  AG->>CS: command_ack [M], 캐시된 outcome
+```
 
-재전송은 config 없이도 켜져 있다. 조립 폴백(`Controller::Config`)과 배포 설정 `config/controller.json`이 모두 `max_attempts = 3` / `backoff_base_ms = 500`이고, `max_attempts`를 `1`로 낮추면 재전송 경로가 비활성이 되어 첫 실패에서 곧장 포기한다.
+_그림 10. 재전송과 중복 제거 (동일 `command_id` 유지)_
 
-## 8. 에이전트 재접속
+### 7.1. 설계 근거
 
-Agent는 단일 Controller 연결을 유지하고, 연결이 끊기면 jitter가 섞인 지수 backoff로 재접속을 예약한다. 모든 경로가 `Connector::disconnect_and_reconnect()` 한 곳으로 모인다.
+- **`command_id`는 Controller 전역 단조 u64입니다**: Device별이나 연결별로 발급하면 재접속 후 id가 재사용되어 이전 연결의 늦은 응답이 새 명령의 응답으로 오인될 수 있습니다.
+  전역 단조 id는 재접속으로 리셋되지 않으므로 새 연결로 도착한 늦은 응답도 정확히 매칭되고, 그래서 Session이 끝나도 미결 슬롯(`CommandService::pending_`)은 비우지 않습니다.
+- **ack와 outcome을 분리합니다**: ack만 받고 outcome을 기다리는 동안 명령은 미결(in-flight) 상태로 유지되고 제한 시간이 연장됩니다.
+  둘을 합쳤다면 적용이 오래 걸리는 Device를 유실로 판단해 불필요한 재전송이 발생합니다.
+  ack는 요청이 디코딩됐다는 뜻일 뿐이므로, 정의되지 않은 `command_type`도 ack를 받은 뒤 실패 outcome으로 처리됩니다.
+- **중복 제거 깊이는 1입니다**: 현재 명령 타입(`set_mode`)은 목표 상태를 지정하는 멱등 연산이라 중복 제거는 정확성 요건이 아니라 불필요한 Device 조작을 줄이는 최적화입니다.
+  supersede가 계열당 미결 명령을 하나로 제한하고 TCP가 순서를 보장하므로, 중복은 직전 명령의 재전송 형태로만 도착합니다.
+  비멱등 명령 타입을 추가한다면 타입별 중복 제거와 outcome 재전송이 필요합니다.
+- **supersede 범위는 `(device, command_type)`입니다**: 같은 계열의 명령은 나중 것이 이전 것을 무효화하므로 계열당 미결 슬롯은 하나면 충분합니다.
+  대체된 `command_id`로 오는 응답은 프로토콜 위반이 아니라 supersede의 정상적인 부산물이므로, `ddcs_commands_stale_total`로 집계만 하고 무시합니다.
+
+### 7.2. 재전송 설정
+
+재전송은 기본 활성화이며, 코드 기본값과 배포 설정이 모두 `max_attempts = 3`, `backoff_base_ms = 500`입니다.
+`max_attempts = 1`이면 재전송 경로가 비활성화되어 첫 실패에서 바로 포기합니다.
+
+## 8. Agent 재접속
+
+Agent는 단일 Controller 연결을 유지하며, 연결이 끊기면 jitter를 섞은 지수 백오프로 재접속을 예약합니다.
+모든 재접속 경로가 `Connector::disconnect_and_reconnect()` 한 곳을 거칩니다.
 
 ```mermaid
 stateDiagram-v2
@@ -335,52 +361,48 @@ stateDiagram-v2
   Connecting --> Backoff : connect 실패 / SO_ERROR / hangup
   Connecting --> Connected : writable 그리고 SO_ERROR==0
   Connected --> Registering : register_request 전송 / register_timeout
-  Registering --> Backoff : timeout / 거부 / bad outcome -> close
+  Registering --> Backoff : timeout / 거부 / bad outcome -> disconnect
   Registering --> Live : register_outcome success -> notify_registered backoff 리셋 / ack / enter_active
   Live --> Backoff : hangup/peer_closed / framing 오류 / app close
   Backoff --> Connecting : reconnect_timer 발화 / delay = next_delay
 ```
 
-- **트리거**: TCP 셋업 실패, 연결/등록 중 error/hangup, `receive`/`transmit`의 peer_closed/error, 프레이밍 위반, app이 부른 `close()`(등록 타임아웃, bad outcome, 예기치 못한 message 등). **liveness 상실은 Controller가 구동한다:** Agent에는 자체 liveness 타이머가 없고, Controller의 liveness sweep이 끊으면 Agent가 hangup으로 관측한다.
-- **backoff:** `base`/`cap`은 `BackoffSchedule` 코드 기본 `1s`/`30s`(설정 `transport.reconnect_base_delay_ms`/`reconnect_max_delay_ms`로 튜닝; 배포 `config/agent.json`은 `200ms`/`5000ms`로 낮춘다), jitter `+/-25%`. delay = `base * 2^attempt`를 `cap`으로 클램프(코드 기본값이면 1, 2, 4, 8, 16, 30, 30, ...) 후 jitter 적용. jitter는 결정적 xorshift32다(테스트 가능). 동시 재시도(thundering-herd)를 흩뜨리는 장치이고, cap 클램프 후 적용이라 실제 상한은 `+/-25%`인 ~37.5s이다.
-- **리셋 시점: TCP 연결이 아니라 등록 성공.** `notify_registered()`가 `backoff.reset()`을 부르는데, Agent는 이를 성공 `register_outcome` 이후에만 호출해 TCP는 accept하지만 등록을 끝내지 못하는 Controller를 상대로도 backoff가 자란다.
-- **재접속 시 전체 3-way 재등록.** 끊기면 연결은 idle로 복귀(fd FIN, rx 클리어, tx drain, app 타이머 취소)하고, 재연결 후 `register_request -> outcome -> ack`를 다시 밟는다. 돌아온 DeviceId는 Controller가 kick-old로 처리한다(5절).
+_그림 11. Agent 재접속 상태 기계_
 
-## 9. 관측성
+- **재접속 트리거**: TCP 연결 수립 실패, 연결이나 등록 중의 error/hangup, peer_closed, 프레이밍 위반, app이 호출한 `disconnect()`(등록 제한 시간 초과, 실패 outcome, 예기치 못한 message)가 모두 재접속을 예약합니다.
+  liveness 상실 판단은 Controller의 몫이며, Agent에는 자체 liveness 타이머가 없고 Controller가 연결을 끊으면 hangup으로 감지합니다.
+- **백오프 계산**: `BackoffSchedule`이 `base * 2^attempt`를 상한으로 제한한 뒤 ±25% jitter를 적용합니다.
+  기본값(base 1초, 상한 30초)이면 1, 2, 4, 8, 16, 30, 30, ...초가 되고, jitter가 상한 적용 후에 붙으므로 실제 최댓값은 약 37.5초입니다(배포 `config/agent.json`은 0.2~5초).
+  jitter는 여러 Agent의 동시 재시도(thundering herd)를 분산시키며, 난수원이 결정적 xorshift32라 같은 seed에서 같은 수열이 나와 테스트에서 재현할 수 있습니다.
+- **리셋 시점은 TCP 연결이 아니라 등록 성공**: 성공 `register_outcome`을 받은 뒤에만 `notify_registered()`가 백오프를 리셋하므로, TCP 연결은 수락하지만 등록을 완료하지 못하는 Controller를 상대로도 백오프가 계속 증가합니다.
+- **재접속 시 전체 재등록**: 연결이 끊기면 fd를 닫아 FIN을 보내고 버퍼와 타이머를 정리해 idle로 복귀하며, 다시 연결한 뒤 등록 핸드셰이크를 처음부터 수행합니다.
+  같은 DeviceId의 재등록은 Controller가 kick-old로 처리합니다(5절).
 
-시스템은 JSONL 구조화 로그(양쪽 프로세스)와 Prometheus 메트릭(Controller 전용)으로 관측한다.
+## 9. 설계 결정
 
-### 로깅 (`lib/logger`)
+여러 절에 걸쳐 영향을 주는 결정 8개를 기각한 대안, 감수한 비용과 함께 [DECISION.md](DECISION.md)에 정리했습니다.
 
-프로세스 전역 싱글턴이 JSONL 형식으로 한 줄에 하나의 JSON 객체를 쓴다. 필드 순서는 고정이다: `ts`(ISO8601 UTC, ms) / `level`(대문자 DEBUG/INFO/WARN/ERROR) / `event`(점으로 구분된 토큰, 예: `session.kick_old`) / 사용자 필드(`logger::kv` 순서대로) / `file`(basename) / `line`. 레벨 임계 기본은 info이다. 비활성 레벨 인자는 매크로가 평가조차 하지 않는다. 싱크는 단일 `Sink*`이다. `clear_sink(expected)`는 현재 싱크가 expected와 같을 때만 분리한다(컴포넌트가 남의 싱크를 떼지 못하게).
+## 10. 한계점
 
-### 메트릭 (Controller 전용)
+범위 밖으로 둔 것과 만들었으되 여기까지인 것을 함께 적습니다. 앞은 안 만들기로 한 결정이고, 뒤는 알려진 제약입니다.
 
-Controller만 Prometheus 텍스트 익스포지션을 `:9000`(기본)에 노출한다. HTTP 서버는 리액터의 두 번째 게스트로 돌고 pull-only이다. 집계 메트릭은 라벨 없는 `uint64`다. Group별 메트릭은 `group`(+`mode`) 라벨을 단다. 요청 라인을 파싱하지 않아 어떤 경로로 와도 전체 scrape를 반환한다. 노출하는 메트릭은 다음과 같다:
+### 10.1. 신뢰 경계
 
-- **게이지**: `ddcs_connections`, `ddcs_devices_known`, `ddcs_commands_pending`
-- **카운터**: `ddcs_commands_dispatched_total`, `ddcs_commands_completed_total`, `ddcs_commands_timed_out_total`, `ddcs_commands_retried_total`, `ddcs_commands_superseded_total`, `ddcs_commands_stale_total`, `ddcs_commands_gave_up_total`, `ddcs_agents_evicted_total`, `ddcs_handshake_expired_total`
-- **히스토그램**: `ddcs_command_rtt_ms`(명령 dispatch->outcome 지연; `_bucket{le}` 누적 + `_sum` + `_count`). 평균 = sum/count, 꼬리 백분위 = `histogram_quantile(0.99, rate(..._bucket[5m]))`.
-- **sweep(단일 스레드 포화)**: `ddcs_sweep_duration_us`(직전 tick) / `ddcs_sweep_duration_us_max`(피크) 게이지, `ddcs_sweep_duration_us_sum` + `ddcs_sweep_ticks_total`(평균 = sum/ticks) 카운터. tick 작업 시간이 sweep 주기에 근접하면 한 코어가 포화에 이른다. 실측은 [README 성능 절](../README.md#성능) 참고.
-- **Group별(라벨)**: `ddcs_group_load_avg{group}`(평균 load), `ddcs_group_temp_avg{group}`(평균 온도), `ddcs_group_devices{group,mode}`(모드별 active Device 수). 정책에 있는 Group만 노출해 라벨 cardinality를 config로 한정한다.
+DDCS는 폐쇄망에서 정책 제어 루프를 검증하는 시뮬레이터이므로, wire 포트(`:8080`)에 접근하는 프로세스를 신뢰한다는 가정 위에서 동작합니다.
+등록 신원(`register_request.uuid`)은 Agent가 신고한 값이고 인증과 암호화 계층이 없으므로, 포트에 접근할 수 있는 임의의 클라이언트가 다른 Device의 uuid로 등록해 kick-old로 정상 Session을 대체할 수 있습니다.
+읽기 전용인 메트릭 포트(`:9000`)도 같은 신뢰 가정을 공유합니다.
 
-Agent는 메트릭 엔드포인트가 없다.
+시뮬레이터의 목표는 적대적 환경의 방어가 아니라 제어 루프의 정합성 검증이므로, 인증과 인가는 구현 누락이 아니라 범위 밖입니다.
+실제 환경에 배포한다면 전송에는 mTLS, 등록에는 사전 발급 토큰, 메트릭 포트에는 접근 제어가 필요합니다.
 
-## 10. 설정
+### 10.2. 제약과 개선 방향
 
-역할별 단일 JSON 파일 로더(`lib/config`)이다. 키는 점 경로(`session.handshake_timeout_ms`)로 중첩 object를 가리킨다. 값 우선순위는 **환경변수(설정/유효 시) > 파일 > 코드 기본값**이다.
-
-```mermaid
-graph TD
-  env["환경변수 (예: DDCS_TRANSPORT_PORT)"] -->|우선| R["적용값"]
-  file["설정 파일 (config/controller.json 또는 agent.json)"] -->|다음| R
-  def["코드 기본값"] -->|마지막| R
-```
-
-각 main은 `DDCS_CONFIG_PATH`(기본 `config/controller.json` / `config/agent.json`) 한 파일을 읽는다. 파일 없음은 비치명이다(기본값으로 가동 + stderr 경고). malformed JSON은 치명이다(throw -> `EXIT_FAILURE`). 타입이 불일치하면 설정 로더가 그 키만 기본값으로 두고 경고한다. 시간(ms) 키는 의도적으로 환경변수 override가 없다. 정책은 controller 파일의 `policy` 객체에 인라인되어 있어, 설정 로더가 같은 파일에서 함께 로드한다.
-
-Agent의 Device 신원(`DDCS_DEVICE_ID` / `DDCS_DEVICE_ID_FILE`)은 Config가 아니라 main에서 직접 해석한다: env > 파일 읽기 > 생성+파일 기록(자가발급, persist 성공 시 비-ephemeral).
-
-**Controller는 정책을 `SIGHUP`으로 핫리로드한다**: Controller 프로세스에 SIGHUP을 보내면 `load_policy`가 `controller.json`의 `policy`를 다시 읽어 `set_policy`로 재적용한다(malformed/없음이면 경고 후 옛 정책 유지. validate-before-apply). 재적용 시 정책 엔진은 발신 belief(commanded)만 비워 다음 sweep이 새 정책으로 재명령하게 하고, regime/thermal 히스테리시스 latch는 reload를 넘어 보존해 과열 보호와 데드밴드 상태를 잇는다.
-
-나머지 설정(포트/타임아웃 등)은 부팅 시 1회만 읽는다. 전체 설정 키 레퍼런스(파일/기본값/환경변수)는 [README 설정 절](../README.md#설정)에 있다.
+|한계|현재 동작|개선 방향|
+|---|---|---|
+|Controller 단일 장애점|프로세스가 종료되면 제어 루프 전체가 멈추고 Agent는 백오프로 재시도|리액터 샤딩 + Device 파티셔닝. 한 Group이 여러 샤드에 흩어지면 load 집계에 샤드 간 동기화 필요|
+|상태 비영속|재시작 시 Shadow와 미결 명령이 사라지고 재보고로 수 초 안에 수렴|이 수 초까지 없애려면 스냅샷 또는 이벤트 로그 재생|
+|sweep 전체 순회|비용이 Session·미결 명령 수에 비례해 규모가 커지면 tick 소요가 지연 스파이크로 나타남|만료 시각 최소힙으로 만료 항목만 처리|
+|송신 큐 무제한|소비가 멈춘 Agent 하나가 Controller 메모리를 계속 차지. `ddcs_tx_queued_messages`가 유일한 계기|상한 초과 시 연결 종료 (liveness와 동일한 결말)|
+|메트릭 포트 자원 가드 없음|접속마다 전체 텍스트를 조립해 반환|외부 노출 전에 접속 제한 + 응답 캐시|
+|프로토콜 버전 협상 없음|스키마 변경 시 양측 동시 배포 필요|frame 헤더 버전 필드 + 등록 단계 협상|
+|Agent 자체 liveness 없음|Controller 호스트가 응답 없이 중단되면 TCP 재전송 한도까지 감지하지 못함|Agent에도 응답 제한 시간 타이머|
