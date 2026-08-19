@@ -173,8 +173,8 @@ TEST(ControllerTest, ServesMetricsWhenEnabled) {
 TEST(ControllerTest, SighupReloadsPolicy) {
     auto const path = std::filesystem::temp_directory_path() / "ddcs_reload_test.json";
     write_file(
-        path, R"({"policy":{"groups":{"alpha":{"high_load":80,"low_load":20,)"
-              R"("high_load_mode":"performance","low_load_mode":"normal"}}}})"
+        path, R"({"policy":{"groups":{"alpha":{"busy_load":80,"idle_load":20,)"
+              R"("busy_mode":"performance","idle_mode":"normal"}}}})"
     );
 
     CapturingSink sink;
@@ -189,8 +189,8 @@ TEST(ControllerTest, SighupReloadsPolicy) {
     write_file(
         path,
         R"({"policy":{"groups":{)"
-        R"("alpha":{"high_load":80,"low_load":20,"high_load_mode":"performance","low_load_mode":"normal"},)"
-        R"("beta":{"high_load":60,"low_load":40,"high_load_mode":"performance","low_load_mode":"normal"}}}})"
+        R"("alpha":{"busy_load":80,"idle_load":20,"busy_mode":"performance","idle_mode":"normal"},)"
+        R"("beta":{"busy_load":60,"idle_load":40,"busy_mode":"performance","idle_mode":"normal"}}}})"
     );
     ::raise(SIGHUP);
     for (int i = 0; i < 10 && sink.text.find(R"("trigger":"reload")") == std::string::npos; ++i) {
@@ -210,8 +210,8 @@ TEST(ControllerTest, SighupReloadsPolicy) {
 TEST(ControllerTest, SighupWithMalformedPolicyKeepsOldPolicy) {
     auto const path = std::filesystem::temp_directory_path() / "ddcs_reload_malformed_test.json";
     write_file(
-        path, R"({"policy":{"groups":{"alpha":{"high_load":80,"low_load":20,)"
-              R"("high_load_mode":"performance","low_load_mode":"normal"}}}})"
+        path, R"({"policy":{"groups":{"alpha":{"busy_load":80,"idle_load":20,)"
+              R"("busy_mode":"performance","idle_mode":"normal"}}}})"
     );
 
     CapturingSink sink;
@@ -230,7 +230,7 @@ TEST(ControllerTest, SighupWithMalformedPolicyKeepsOldPolicy) {
     }
     controller.stop();
 
-    EXPECT_NE(sink.text.find(R"("trigger":"reload")"), std::string::npos); // SIGHUP 처리됨
+    EXPECT_NE(sink.text.find(R"("trigger":"reload")"), std::string::npos);         // SIGHUP 처리됨
     EXPECT_NE(sink.text.find(R"("event":"policy.load.fail")"), std::string::npos); // malformed 거부
     // 성공 토큰은 부팅 1회 그대로 -- 재적용이 없었다 = 옛 정책 유지.
     EXPECT_EQ(count_substr(sink.text, R"("event":"policy.load")"), 1U);
@@ -242,8 +242,8 @@ TEST(ControllerTest, SighupWithMalformedPolicyKeepsOldPolicy) {
 TEST(ControllerTest, SighupWithInvalidPolicyKeepsOldPolicy) {
     auto const path = std::filesystem::temp_directory_path() / "ddcs_reload_invalid_test.json";
     write_file(
-        path, R"({"policy":{"groups":{"alpha":{"high_load":80,"low_load":20,)"
-              R"("high_load_mode":"performance","low_load_mode":"normal"}}}})"
+        path, R"({"policy":{"groups":{"alpha":{"busy_load":80,"idle_load":20,)"
+              R"("busy_mode":"performance","idle_mode":"normal"}}}})"
     );
 
     CapturingSink sink;
@@ -254,9 +254,9 @@ TEST(ControllerTest, SighupWithInvalidPolicyKeepsOldPolicy) {
     Controller controller{cfg};
     controller.start();
 
-    // 파싱은 되지만 low_load/mode 누락 -> parse_policy nullopt -> policy.load.fail reason=invalid
+    // 파싱은 되지만 idle_load/mode 누락 -> parse_policy nullopt -> policy.load.fail reason=invalid
     // (set_policy 미호출)
-    write_file(path, R"({"policy":{"groups":{"alpha":{"high_load":80}}}})");
+    write_file(path, R"({"policy":{"groups":{"alpha":{"busy_load":80}}}})");
     ::raise(SIGHUP);
     for (int i = 0; i < 10 && sink.text.find(R"("reason":"invalid")") == std::string::npos; ++i) {
         controller.run_once(std::chrono::milliseconds{20});

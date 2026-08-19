@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="ddcs-services" name="서비스 구조">
-        <mxGraphModel dx="1513" dy="1159" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1240" pageHeight="620" background="#ffffff" math="0" shadow="0">
+        <mxGraphModel dx="1032" dy="811" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1240" pageHeight="620" background="#ffffff" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -384,6 +384,73 @@
                         </Array>
                         <mxPoint x="280" y="560" as="targetPoint"/>
                     </mxGeometry>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="ddcs-regime" name="Regime 상태 기계">
+        <mxGraphModel dx="1214" dy="954" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1240" pageHeight="750" background="#ffffff" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="p5-start" value="" style="ellipse;html=1;fillColor=#111111;strokeColor=none;" parent="1" vertex="1">
+                    <mxGeometry x="590" y="40" width="20" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="p5-unknown" value="&lt;b&gt;unknown&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;밴드를 벗어난 적 없음&lt;br/&gt;Base Mode 없음&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F2F3;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=18;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="460" y="120" width="280" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="p5-idle" value="&lt;b&gt;idle&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;마지막으로 벗어난 밴드 = 하단&lt;br/&gt;Base Mode = idle_mode&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8EEFA;strokeColor=#2B4CE8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=18;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="140" y="330" width="280" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="p5-busy" value="&lt;b&gt;busy&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;마지막으로 벗어난 밴드 = 상단&lt;br/&gt;Base Mode = busy_mode&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E8EEFA;strokeColor=#2B4CE8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=18;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="780" y="330" width="280" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="p5-e-init" value="&lt;b&gt;Group 첫 평가&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;active Device가 생긴 뒤 첫 sweep&lt;/font&gt;" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#2B4CE8;strokeWidth=2;fontFamily=Noto Sans KR;fontSize=13;fontColor=#2B4CE8;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="p5-start" target="p5-unknown" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="130" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p5-e-u2i" value="&lt;b&gt;avg &amp;lt; idle_load&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;Base Mode = idle_mode&lt;/font&gt;" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#2B4CE8;strokeWidth=2;fontFamily=Noto Sans KR;fontSize=13;fontColor=#2B4CE8;labelBackgroundColor=#FFFFFF;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="p5-unknown" target="p5-idle" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p5-e-u2b" value="&lt;b&gt;avg &amp;gt; busy_load&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;Base Mode = busy_mode&lt;/font&gt;" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#2B4CE8;strokeWidth=2;fontFamily=Noto Sans KR;fontSize=13;fontColor=#2B4CE8;labelBackgroundColor=#FFFFFF;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="p5-unknown" target="p5-busy" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p5-e-i2b" value="&lt;b&gt;avg &amp;gt; busy_load&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;Base Mode = busy_mode&lt;/font&gt;" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#2B4CE8;strokeWidth=2;fontFamily=Noto Sans KR;fontSize=13;fontColor=#2B4CE8;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.2;exitDx=0;exitDy=0;entryX=0;entryY=0.2;entryDx=0;entryDy=0;" parent="1" source="p5-idle" target="p5-busy" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p5-e-b2i" value="&lt;b&gt;avg &amp;lt; idle_load&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;Base Mode = idle_mode&lt;/font&gt;" style="html=1;endArrow=block;endFill=1;rounded=0;strokeColor=#2B4CE8;strokeWidth=2;fontFamily=Noto Sans KR;fontSize=13;fontColor=#2B4CE8;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.8;exitDx=0;exitDy=0;entryX=1;entryY=0.8;entryDx=0;entryDy=0;" parent="1" source="p5-busy" target="p5-idle" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="p5-e-uu" value="&lt;b&gt;idle_load ≤ avg ≤ busy_load&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;데드밴드 · 유지 (NaN 포함)&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;rounded=1;strokeColor=#6E6E6E;strokeWidth=1.5;fontFamily=Noto Sans KR;fontSize=13;fontColor=#7F7F7F;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" parent="1" source="p5-unknown" target="p5-unknown" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="370" y="145"/>
+                            <mxPoint x="370" y="195"/>
+                        </Array>
+                        <mxPoint x="-120" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p5-e-ii" value="&lt;b&gt;avg ≤ busy_load&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;유지 · 명령 없음&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;rounded=1;strokeColor=#6E6E6E;strokeWidth=1.5;fontFamily=Noto Sans KR;fontSize=13;fontColor=#7F7F7F;labelBackgroundColor=#FFFFFF;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.75;entryY=1;entryDx=0;entryDy=0;" parent="1" source="p5-idle" target="p5-idle" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="210" y="490"/>
+                            <mxPoint x="350" y="490"/>
+                        </Array>
+                        <mxPoint y="28" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p5-e-bb" value="&lt;b&gt;avg ≥ idle_load&lt;/b&gt;&lt;br/&gt;&lt;font style=&quot;font-size:12px&quot; color=&quot;#7f7f7f&quot;&gt;유지 · 명령 없음&lt;/font&gt;" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;rounded=1;strokeColor=#6E6E6E;strokeWidth=1.5;fontFamily=Noto Sans KR;fontSize=13;fontColor=#7F7F7F;labelBackgroundColor=#FFFFFF;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0.75;entryY=1;entryDx=0;entryDy=0;" parent="1" source="p5-busy" target="p5-busy" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="850" y="490"/>
+                            <mxPoint x="990" y="490"/>
+                        </Array>
+                        <mxPoint y="28" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="p5-note" value="&lt;b&gt;Regime은 Mode가 아니라 밴드 위치입니다.&lt;/b&gt; busy · idle이 어느 Mode를 목표로 할지는 Group마다 운영자가 &lt;font face=&quot;Courier New&quot;&gt;config/controller.json&lt;/font&gt;에서 지정합니다.&lt;br/&gt;Group 단위로 sweep 1s마다 active Device 평균 load로 평가합니다. active Device가 0인 Group은 건너뛰고, 정책 리로드(SIGHUP)도 latch를 보존합니다.&lt;br/&gt;Device의 Effective Mode는 thermal이 hot이면 hot_mode가 이기며, &lt;font face=&quot;Courier New&quot;&gt;set_mode&lt;/font&gt; 명령은 Effective Mode가 바뀐 Device에만 발행합니다.&lt;br/&gt;Regime이 unknown이면 명령이 나가지 않습니다. 단 hot에서 풀린 Device는 unknown이어도 idle_mode로 복귀시킵니다 -- 근거 없는 비상모드 latch를 남기지 않기 위해서입니다." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F2F2F3;strokeColor=#B8B8B8;fontColor=#111111;fontFamily=Noto Sans KR;fontSize=13;align=left;verticalAlign=middle;spacingLeft=16;spacingRight=16;" parent="1" vertex="1">
+                    <mxGeometry x="140" y="570" width="920" height="140" as="geometry"/>
                 </mxCell>
             </root>
         </mxGraphModel>

@@ -81,7 +81,7 @@ DeviceId는 `DDCS_DEVICE_ID` 환경변수, `DDCS_DEVICE_ID_FILE`이 가리키는
 ## 정책
 
 정책은 별도 파일이 아니라 `controller.json`의 `policy.groups`에 있습니다.
-Group별 규칙은 부하 임계 두 개(`high_load`/`low_load`)와 각각의 목표 Mode, 그리고 선택적 온도 보호(`high_temp`/`resume_temp`/`high_temp_mode`)로 이루어지며, 동작은 [ARCHITECTURE 정책 엔진](ARCHITECTURE.md#6-정책-엔진) 절에서 다룹니다.
+Group별 규칙은 부하 임계 두 개(`busy_load`/`idle_load`)와 각각의 목표 Mode, 그리고 선택적 온도 보호(`hot_temp`/`cool_temp`/`hot_mode`)로 이루어지며, 동작은 [ARCHITECTURE 정책 엔진](ARCHITECTURE.md#6-정책-엔진) 절에서 다룹니다.
 `kill -HUP <controller-pid>`를 보내면 Controller가 `policy`만 다시 읽어 적용하고, 유효하지 않은 정책은 경고만 남긴 채 기존 정책을 유지합니다.
 
 **Controller는 정책을 `SIGHUP`으로 리로드합니다.**

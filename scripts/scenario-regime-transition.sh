@@ -25,7 +25,7 @@ narrate "현재 Group 평균 부하:"
 curl -s --max-time 5 "$METRICS_URL" | grep '^ddcs_group_load_avg' | sort | sed "s/^/  ${C_D}/;s/$/${C_0}/"
 
 narrate "단언"
-assert_ge "busy 전환 발생(평균 부하가 high_load 초과)" "$busy" 1
-assert_ge "idle 전환 발생(평균 부하가 low_load 미만)" "$idle" 1
+assert_ge "busy 전환 발생(평균 부하가 busy_load 초과)" "$busy" 1
+assert_ge "idle 전환 발생(평균 부하가 idle_load 미만)" "$idle" 1
 
 summary

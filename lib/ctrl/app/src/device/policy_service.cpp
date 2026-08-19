@@ -22,20 +22,21 @@ std::optional<domain::GroupPolicy> parse_policy(json::Value const& root) {
     domain::GroupPolicy policy;
     bool ok = true;
     groups->for_each_member([&](std::string_view name, json::Value const& g) {
-        auto const* high = g.find("high_load");
-        auto const* low = g.find("low_load");
-        auto const* busy = g.find("high_load_mode");
-        auto const* idle = g.find("low_load_mode");
-        if (high == nullptr || low == nullptr || busy == nullptr || idle == nullptr) {
+        auto const* busy_load = g.find("busy_load");
+        auto const* idle_load = g.find("idle_load");
+        auto const* busy_mode = g.find("busy_mode");
+        auto const* idle_mode = g.find("idle_mode");
+        if (busy_load == nullptr || idle_load == nullptr || busy_mode == nullptr ||
+            idle_mode == nullptr) {
             ok = false;
             return;
         }
 
-        auto const hv = high->as_double();
-        auto const lv = low->as_double();
-        auto const bs = busy->as_string();
-        auto const is = idle->as_string();
-        if (!hv || !lv || !bs || !is) {
+        auto const bl = busy_load->as_double();
+        auto const il = idle_load->as_double();
+        auto const bs = busy_mode->as_string();
+        auto const is = idle_mode->as_string();
+        if (!bl || !il || !bs || !is) {
             ok = false;
             return;
         }
@@ -47,39 +48,37 @@ std::optional<domain::GroupPolicy> parse_policy(json::Value const& root) {
             return;
         }
 
-        // 온도 override (선택): high_temp/resume_temp/high_temp_mode 셋 다 있으면 활성, 일부면
+        // 온도 override (선택): hot_temp/cool_temp/hot_mode 셋 다 있으면 활성, 일부면
         // malformed
         std::optional<domain::ThermalRule> thermal;
-        auto const* ht = g.find("high_temp");
-        auto const* rt = g.find("resume_temp");
-        auto const* htm = g.find("high_temp_mode");
-        if (ht != nullptr || rt != nullptr || htm != nullptr) {
-            if (ht == nullptr || rt == nullptr || htm == nullptr) {
+        auto const* hot_temp = g.find("hot_temp");
+        auto const* cool_temp = g.find("cool_temp");
+        auto const* hot_mode = g.find("hot_mode");
+        if (hot_temp != nullptr || cool_temp != nullptr || hot_mode != nullptr) {
+            if (hot_temp == nullptr || cool_temp == nullptr || hot_mode == nullptr) {
                 ok = false;
                 return;
             }
 
-            auto const htv = ht->as_double();
-            auto const rtv = rt->as_double();
-            auto const htms = htm->as_string();
-            if (!htv || !rtv || !htms) {
+            auto const ht = hot_temp->as_double();
+            auto const ct = cool_temp->as_double();
+            auto const hs = hot_mode->as_string();
+            if (!ht || !ct || !hs) {
                 ok = false;
                 return;
             }
 
-            auto const htmm = ddcs::device::parse_mode(*htms);
-            if (!htmm) {
+            auto const hm = ddcs::device::parse_mode(*hs);
+            if (!hm) {
                 ok = false;
                 return;
             }
 
-            thermal = domain::ThermalRule{
-                .high_temp = *htv, .resume_temp = *rtv, .high_temp_mode = *htmm
-            };
+            thermal = domain::ThermalRule{.hot_temp = *ht, .cool_temp = *ct, .hot_mode = *hm};
         }
 
         // 밴드 불변식(load + thermal)은 도메인이 강제한다
-        auto rule = domain::GroupRule::create(*hv, *lv, *bm, *im, thermal);
+        auto rule = domain::GroupRule::create(*bl, *il, *bm, *im, thermal);
         if (!rule) {
             ok = false;
             return;
@@ -96,7 +95,7 @@ std::optional<domain::GroupPolicy> parse_policy(json::Value const& root) {
 
 void PolicyService::set_policy(domain::GroupPolicy policy) {
     policy_ = std::move(policy);
-    // regime/thermal은 히스테리시스 latch라 보존한다: 비우면 과열 latch가 resume_temp 전에 조기
+    // regime/thermal은 히스테리시스 latch라 보존한다: 비우면 과열 latch가 cool_temp 전에 조기
     // 해제되고, 데드밴드(low<avg<high) group이 새 룰의 mode를 재적용하지 못한다.
     commanded_.clear();
 }

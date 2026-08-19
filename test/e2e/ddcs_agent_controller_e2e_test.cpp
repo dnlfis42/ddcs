@@ -123,12 +123,12 @@ make_agent(std::uint16_t port, std::uint8_t uuid_seed, std::string group = {}) {
     );
 }
 
-// 단일 그룹 정책을 temp 파일로 떨군다. low_load 위(>0)라 load=0인 DummyDevice는 idle로 떨어진다.
+// 단일 그룹 정책을 temp 파일로 떨군다. idle_load 위(>0)라 load=0인 DummyDevice는 idle로 떨어진다.
 std::filesystem::path write_idle_policy(std::string_view group) {
     auto const path = std::filesystem::temp_directory_path() / "ddcs_e2e_policy.json";
     std::ofstream f{path};
     f << R"({"policy":{"groups":{")" << group
-      << R"(":{"high_load":10.0,"low_load":5.0,"high_load_mode":"safe","low_load_mode":"performance"}}}})";
+      << R"(":{"busy_load":10.0,"idle_load":5.0,"busy_mode":"safe","idle_mode":"performance"}}}})";
     return path;
 }
 
@@ -254,7 +254,7 @@ TEST(AgentControllerE2eTest, HeartbeatKeepsAgentAliveOverTime) {
 }
 
 // 정책 경로로 c->a Command가 왕복한다(operator API 없음 - load 임계 전환이 명령을 낸다).
-// load=0인 device가 low_load 밴드 아래라 controller가 idle_mode SetMode를 발신 -> agent 적용 ->
+// load=0인 device가 idle_load 밴드 아래라 controller가 idle_mode SetMode를 발신 -> agent 적용 ->
 // outcome 회신.
 TEST(AgentControllerE2eTest, PolicyCommandRoundTrips) {
     CaptureSink sink;

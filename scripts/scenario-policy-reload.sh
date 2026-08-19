@@ -59,10 +59,10 @@ cat >"$CFG" <<'JSON'
 {
   "policy": {
     "groups": {
-      "zone_a": {"high_load": 70, "low_load": 30, "high_load_mode": "safe", "low_load_mode": "safe", "high_temp": 65, "resume_temp": 50, "high_temp_mode": "safe"},
-      "zone_b": {"high_load": 60, "low_load": 45, "high_load_mode": "performance", "low_load_mode": "normal", "high_temp": 65, "resume_temp": 50, "high_temp_mode": "safe"},
-      "zone_c": {"high_load": 80, "low_load": 20, "high_load_mode": "performance", "low_load_mode": "normal", "high_temp": 65, "resume_temp": 50, "high_temp_mode": "safe"},
-      "zone_d": {"high_load": 75, "low_load": 40, "high_load_mode": "performance", "low_load_mode": "normal", "high_temp": 65, "resume_temp": 50, "high_temp_mode": "safe"}
+      "zone_a": {"busy_load": 70, "idle_load": 30, "busy_mode": "safe", "idle_mode": "safe", "hot_temp": 65, "cool_temp": 50, "hot_mode": "safe"},
+      "zone_b": {"busy_load": 60, "idle_load": 45, "busy_mode": "performance", "idle_mode": "normal", "hot_temp": 65, "cool_temp": 50, "hot_mode": "safe"},
+      "zone_c": {"busy_load": 80, "idle_load": 20, "busy_mode": "performance", "idle_mode": "normal", "hot_temp": 65, "cool_temp": 50, "hot_mode": "safe"},
+      "zone_d": {"busy_load": 75, "idle_load": 40, "busy_mode": "performance", "idle_mode": "normal", "hot_temp": 65, "cool_temp": 50, "hot_mode": "safe"}
     }
   }
 }

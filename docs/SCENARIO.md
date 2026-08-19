@@ -63,7 +63,7 @@ _그림 1. 시나리오 공통 골격_
 ## thermal: 과열된 Device만 보호 Mode로
 
 **주장.** 과열 트립은 Device 단위로 동작합니다.
-같은 zone에서 과열된 Device만 safe로 빠지고, `resume_temp` 아래로 식으면 Base Mode로 복귀합니다.
+같은 zone에서 과열된 Device만 safe로 빠지고, `cool_temp` 아래로 식으면 Base Mode로 복귀합니다.
 
 **증거 논리.** 같은 zone의 Device들은 같은 Policy를 공유하므로, 트립이 Group 단위라면 어느 순간이든 zone 전체가 같은 Mode여야 합니다.
 따라서 **한 스냅샷 안에 performance와 safe가 공존**하는 것 자체가 Device 단위 분기의 증거이며, 공존은 두 값이 같은 순간에 있었다는 주장이므로 반드시 한 번의 scrape 응답 안에서 두 값을 함께 읽습니다.
@@ -72,7 +72,7 @@ _그림 1. 시나리오 공통 골격_
 **진행.**
 
 1. scale compose로 zone 4개 × `DDCS_SCENARIO_PER_ZONE`(기본 5)대를 기동하고 전 대수 연결을 기다립니다.
-2. 70초 동안 대기합니다. performance 구간의 발열(+6°/s)이 `high_temp`(65°)에 도달하면서 트립이 누적됩니다.
+2. 70초 동안 대기합니다. performance 구간의 발열(+6°/s)이 `hot_temp`(65°)에 도달하면서 트립이 누적됩니다.
 3. 약 28초간 2초 간격으로 `ddcs_group_devices`를 14회 샘플링해, zone별 (performance, safe) 공존과 safe 수의 감소(= 회복)를 찾습니다.
 4. Controller 로그에서 `policy.thermal.update`(thermal=hot)의 distinct Device 수를 셉니다.
 
@@ -112,7 +112,7 @@ Controller는 Device마다 마지막으로 명령한 Mode의 기억(코드의 co
 **주장.** Group 평균 부하가 히스테리시스 밴드를 넘나들면 Regime이 busy(performance)와 idle(normal)로 전환됩니다.
 
 **증거 논리.** 시뮬레이션은 Mode에 따라 부하가 변하는 폐루프입니다.
-performance는 부하를 깎고(-4/s) normal은 쌓으므로(+2/s), 정책이 정상 동작하면 부하가 limit cycle로 진동하며 `high_load` 초과와 `low_load` 미만을 번갈아 지납니다.
+performance는 부하를 깎고(-4/s) normal은 쌓으므로(+2/s), 정책이 정상 동작하면 부하가 limit cycle로 진동하며 `busy_load` 초과와 `idle_load` 미만을 번갈아 지납니다.
 따라서 양방향 전환이 모두 발생하는 것 자체가 밴드 판정과 폐루프가 함께 동작한다는 증거입니다.
 zone당 1대 구성을 쓰는 이유는 Group 평균이 곧 그 Device의 부하가 되어 진동이 선명해지기 때문입니다.
 
@@ -126,8 +126,8 @@ zone당 1대 구성을 쓰는 이유는 Group 평균이 곧 그 Device의 부하
 
 |단언|의미|
 |---|---|
-|busy 전환 ≥ 1|평균 부하가 `high_load`를 넘어 busy로 판정됐다|
-|idle 전환 ≥ 1|평균 부하가 `low_load` 아래로 내려가 idle로 판정됐다|
+|busy 전환 ≥ 1|평균 부하가 `busy_load`를 넘어 busy로 판정됐다|
+|idle 전환 ≥ 1|평균 부하가 `idle_load` 아래로 내려가 idle로 판정됐다|
 
 전환 횟수의 상한(잦은 전환 억제)은 밴드 설계의 몫이므로([설계 결정](ARCHITECTURE.md#9-설계-결정)) 단언하지 않고, 전환이 양방향으로 실제 발생하는지만 확인합니다.
 

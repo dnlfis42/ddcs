@@ -26,7 +26,7 @@ wait_for "Agent ${EXPECTED}대 연결" 60 metric_at_least ddcs_connections "$EXP
 soak 3 "연결 안정화"
 info "연결된 Device 수: $(metric_int ddcs_connections)"
 
-soak "${DDCS_SCENARIO_SOAK:-70}" "과열 트립 누적: 발열이 high_temp(65)에 도달"
+soak "${DDCS_SCENARIO_SOAK:-70}" "과열 트립 누적: 발열이 hot_temp(65)에 도달"
 
 narrate "현재 Mode 분포 (ddcs_group_devices):"
 curl -s --max-time 5 "$METRICS_URL" | grep '^ddcs_group_devices' | sort | sed "s/^/  ${C_D}/;s/$/${C_0}/"
@@ -53,7 +53,7 @@ for i in $(seq 1 14); do
             mix_seen=1
             info "샘플 $i: $z performance=$p safe=$s (공존)"
         fi
-        # safe 수가 직전보다 줄면 그 Device가 resume_temp 아래로 식어 Base Mode로 복귀했다고 본다
+        # safe 수가 직전보다 줄면 그 Device가 cool_temp 아래로 식어 Base Mode로 복귀했다고 본다
         if [ -n "${prev_safe[$z]:-}" ] && [ "$s" -lt "${prev_safe[$z]}" ]; then
             recover_seen=1
             info "샘플 $i: $z safe ${prev_safe[$z]}에서 $s로 감소 (과열 회복)"
@@ -67,6 +67,6 @@ hot=$(hot_distinct)
 narrate "단언"
 assert_ge "모든 Device가 한 번 이상 개별 과열 트립(thermal=hot)" "$hot" "$EXPECTED"
 assert_ge "한 Group 안에 performance와 safe가 공존(과열 Device만 safe)" "$mix_seen" 1
-assert_ge "과열 Device가 resume_temp 아래로 식어 Base Mode로 회복(safe 수 감소 관측)" "$recover_seen" 1
+assert_ge "과열 Device가 cool_temp 아래로 식어 Base Mode로 회복(safe 수 감소 관측)" "$recover_seen" 1
 
 summary

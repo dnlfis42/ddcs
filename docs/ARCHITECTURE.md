@@ -211,7 +211,7 @@ Controller는 각 Device의 Mode를 **Group 단위로 자동** 제어합니다.
 
 - **Group**: 하나의 Policy를 공유하는 Device의 논리적 묶음(예: `zone_a`~`zone_d`). Agent가 등록 시 지정하며, 정의되지 않은 Group도 경고만 남기고 받아들입니다.
 - **Mode**: `safe`/`normal`/`performance`. 정책의 출력이자 Device와 Controller가 공유하는 값입니다.
-- **Policy(`GroupRule`)**: Group별 규칙. load 히스테리시스(`high_load`/`low_load`와 각각의 목표 Mode)와 선택적 온도 예외(`high_temp`/`resume_temp`/`high_temp_mode`)로 구성됩니다.
+- **Policy(`GroupRule`)**: Group별 규칙. load 히스테리시스(`busy_load`/`idle_load`와 각각의 목표 Mode)와 선택적 온도 예외(`hot_temp`/`cool_temp`/`hot_mode`)로 구성됩니다.
 
 정책은 두 축을 합성하되 적용 단위가 다릅니다.
 load는 **Group 단위**(집합 부하), 온도는 **Device 단위**(개별 안전)입니다.
@@ -220,28 +220,28 @@ load는 **Group 단위**(집합 부하), 온도는 **Device 단위**(개별 안�
 1. Group별로 active Device의 평균 load를 집계해, 히스테리시스 밴드로 Regime(busy/idle)과 그 Group의 **Base Mode**를 결정합니다.
 2. 각 active Device의 Shadow 온도로 thermal(hot/cool)을 개별 판정합니다.
 
-Device의 **Effective Mode**는 thermal이 hot이면 `high_temp_mode`, 아니면 Group의 Base Mode이며, 정책 엔진은 이 값이 **바뀐 Device에만** `set_mode`를 발행합니다.
+Device의 **Effective Mode**는 thermal이 hot이면 `hot_mode`, 아니면 Group의 Base Mode이며, 정책 엔진은 이 값이 **바뀐 Device에만** `set_mode`를 발행합니다.
 등록 직후라 아직 Status를 보고하지 않은 Device는 판단 근거가 없으므로 두 패스 모두에서 제외하고, 첫 보고부터 제어에 포함합니다.
 
 ```mermaid
 stateDiagram-v2
   [*] --> unknown : 최초 평가 (빈 regime)
-  unknown --> busy : avg가 high_load 초과 / SetMode high_load_mode
-  unknown --> idle : avg가 low_load 미만 / SetMode low_load_mode
-  unknown --> unknown : 밴드 안(low~high) / 명령 없음
-  idle --> busy : avg가 high_load 초과 / SetMode high_load_mode
-  busy --> idle : avg가 low_load 미만 / SetMode low_load_mode
-  busy --> busy : avg가 low_load 이상 / 명령 없음
-  idle --> idle : avg가 high_load 이하 / 명령 없음
+  unknown --> busy : avg가 busy_load 초과 / SetMode busy_mode
+  unknown --> idle : avg가 idle_load 미만 / SetMode idle_mode
+  unknown --> unknown : 밴드 안(idle_load~busy_load) / 명령 없음
+  idle --> busy : avg가 busy_load 초과 / SetMode busy_mode
+  busy --> idle : avg가 idle_load 미만 / SetMode idle_mode
+  busy --> busy : avg가 idle_load 이상 / 명령 없음
+  idle --> idle : avg가 busy_load 이하 / 명령 없음
 ```
 
 _그림 6. Group Regime 상태 기계_
 
 **busy/idle은 Mode 값이 아니라 Regime입니다**(밴드 상단 초과 / 하단 미만).
 어느 Regime이 어느 Mode를 목표로 할지는 Group마다 운영자가 지정합니다.
-`config/controller.json`의 기본값(시연용)은 다음과 같으며, 네 Group이 Mode 매핑(`performance`/`normal`/`safe`)과 온도 임계(`high_temp = 65`, `resume_temp = 50`)를 공유하고 부하 임계만 달라, 같은 부하 곡선에도 Group마다 다른 시점에 전환합니다:
+`config/controller.json`의 기본값(시연용)은 다음과 같으며, 네 Group이 Mode 매핑(`performance`/`normal`/`safe`)과 온도 임계(`hot_temp = 65`, `cool_temp = 50`)를 공유하고 부하 임계만 달라, 같은 부하 곡선에도 Group마다 다른 시점에 전환합니다:
 
-|Group|high_load|low_load|high_load_mode|low_load_mode|
+|Group|busy_load|idle_load|busy_mode|idle_mode|
 |---|---|---|---|---|
 |zone_a|70|30|performance|normal|
 |zone_b|60|45|performance|normal|
@@ -249,16 +249,16 @@ _그림 6. Group Regime 상태 기계_
 |zone_d|75|40|performance|normal|
 
 **온도 보호**는 load 축과 무관하게 Device별로 동작하는 단방향 과열 보호입니다.
-Shadow 온도가 `high_temp`를 넘으면 그 Device만 `high_temp_mode`로 전환되고, `resume_temp` 아래로 내려가면 Group Base Mode로 복귀합니다(`resume_temp < high_temp`인 데드밴드).
-Group Regime이 미확정이면 `low_load_mode`를 기준값으로 사용해 thermal 상태를 해제합니다.
+Shadow 온도가 `hot_temp`를 넘으면 그 Device만 `hot_mode`로 전환되고, `cool_temp` 아래로 내려가면 Group Base Mode로 복귀합니다(`cool_temp < hot_temp`인 데드밴드).
+Group Regime이 미확정이면 `idle_mode`를 기준값으로 사용해 thermal 상태를 해제합니다.
 
 ```mermaid
 stateDiagram-v2
   [*] --> cool : Device 등록
-  cool --> hot : temp가 high_temp 초과 / 해당 Device만 high_temp_mode
-  hot --> cool : temp가 resume_temp 미만 / Group Base Mode 복귀
-  hot --> hot : resume_temp 이상 / 유지
-  cool --> cool : high_temp 이하 / 유지
+  cool --> hot : temp가 hot_temp 초과 / 해당 Device만 hot_mode
+  hot --> cool : temp가 cool_temp 미만 / Group Base Mode 복귀
+  hot --> hot : cool_temp 이상 / 유지
+  cool --> cool : hot_temp 이하 / 유지
 ```
 
 _그림 7. Device thermal 상태 기계_
