@@ -110,7 +110,7 @@ void PolicyService::evaluate(common::Clock::time_point now) {
         return;
     }
 
-    // 1. group별 평균 load 집계 (load 정책은 그룹 단위; 끊긴 device의 stale Shadow 제외).
+    // 1. Group별 평균 load 집계 (load 정책은 Group 단위; 끊긴 Device의 stale Shadow 제외).
     //    집계 규칙은 aggregate_groups가 소유하고 메트릭 노출과 공유한다.
     auto const agg = aggregate_groups(active_devices_, devices_, policy_);
 
@@ -118,7 +118,7 @@ void PolicyService::evaluate(common::Clock::time_point now) {
     //    group 단위로 남긴다(1회).
     struct GroupState {
         domain::GroupRule const* rule;
-        domain::Regime regime;
+        domain::GroupLoadRegime regime;
     };
     std::unordered_map<std::string, GroupState> gstate;
     policy_.for_each([&](std::string const& group, domain::GroupRule const& rule) {
@@ -127,8 +127,8 @@ void PolicyService::evaluate(common::Clock::time_point now) {
             return; // active device 없는 group은 건너뛴다
         }
         double const avg = it->second.load_sum / static_cast<double>(it->second.device_count);
-        domain::Regime& regime = regime_[group];
-        domain::Regime const previous = regime;
+        domain::GroupLoadRegime& regime = regime_[group];
+        domain::GroupLoadRegime const previous = regime;
         regime = rule.next_regime(regime, avg);
         if (regime != previous) {
             LOG_POLICY_REGIME_UPDATE(group, domain::to_string(regime), avg);
@@ -150,8 +150,8 @@ void PolicyService::evaluate(common::Clock::time_point now) {
         }
         domain::GroupRule const& rule = *git->second.rule;
 
-        domain::Thermal& thermal = thermal_[id];
-        domain::Thermal const previous = thermal;
+        domain::DeviceThermalRegime& thermal = thermal_[id];
+        domain::DeviceThermalRegime const previous = thermal;
         thermal = rule.next_thermal(thermal, shadow->status->temp);
         if (thermal != previous) {
             // latch에 들어갈 때와 풀릴 때를 같이 남긴다. 들어간 기록만 있으면 언제 정상으로

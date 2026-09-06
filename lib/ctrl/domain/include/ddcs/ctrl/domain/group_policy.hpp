@@ -12,31 +12,31 @@
 
 namespace ddcs::ctrl::domain {
 
-// Group 집계 load의 부하 상태. 밴드 위치이지 Mode가 아니며, 데드밴드에서는 직전 판정을 유지한다.
-enum class Regime : std::uint8_t { unknown, busy, idle };
+// Group 집계 load의 부하 국면. 밴드 위치이지 Mode가 아니며, 데드밴드에서는 직전 판정을 유지한다.
+enum class GroupLoadRegime : std::uint8_t { unknown, idle, busy };
 
 // 로그/진단용 이름. 어휘 밖 값은 빈 문자열로 노출한다.
-constexpr std::string_view to_string(Regime regime) noexcept {
+constexpr std::string_view to_string(GroupLoadRegime regime) noexcept {
     switch (regime) {
-    case Regime::unknown:
+    case GroupLoadRegime::unknown:
         return "unknown";
-    case Regime::busy:
-        return "busy";
-    case Regime::idle:
+    case GroupLoadRegime::idle:
         return "idle";
+    case GroupLoadRegime::busy:
+        return "busy";
     }
     return {};
 }
 
-// Device별 온도 override 상태. cool_temp~hot_temp 데드밴드를 히스테리시스 latch로 쓴다.
-enum class Thermal : std::uint8_t { cool, hot };
+// Device별 온도 국면(load를 이기는 override). cool_temp~hot_temp 데드밴드를 latch로 쓴다.
+enum class DeviceThermalRegime : std::uint8_t { cool, hot };
 
 // 로그/진단용 이름. 어휘 밖 값은 빈 문자열로 노출한다.
-constexpr std::string_view to_string(Thermal thermal) noexcept {
+constexpr std::string_view to_string(DeviceThermalRegime thermal) noexcept {
     switch (thermal) {
-    case Thermal::cool:
+    case DeviceThermalRegime::cool:
         return "cool";
-    case Thermal::hot:
+    case DeviceThermalRegime::hot:
         return "hot";
     }
     return {};
@@ -45,11 +45,11 @@ constexpr std::string_view to_string(Thermal thermal) noexcept {
 // 온도 override 룰(선택). load와 독립 축이며 thermal이 이긴다.
 struct ThermalRule {
     double hot_temp;       // 트립 임계 (이 위로 가면 과열 -> hot)
-    double cool_temp;      // 해제 임계 (이 아래로 식으면 Group Base Mode로 복귀; cool < hot)
+    double cool_temp;      // 복귀 임계 (이 아래로 식으면 Group Base Mode로 복귀; cool < hot)
     device::Mode hot_mode; // hot일 때 그 Device에만 강제할 모드
 };
 
-// 그룹 정책 룰. 히스테리시스(busy/idle) load 임계 + 전환 모드 + 선택적 온도 override
+// Group 정책 룰. 히스테리시스(busy/idle) load 임계 + 전환 모드 + 선택적 온도 override
 // 평균 load > busy_load면 busy_mode, < idle_load면 idle_mode, 그 사이면 유지 (밴드)
 class GroupRule {
 public:
@@ -96,27 +96,28 @@ public:
 
     // load 히스테리시스 전이. avg가 busy_load 초과면 busy, idle_load 미만이면 idle, 데드밴드(그
     // 사이)면 직전 판정을 유지한다. NaN avg는 두 비교가 모두 거짓이라 유지로 처리된다.
-    [[nodiscard]] Regime next_regime(Regime prev, double avg) const noexcept {
+    [[nodiscard]] GroupLoadRegime next_regime(GroupLoadRegime prev, double avg) const noexcept {
         if (avg > busy_load_) {
-            return Regime::busy;
+            return GroupLoadRegime::busy;
         }
         if (avg < idle_load_) {
-            return Regime::idle;
+            return GroupLoadRegime::idle;
         }
         return prev;
     }
 
     // thermal 히스테리시스 전이. 룰에 thermal이 없으면(리로드로 제거된 경우 포함) 항상 cool을
     // 돌려줘 latch를 해제하고 load 제어로 복귀시킨다.
-    [[nodiscard]] Thermal next_thermal(Thermal prev, double temp) const noexcept {
+    [[nodiscard]] DeviceThermalRegime
+    next_thermal(DeviceThermalRegime prev, double temp) const noexcept {
         if (!thermal_) {
-            return Thermal::cool;
+            return DeviceThermalRegime::cool;
         }
         if (temp > thermal_->hot_temp) {
-            return Thermal::hot;
+            return DeviceThermalRegime::hot;
         }
         if (temp < thermal_->cool_temp) {
-            return Thermal::cool;
+            return DeviceThermalRegime::cool;
         }
         return prev;
     }
@@ -127,17 +128,17 @@ public:
     // hot인데 thermal 룰이 없는 조합은 next_thermal이 만들지 않지만, 들어와도 regime 분기로
     // 강등해 전 입력에서 안전하다.
     [[nodiscard]] std::optional<device::Mode> effective_mode(
-        Regime regime, Thermal thermal, std::optional<device::Mode> commanded
+        GroupLoadRegime regime, DeviceThermalRegime thermal, std::optional<device::Mode> commanded
     ) const noexcept {
-        if (thermal == Thermal::hot && thermal_) {
+        if (thermal == DeviceThermalRegime::hot && thermal_) {
             return thermal_->hot_mode;
         }
         switch (regime) {
-        case Regime::busy:
-            return busy_mode_;
-        case Regime::idle:
+        case GroupLoadRegime::idle:
             return idle_mode_;
-        case Regime::unknown:
+        case GroupLoadRegime::busy:
+            return busy_mode_;
+        case GroupLoadRegime::unknown:
             break;
         }
         if (thermal_ && commanded == thermal_->hot_mode) {
@@ -164,7 +165,7 @@ private:
     std::optional<ThermalRule> thermal_;
 };
 
-// 그룹에서 룰로 가는 정책. 순수 값객체(json 무지)이며 set_policy로 통째 교체되는 핫스왑 단위다.
+// Group에서 룰로 가는 정책. 순수 값객체(json 무지)이며 set_policy로 통째 교체되는 핫스왑 단위다.
 class GroupPolicy {
 public:
     // 빌드 (있으면 갱신, 없으면 뒤에 추가, 삽입순 유지)
@@ -186,7 +187,7 @@ public:
         return rules_.empty();
     }
 
-    // 알려진 그룹인지 확인
+    // 정의된 Group인지 확인
     [[nodiscard]] bool contains(std::string_view group) const noexcept {
         for (auto const& [g, r] : rules_) {
             if (g == group) {

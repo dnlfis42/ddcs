@@ -41,7 +41,7 @@ public:
     // DeviceReleaseSink: device 세션 종료 시 그 device의 제어 belief(commanded/thermal) 폐기
     void on_device_released(domain::DeviceId device) override;
 
-    // 로드된 정책 (알려진 그룹 집합)
+    // 로드된 정책 (정의된 Group 집합)
     // - set_policy가 같은 멤버를 in-place 교체해도 참조는 계속 유효하다.
     [[nodiscard]] domain::GroupPolicy const& policy() const noexcept {
         return policy_;
@@ -55,10 +55,10 @@ private:
     domain::DeviceRegistry& devices_;
     CommandService& commands_;
     domain::GroupPolicy policy_;
-    std::unordered_map<std::string, domain::Regime>
-        regime_; // group의 load regime (load는 그룹 단위)
-    std::unordered_map<domain::DeviceId, domain::Thermal>
-        thermal_; // device별 thermal 상태 (per-device 트립)
+    std::unordered_map<std::string, domain::GroupLoadRegime>
+        regime_; // Group의 load regime (load는 Group 단위)
+    std::unordered_map<domain::DeviceId, domain::DeviceThermalRegime>
+        thermal_; // Device별 온도 국면 (per-device 트립)
     // device별 마지막 발신 effective mode (group base + 자기 thermal). 변할 때만 발신.
     std::unordered_map<domain::DeviceId, std::optional<ddcs::device::Mode>> commanded_;
     std::vector<std::pair<domain::DeviceId, ddcs::device::Mode>> pending_; // 순회 밖 발송 버퍼
