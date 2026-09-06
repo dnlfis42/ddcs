@@ -39,9 +39,10 @@ private:
     domain::DeviceRegistry const& devices_;
     device::port::ActiveDevices& active_devices_; // group 집계 입력. 정책 평가와 같은 active 집합
     device::CommandService const& commands_;
-    session::SessionService const& session_service_; // 시한 감시 카운터(evict/expired) 출처
-    domain::GroupPolicy const& policy_; // per-group 메트릭을 정책 group으로 한정 (cardinality)
-    DurationStats const& sweep_;        // sweep tick 작업 소요시간 통계
+    session::SessionService const& session_service_; // message/connection-close counter 출처
+    domain::GroupPolicy const&
+        policy_; // per-group 메트릭을 정책에 정의된 Group으로 한정 (cardinality)
+    DurationStats const& sweep_; // Controller tick 작업 소요시간 통계
     transport::port::TransportStatsSource const& transport_stats_; // 송신 큐 깊이·풀 사용률
 };
 

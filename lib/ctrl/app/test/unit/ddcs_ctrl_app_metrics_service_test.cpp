@@ -12,6 +12,7 @@
 #include "ddcs/ctrl/app/session/session_registry.hpp"
 #include "ddcs/ctrl/app/session/session_service.hpp"
 #include "ddcs/ctrl/app/transport/port/connection_id.hpp"
+#include "ddcs/ctrl/app/transport/port/connection_listener.hpp"
 #include "ddcs/ctrl/app/transport/port/disconnector.hpp"
 #include "ddcs/ctrl/app/transport/port/message_buffer.hpp"
 #include "ddcs/ctrl/app/transport/port/message_sender.hpp"
@@ -26,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 #include <gtest/gtest.h>
 
@@ -55,24 +57,33 @@ Uuid make_uuid(std::uint8_t seed) {
     return Uuid{b};
 }
 
-bool contains(std::string const& s, char const* sub) {
+bool contains(std::string const& s, std::string_view sub) {
     return s.find(sub) != std::string::npos;
 }
 
 class FakeCommandSender final : public CommandSender {
 public:
-    bool accept = true;
+    SendResult result = SendResult::ok;
+
     SendResult send(ddcs::ctrl::domain::DeviceId, CommandId, Command const&) override {
-        return accept ? SendResult::ok : SendResult::offline;
+        return result;
     }
 };
 
-// infra처럼 disconnect가 동기로 registry erase까지 끝내는 대역
+// infra처럼 disconnect가 동기로 SessionService::on_disconnected까지 되부르는 대역
 class FakeDisconnector final : public Disconnector {
 public:
     explicit FakeDisconnector(SessionRegistry& sessions) noexcept
         : sessions_{sessions} {}
-    void disconnect(ConnectionId id, ddcs::ctrl::app::transport::port::DisconnectReason) override {
+
+    ddcs::ctrl::app::transport::port::ConnectionListener* listener = nullptr;
+
+    void disconnect(ConnectionId id, ddcs::ctrl::app::transport::port::DisconnectReason reason)
+        override {
+        if (listener != nullptr) {
+            listener->on_disconnected(id, reason);
+            return;
+        }
         sessions_.erase(id);
     }
 
@@ -112,7 +123,7 @@ struct Fixture {
     DeviceRegistry devices;
     FakeCommandSender sender;
     FakeDisconnector disconnector{sessions};
-    CommandService commands{sender, 5s, 1, 500ms};
+    CommandService commands{sender, 5s, 2, 500ms};
     NoopMessageSender outbox;
     NoopReleaseSink release_sink;
     ddcs::ctrl::app::device::RegistrationService registration{devices};
@@ -125,6 +136,10 @@ struct Fixture {
     FakeTransportStatsSource transport;
     MetricsService metrics{sessions,        devices, sessions, commands,
                            session_service, policy,  sweep,    transport};
+
+    Fixture() {
+        disconnector.listener = &session_service;
+    }
 
     ddcs::ctrl::domain::DeviceId activate(std::uint64_t conn, std::uint8_t seed) {
         ConnectionId const id{conn};
@@ -153,7 +168,7 @@ TEST(MetricsServiceTest, ScrapeReportsGauges) {
 
     EXPECT_TRUE(contains(text, "# TYPE ddcs_connections gauge"));
     EXPECT_TRUE(contains(text, "ddcs_connections 2"));
-    EXPECT_TRUE(contains(text, "ddcs_devices_known 1"));
+    EXPECT_TRUE(contains(text, "ddcs_devices 1"));
     EXPECT_TRUE(contains(text, "ddcs_commands_pending 0"));
 }
 
@@ -169,30 +184,30 @@ TEST(MetricsServiceTest, ScrapeReportsTransportStats) {
 
     auto const text = f.metrics.scrape();
 
-    EXPECT_TRUE(contains(text, "# TYPE ddcs_tx_queued_messages gauge"));
-    EXPECT_TRUE(contains(text, "ddcs_tx_queued_messages 7"));
-    EXPECT_TRUE(contains(text, "# TYPE ddcs_pool_capacity gauge"));
-    EXPECT_TRUE(contains(text, "ddcs_pool_capacity{pool=\"connection\"} 64"));
-    EXPECT_TRUE(contains(text, "ddcs_pool_capacity{pool=\"message\"} 128"));
-    EXPECT_TRUE(contains(text, "ddcs_pool_acquired{pool=\"connection\"} 3"));
-    EXPECT_TRUE(contains(text, "ddcs_pool_acquired{pool=\"message\"} 5"));
+    EXPECT_TRUE(contains(text, "# TYPE ddcs_send_queue_messages gauge"));
+    EXPECT_TRUE(contains(text, "ddcs_send_queue_messages 7"));
+    EXPECT_TRUE(contains(text, "# TYPE ddcs_pool_slots gauge"));
+    EXPECT_TRUE(contains(text, "ddcs_pool_slots{pool=\"connection\"} 64"));
+    EXPECT_TRUE(contains(text, "ddcs_pool_slots{pool=\"message\"} 128"));
+    EXPECT_TRUE(contains(text, "ddcs_pool_slots_acquired{pool=\"connection\"} 3"));
+    EXPECT_TRUE(contains(text, "ddcs_pool_slots_acquired{pool=\"message\"} 5"));
     // 유입량 counter는 세션 계층 수신마다 오른다. 이 픽스처는 메시지를 넣지 않으므로 0.
     EXPECT_TRUE(contains(text, "# TYPE ddcs_messages_received_total counter"));
     EXPECT_TRUE(contains(text, "ddcs_messages_received_total 0"));
 }
 
-TEST(MetricsServiceTest, ScrapeReportsSweepDuration) {
+TEST(MetricsServiceTest, ScrapeReportsTickDuration) {
     Fixture f;
     f.sweep.record(std::chrono::microseconds{1500});
     f.sweep.record(std::chrono::microseconds{500});
 
     auto const text = f.metrics.scrape();
 
-    EXPECT_TRUE(contains(text, "# TYPE ddcs_sweep_duration_us gauge"));
-    EXPECT_TRUE(contains(text, "ddcs_sweep_duration_us 500"));      // 직전 tick
-    EXPECT_TRUE(contains(text, "ddcs_sweep_duration_us_max 1500")); // 시작 후 최대
-    EXPECT_TRUE(contains(text, "ddcs_sweep_duration_us_sum 2000")); // 1500+500
-    EXPECT_TRUE(contains(text, "ddcs_sweep_ticks_total 2"));
+    EXPECT_TRUE(contains(text, "# TYPE ddcs_tick_duration_seconds gauge"));
+    EXPECT_TRUE(contains(text, "ddcs_tick_duration_seconds 0.0005"));      // 직전 tick
+    EXPECT_TRUE(contains(text, "ddcs_tick_duration_seconds_max 0.0015"));  // 시작 후 최대
+    EXPECT_TRUE(contains(text, "ddcs_tick_duration_seconds_total 0.002")); // 1500+500us
+    EXPECT_TRUE(contains(text, "ddcs_ticks_total 2"));
 }
 
 TEST(MetricsServiceTest, ScrapeReportsCommandCounters) {
@@ -207,16 +222,70 @@ TEST(MetricsServiceTest, ScrapeReportsCommandCounters) {
 
     EXPECT_TRUE(contains(text, "# TYPE ddcs_commands_dispatched_total counter"));
     EXPECT_TRUE(contains(text, "ddcs_commands_dispatched_total 1"));
-    EXPECT_TRUE(contains(text, "ddcs_commands_completed_total 1"));
-    EXPECT_TRUE(contains(text, "ddcs_commands_timed_out_total 0"));
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_sum 100"));
-    EXPECT_TRUE(contains(text, "# TYPE ddcs_command_rtt_ms histogram"));
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"50\"} 0"));  // 100ms > 50
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"100\"} 1")); // 100ms <= 100
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"+Inf\"} 1"));
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_count 1"));
+    EXPECT_TRUE(contains(text, "ddcs_commands_succeeded_total 1"));
+    EXPECT_TRUE(contains(text, "ddcs_commands_failed_total{reason=\"exhausted\"} 0"));
+    EXPECT_TRUE(contains(text, "ddcs_command_attempt_failures_total{reason=\"timeout\"} 0"));
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_sum 0.1"));
+    EXPECT_TRUE(contains(text, "# TYPE ddcs_command_rtt_seconds histogram"));
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.05\"} 0")); // 100ms > 50ms
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.1\"} 1"));  // 100ms <= 100ms
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"+Inf\"} 1"));
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_count 1"));
     EXPECT_TRUE(contains(text, "ddcs_commands_superseded_total 0"));
-    EXPECT_TRUE(contains(text, "ddcs_commands_stale_total 0"));
+    EXPECT_TRUE(contains(text, "ddcs_command_stale_responses_total 0"));
+    EXPECT_FALSE(contains(text, "ddcs_commands_completed_total")); // 이행 중 이중 발행 금지
+}
+
+TEST(MetricsServiceTest, ScrapeSeparatesCommandFailureFamilies) {
+    Fixture f;
+    auto const device = f.activate(1, 0xAA);
+
+    // 첫 송신 실패는 dispatched 논리 명령으로 들어가지 않는다.
+    f.sender.result = SendResult::offline;
+    EXPECT_FALSE(f.send(device).valid());
+    f.sender.result = SendResult::encode_fail;
+    EXPECT_FALSE(f.send(device).valid());
+
+    // Agent rejection -> 재송신 성공 -> timeout으로 retry budget 소진.
+    f.sender.result = SendResult::ok;
+    auto const rejected = f.send(device);
+    ASSERT_TRUE(rejected.valid());
+    f.commands.settle(device, rejected, false, 2, f.clock.now());
+    f.clock.advance(600ms);
+    f.commands.sweep(f.clock.now()); // resend accepted
+    f.clock.advance(6s);
+    f.commands.sweep(f.clock.now()); // second attempt timeout -> exhausted
+
+    // 이미 dispatched된 명령의 재송신 send failure는 final failure다.
+    auto const offline = f.send(device);
+    ASSERT_TRUE(offline.valid());
+    f.clock.advance(6s);
+    f.commands.sweep(f.clock.now());
+    f.sender.result = SendResult::offline;
+    f.clock.advance(600ms);
+    f.commands.sweep(f.clock.now());
+
+    f.sender.result = SendResult::ok;
+    auto const encode_failure = f.send(device);
+    ASSERT_TRUE(encode_failure.valid());
+    f.clock.advance(6s);
+    f.commands.sweep(f.clock.now());
+    f.sender.result = SendResult::encode_fail;
+    f.clock.advance(600ms);
+    f.commands.sweep(f.clock.now());
+
+    auto const text = f.metrics.scrape();
+
+    EXPECT_TRUE(contains(text, "ddcs_commands_dispatched_total 3"));
+    EXPECT_TRUE(contains(text, "ddcs_commands_failed_total{reason=\"exhausted\"} 1"));
+    EXPECT_TRUE(contains(text, "ddcs_commands_failed_total{reason=\"offline\"} 1"));
+    EXPECT_TRUE(contains(text, "ddcs_commands_failed_total{reason=\"encode_fail\"} 1"));
+    EXPECT_TRUE(contains(text, "ddcs_command_dispatch_failures_total{reason=\"offline\"} 1"));
+    EXPECT_TRUE(contains(text, "ddcs_command_dispatch_failures_total{reason=\"encode_fail\"} 1"));
+    EXPECT_TRUE(contains(text, "ddcs_command_attempt_failures_total{reason=\"agent_failure\"} 1"));
+    EXPECT_TRUE(contains(text, "ddcs_command_attempt_failures_total{reason=\"timeout\"} 3"));
+    EXPECT_TRUE(contains(text, "ddcs_command_resends_total 1"));
+    EXPECT_TRUE(contains(text, "ddcs_commands_pending 0"));
 }
 
 TEST(MetricsServiceTest, ScrapeRttHistogramCumulates) {
@@ -231,13 +300,13 @@ TEST(MetricsServiceTest, ScrapeRttHistogramCumulates) {
 
     auto const text = f.metrics.scrape();
 
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"5\"} 1"));   // 5ms
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"20\"} 1"));  // 여전히 5ms만
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"50\"} 2"));  // +30ms
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"250\"} 3")); // +200ms
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_bucket{le=\"+Inf\"} 3"));
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_count 3"));
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_ms_sum 235")); // 5+30+200
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.005\"} 1")); // 5ms
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.02\"} 1")); // 여전히 5ms만
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.05\"} 2")); // +30ms
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.25\"} 3")); // +200ms
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"+Inf\"} 3"));
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_count 3"));
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_sum 0.235")); // 5+30+200ms
 }
 
 TEST(MetricsServiceTest, ScrapeReportsSupersedeAndStale) {
@@ -251,29 +320,41 @@ TEST(MetricsServiceTest, ScrapeReportsSupersedeAndStale) {
     auto const text = f.metrics.scrape();
 
     EXPECT_TRUE(contains(text, "ddcs_commands_superseded_total 1"));
-    EXPECT_TRUE(contains(text, "ddcs_commands_stale_total 1"));
+    EXPECT_TRUE(contains(text, "ddcs_command_stale_responses_total 1"));
 }
 
-TEST(MetricsServiceTest, ScrapeReflectsEvictionAlarm) {
+TEST(MetricsServiceTest, ScrapeReflectsLivenessAndHandshakeCloseReasons) {
     Fixture f;
     f.activate(1, 0xAA);
+    EXPECT_TRUE(f.sessions.add(ConnectionId{2}, f.clock.now())); // handshaking, 등록 미완
 
     f.clock.advance(4s); // > liveness 3s 침묵
     f.session_service.sweep(f.clock.now());
 
     auto const text = f.metrics.scrape();
-    EXPECT_TRUE(contains(text, "ddcs_agents_evicted_total 1"));
+    EXPECT_TRUE(contains(text, "ddcs_connections_closed_total{reason=\"liveness_expired\"} 1"));
+    EXPECT_TRUE(contains(text, "ddcs_connections_closed_total{reason=\"handshake_expired\"} 1"));
 }
 
-TEST(MetricsServiceTest, ScrapeReflectsHandshakeExpiry) {
+TEST(MetricsServiceTest, ScrapeExportsTheBoundedConnectionCloseReasonVocabulary) {
     Fixture f;
-    EXPECT_TRUE(f.sessions.add(ConnectionId{1}, f.clock.now())); // handshaking, 등록 미완
+    using ddcs::ctrl::app::transport::port::disconnect_reasons;
+    using ddcs::ctrl::app::transport::port::to_string;
 
-    f.clock.advance(4s); // > handshake 3s
-    f.session_service.sweep(f.clock.now());
+    std::uint64_t connection = 1;
+    for (auto const reason : disconnect_reasons) {
+        f.session_service.on_connected(ConnectionId{connection});
+        f.session_service.on_disconnected(ConnectionId{connection}, reason);
+        ++connection;
+    }
 
     auto const text = f.metrics.scrape();
-    EXPECT_TRUE(contains(text, "ddcs_handshake_expired_total 1"));
+    for (auto const reason : disconnect_reasons) {
+        std::string const sample =
+            "ddcs_connections_closed_total{reason=\"" + std::string{to_string(reason)} + "\"} 1";
+        EXPECT_TRUE(contains(text, sample));
+    }
+    EXPECT_FALSE(contains(text, "register_undelivered"));
 }
 
 TEST(MetricsServiceTest, ScrapeReportsGroupGauges) {
@@ -304,11 +385,11 @@ TEST(MetricsServiceTest, ScrapeReportsGroupGauges) {
 
     auto const text = f.metrics.scrape();
 
-    EXPECT_TRUE(contains(text, "# TYPE ddcs_group_load_avg gauge"));
-    EXPECT_TRUE(contains(text, "ddcs_group_load_avg{group=\"zone_a\"} 70")); // (80+60)/2
-    EXPECT_TRUE(contains(text, "ddcs_group_load_avg{group=\"zone_b\"} 10"));
-    EXPECT_TRUE(contains(text, "ddcs_group_temp_avg{group=\"zone_a\"} 55")); // (50+60)/2
-    EXPECT_TRUE(contains(text, "ddcs_group_temp_avg{group=\"zone_b\"} 30"));
+    EXPECT_TRUE(contains(text, "# TYPE ddcs_group_load_ratio gauge"));
+    EXPECT_TRUE(contains(text, "ddcs_group_load_ratio{group=\"zone_a\"} 0.7")); // (80+60)/2/100
+    EXPECT_TRUE(contains(text, "ddcs_group_load_ratio{group=\"zone_b\"} 0.1"));
+    EXPECT_TRUE(contains(text, "ddcs_group_temperature_celsius{group=\"zone_a\"} 55")); // (50+60)/2
+    EXPECT_TRUE(contains(text, "ddcs_group_temperature_celsius{group=\"zone_b\"} 30"));
     EXPECT_TRUE(contains(text, "ddcs_group_devices{group=\"zone_a\",mode=\"performance\"} 2"));
     EXPECT_TRUE(contains(text, "ddcs_group_devices{group=\"zone_a\",mode=\"safe\"} 0"));
     EXPECT_TRUE(contains(text, "ddcs_group_devices{group=\"zone_b\",mode=\"safe\"} 1"));

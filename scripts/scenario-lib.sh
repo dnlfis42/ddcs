@@ -32,6 +32,18 @@ compose() { docker compose -f "$ROOT/docker/$COMPOSE" "$@"; }
 metric() { curl -s --max-time 5 "$METRICS_URL" | awk -v m="$1" '$1 == m {print $2; exit}'; }
 # 정수 메트릭(없으면 0)
 metric_int() { local v; v="$(metric "$1")"; printf '%s' "${v%%.*}"; [ -n "${v%%.*}" ] || printf '0'; }
+# reason 라벨 counter 하나의 값. reason 어휘는 Controller 코드에서 고정하므로 라벨 순서를 명시해
+# 정확히 한 sample만 읽는다.
+metric_reason() {
+    curl -s --max-time 5 "$METRICS_URL" |
+        awk -v m="$1" -v r="$2" '$1 == m "{reason=\"" r "\"}" {print $2; exit}'
+}
+metric_reason_int() {
+    local v
+    v="$(metric_reason "$1" "$2")"
+    printf '%s' "${v%%.*}"
+    [ -n "${v%%.*}" ] || printf '0'
+}
 
 # Controller 로그에서 substring 발생 횟수
 logcount() { docker logs "$CTRL" 2>&1 | grep -c "$1"; }
@@ -58,7 +70,7 @@ wait_for() { # desc timeout command [arg...]
 # wait_for에 넘길 조건. 라벨 없는 메트릭 값을 기준과 비교한다.
 metric_at_least() { [ "$(metric_int "$1")" -ge "$2" ]; }
 metric_at_most() { [ "$(metric_int "$1")" -le "$2" ]; }
-# 특정 device의 dispatch/등록 횟수가 기준 이상인지 확인한다.
+metric_reason_at_least() { [ "$(metric_reason_int "$1" "$2")" -ge "$3" ]; }
 dispatched_at_least() { [ "$(dispatch_count "$1")" -ge "$2" ]; }
 registered_at_least() { [ "$(register_count "$1")" -ge "$2" ]; }
 

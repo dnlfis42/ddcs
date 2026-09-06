@@ -120,7 +120,7 @@ zone당 1대 구성을 쓰는 이유는 Group 평균이 곧 그 Device의 부하
 
 1. Agent 4대(zone당 1대)를 기동합니다.
 2. 90초 동안 대기해, 부하가 밴드 양끝을 교차할 시간을 줍니다.
-3. Controller 로그의 `policy.regime.update`에서 busy/idle 전환 횟수를 세고, 최근 전환 로그와 현재 `ddcs_group_load_avg`를 출력합니다.
+3. Controller 로그의 `policy.regime.update`에서 busy/idle 전환 횟수를 세고, 최근 전환 로그와 현재 `ddcs_group_load_ratio`(0–1)를 출력합니다.
 
 **PASS 기준.**
 
@@ -143,14 +143,14 @@ unpause 후에는 Agent가 끊긴 연결에서 hangup을 관측하고 3-way 핸�
 **진행.**
 
 1. Agent 4대를 기동하고 잠시 정상 운영합니다.
-2. `docker pause`로 agent-01을 얼린 뒤, 연결 수가 3으로 줄고 `ddcs_agents_evicted_total`이 오르기를 기다립니다.
+2. `docker pause`로 agent-01을 얼린 뒤, 연결 수가 3으로 줄고 `ddcs_connections_closed_total{reason="liveness_expired"}`가 오르기를 기다립니다.
 3. `docker unpause`로 재개한 뒤, 연결 수 4 복구와 해당 Device의 재등록을 기다립니다.
 
 **PASS 기준.**
 
 |단언|의미|
 |---|---|
-|정지 중 evicted_total +1 이상|무신호를 liveness로 감지해 축출했다|
+|정지 중 `liveness_expired` 종료 +1 이상|무신호를 liveness로 감지해 축출했다|
 |정지 중 연결 수 = 3 (정확히)|축출된 것은 얼린 그 Agent 하나뿐이다|
 |재개 후 연결 수 ≥ 4|fleet이 원상 복구됐다|
 |해당 Device register +1 이상|재접속이 재등록으로 이어졌다|

@@ -176,8 +176,8 @@ scripts/fault.sh resume agent-02  # 해제
 _그림 3. pause 구간의 축출과 복구_
 
 Agent 4대 구성에서 `agent-01`을 멈춘 구간입니다.
-축출(`agents_evicted`)이 한 번 오르고 연결 수가 4에서 3으로 줄었다가, 해제 후 4로 복구됩니다.
-고정 DeviceId를 쓰므로 `ddcs_devices_known`은 4에서 움직이지 않습니다.
+`liveness_expired` 종료가 한 번 오르고 연결 수가 4에서 3으로 줄었다가, 해제 후 4로 복구됩니다.
+고정 DeviceId를 쓰므로 `ddcs_devices`는 4에서 움직이지 않습니다.
 
 Device 동작(`DDCS_SIM_NOISE`/`DDCS_SIM_JITTER`)은 compose 파일의 agent `environment`에 적어야 컨테이너로 전달됩니다(셸 export는 전달되지 않습니다).
 `docker/Dockerfile`은 멀티스테이지 빌드로, `builder` 스테이지가 release 설정으로 두 바이너리를 빌드하고 `controller`/`agent` 타깃(`docker build --target <이름>`)이 각 바이너리만 담은 런타임 이미지를 만듭니다.
@@ -193,7 +193,7 @@ Device 동작(`DDCS_SIM_NOISE`/`DDCS_SIM_JITTER`)은 compose 파일의 agent `en
 |Agent 연결 반복 실패|Controller가 실행 중이 아님|지수 백오프로 재시도(코드 기본 1~30초, `config/agent.json`은 0.2~5초), 등록 성공 시 리셋|Controller 기동 여부와 `transport.host`/`port` 확인|
 |Agent 연결이 끊김|Controller가 liveness 제한 시간 초과로 축출|Agent가 연결 종료를 감지해 재접속|heartbeat 주기와 `session.liveness_timeout_ms` 비율 확인|
 
-문제를 추적할 때는 메트릭(`ddcs_agents_evicted_total`, `ddcs_commands_gave_up_total`, `ddcs_group_*` 등)과 로그 각 줄의 `event` 키(예: `session.connection.register.accept`)를 함께 봅니다.
+문제를 추적할 때는 메트릭(`ddcs_connections_closed_total{reason="liveness_expired"}`, `ddcs_commands_failed_total`, `ddcs_group_*` 등)과 로그 각 줄의 `event` 키(예: `session.connection.register.accept`)를 함께 봅니다.
 전체 메트릭 목록은 [METRICS.md](docs/METRICS.md), 이벤트 이름은 [LOG.md](docs/LOG.md)에 있습니다.
 
 ## 성능

@@ -45,6 +45,10 @@ void SessionService::on_disconnected(port::ConnectionId conn, port::DisconnectRe
         device = session->device(); // 미바인딩(handshaking)이면 nil
     }
     if (sessions_.erase(conn)) {
+        auto const reason_index = port::disconnect_reason_index(reason);
+        if (reason_index < metrics_.connections_closed_total.size()) {
+            ++metrics_.connections_closed_total[reason_index];
+        }
         if (device.valid()) {
             // 세션 끝난 device의 per-device 제어 상태 폐기(재접속 시 stale 명령 방지 + 맵 증식
             // 방지)
@@ -73,11 +77,9 @@ void SessionService::sweep(common::Clock::time_point now) {
 
     for (auto const conn : stale_registering_) {
         disconnector_.disconnect(conn, port::DisconnectReason::handshake_expired);
-        ++metrics_.handshake_expired_total;
     }
     for (auto const conn : stale_active_) {
         disconnector_.disconnect(conn, port::DisconnectReason::liveness_expired);
-        ++metrics_.evicted_total;
     }
 }
 
@@ -129,7 +131,7 @@ void SessionService::handle_register_request(
         disconnector_.disconnect(conn, port::DisconnectReason::register_rejected);
         return;
     }
-    // 미지 그룹은 soft 처리: 경고만 하고 등록은 계속한다(정책 미적용으로 동작).
+    // 정의되지 않은 Group은 soft 처리: 경고만 하고 등록은 계속한다(정책 미적용으로 동작).
     if (!group_policy_.contains(request.group)) {
         LOG_DEVICE_GROUP_UNKNOWN(device.to_string(), request.group);
     }
@@ -147,7 +149,7 @@ void SessionService::handle_register_request(
     }
     if (!send_register_outcome(conn, true)) {
         // 판정 전달 불가라 끊고 처음부터 재시도하는 게 깨끗하다.
-        disconnector_.disconnect(conn, port::DisconnectReason::register_undelivered);
+        disconnector_.disconnect(conn, port::DisconnectReason::internal_error);
         return;
     }
     LOG_SESSION_CONNECTION_REGISTER_ACCEPT(conn.get(), device.to_string());

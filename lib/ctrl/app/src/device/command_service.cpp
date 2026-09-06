@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
-#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -54,6 +53,7 @@ port::CommandId CommandService::dispatch(
 
     port::CommandId const command_id{next_command_id_++};
     if (auto const sent = sender_.send(device, command_id, command); sent != port::SendResult::ok) {
+        record_dispatch_failure(sent);
         LOG_COMMAND_DISPATCH_FAIL(device.to_string(), command_id.get(), port::to_string(sent));
         if (device_commands.slots.empty()) {
             pending_.erase(device); // 빈 항목 잔류 방지
@@ -66,7 +66,7 @@ port::CommandId CommandService::dispatch(
         .dispatched_at = now,
         .next_at = after(now, command_timeout_),
         .attempts = 1,
-        .phase = Phase::in_flight,
+        .state = State::in_flight,
     });
     ++metrics_.dispatched_total;
 
@@ -79,12 +79,12 @@ void CommandService::acknowledge(
 ) {
     Slot* const slot = find_slot(device, command_id);
     if (slot == nullptr) {
-        ++metrics_.stale_total;
+        ++metrics_.stale_responses_total;
         LOG_COMMAND_STALE_RESPONSE(device.to_string(), command_id.get());
         return;
     }
 
-    slot->phase = Phase::in_flight;
+    slot->state = State::in_flight;
     slot->next_at = after(now, command_timeout_); // 작동 확인 후 outcome까지 연장
     LOG_COMMAND_ACK(device.to_string(), command_id.get(), slot->attempts);
 }
@@ -95,31 +95,32 @@ void CommandService::settle(
 ) {
     Slot* const slot = find_slot(device, command_id);
     if (slot == nullptr) {
-        ++metrics_.stale_total;
+        ++metrics_.stale_responses_total;
         LOG_COMMAND_STALE_RESPONSE(device.to_string(), command_id.get());
         return;
     }
 
     if (!success) {
         LOG_COMMAND_REJECT(device.to_string(), command_id.get(), static_cast<std::uint64_t>(code));
-        fail_attempt(device, command_id, now, "reject"); // 거부면 재시도 또는 포기
+        fail_attempt(device, command_id, now, AttemptFailureReason::agent_failure);
         return;
     }
 
     auto const rtt = now - slot->dispatched_at;
-    auto const rtt_ms = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(rtt).count()
+    auto const rtt_us = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(rtt).count()
     );
-    metrics_.rtt_ms_sum += rtt_ms;
-    ++metrics_.completed_total;
-    // 히스토그램: rtt_ms 이상인 첫 경계 버킷에 1, 모든 경계 초과면 +Inf 오버플로 슬롯에 1
+    metrics_.rtt_us_sum += rtt_us;
+    ++metrics_.succeeded_total;
+    // 히스토그램: rtt_us 이상인 첫 경계 버킷에 1, 모든 경계 초과면 +Inf 오버플로 슬롯에 1
     std::size_t bucket = 0;
-    while (bucket < Metrics::rtt_bucket_bounds_ms.size() &&
-           rtt_ms > Metrics::rtt_bucket_bounds_ms[bucket]) {
+    while (bucket < Metrics::rtt_bucket_bounds_us.size() &&
+           rtt_us > Metrics::rtt_bucket_bounds_us[bucket]) {
         ++bucket;
     }
     ++metrics_.rtt_buckets[bucket];
-    LOG_COMMAND_COMPLETE(device.to_string(), command_id.get(), rtt_ms);
+    // JSON log key rtt_ms는 별도 schema 결정 전까지 유지한다. metric은 us 누산 후 seconds 노출.
+    LOG_COMMAND_COMPLETE(device.to_string(), command_id.get(), rtt_us / 1'000);
     close_slot(device, command_id); // 성공 확정 시 미결 종료
 }
 
@@ -139,10 +140,9 @@ void CommandService::sweep(common::Clock::time_point now) {
             continue; // 방어. 이미 처리
         }
 
-        if (slot->phase == Phase::in_flight) {
-            ++metrics_.timed_out_total;
+        if (slot->state == State::in_flight) {
             LOG_COMMAND_TIMEOUT(device.to_string(), command_id.get(), slot->attempts);
-            fail_attempt(device, command_id, now, "timeout");
+            fail_attempt(device, command_id, now, AttemptFailureReason::timeout);
         } else {
             resend(device, command_id, now); // backoff 경과 시 동일 id 재전송
         }
@@ -151,21 +151,30 @@ void CommandService::sweep(common::Clock::time_point now) {
 
 void CommandService::fail_attempt(
     domain::DeviceId device, port::CommandId command_id, common::Clock::time_point now,
-    std::string_view reason
+    AttemptFailureReason reason
 ) {
     Slot* const slot = find_slot(device, command_id);
     if (slot == nullptr) {
         return;
     }
 
+    switch (reason) {
+    case AttemptFailureReason::agent_failure:
+        ++metrics_.attempt_failures_agent_failure_total;
+        break;
+    case AttemptFailureReason::timeout:
+        ++metrics_.attempt_failures_timeout_total;
+        break;
+    }
+
     if (slot->attempts >= max_attempts_) {
-        ++metrics_.gave_up_total;
-        LOG_COMMAND_FAIL(device.to_string(), command_id.get(), slot->attempts, reason);
+        ++metrics_.failed_exhausted_total;
+        LOG_COMMAND_FAIL(device.to_string(), command_id.get(), slot->attempts, "exhausted");
         close_slot(device, command_id);
         return;
     }
 
-    slot->phase = Phase::backoff; // 지수 backoff 후 재전송 대기
+    slot->state = State::backoff; // 지수 backoff 후 재전송 대기
     slot->next_at = after(now, backoff_for(slot->attempts));
 }
 
@@ -179,7 +188,7 @@ void CommandService::resend(
 
     if (auto const sent = sender_.send(device, slot->id, slot->command);
         sent != port::SendResult::ok) {
-        ++metrics_.gave_up_total;
+        record_final_send_failure(sent);
         LOG_COMMAND_FAIL(
             device.to_string(), command_id.get(), slot->attempts, port::to_string(sent)
         );
@@ -187,11 +196,37 @@ void CommandService::resend(
         return;
     }
 
-    ++metrics_.retried_total;
+    ++metrics_.resends_total;
     slot->attempts += 1;
-    slot->phase = Phase::in_flight;
+    slot->state = State::in_flight;
     slot->next_at = after(now, command_timeout_);
     LOG_COMMAND_RETRY(device.to_string(), command_id.get(), slot->attempts);
+}
+
+void CommandService::record_dispatch_failure(port::SendResult result) noexcept {
+    switch (result) {
+    case port::SendResult::ok:
+        break;
+    case port::SendResult::offline:
+        ++metrics_.dispatch_failures_offline_total;
+        break;
+    case port::SendResult::encode_fail:
+        ++metrics_.dispatch_failures_encode_fail_total;
+        break;
+    }
+}
+
+void CommandService::record_final_send_failure(port::SendResult result) noexcept {
+    switch (result) {
+    case port::SendResult::ok:
+        break;
+    case port::SendResult::offline:
+        ++metrics_.failed_offline_total;
+        break;
+    case port::SendResult::encode_fail:
+        ++metrics_.failed_encode_fail_total;
+        break;
+    }
 }
 
 std::chrono::nanoseconds CommandService::backoff_for(int attempt) const noexcept {

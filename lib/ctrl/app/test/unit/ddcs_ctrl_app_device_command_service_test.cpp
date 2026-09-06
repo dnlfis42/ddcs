@@ -39,7 +39,7 @@ Mode sent_mode(Command const& command) {
     return ddcs::device::decode_mode(std::get<SetMode>(command).mode).value_or(Mode::safe);
 }
 
-// 송신 의뢰를 기록하는 대역. accept = false면 송신 거부 (미연결 등가)
+// 송신 의뢰를 기록하는 대역. result로 initial dispatch와 resend의 실패 이유를 주입한다.
 class FakeCommandSender final : public CommandSender {
 public:
     struct Sent {
@@ -49,11 +49,11 @@ public:
     };
 
     std::vector<Sent> sent;
-    bool accept = true;
+    SendResult result = SendResult::ok;
 
     SendResult send(DeviceId device, CommandId command_id, Command const& command) override {
-        if (!accept) {
-            return SendResult::offline;
+        if (result != SendResult::ok) {
+            return result;
         }
         sent.push_back(Sent{.device = device, .command_id = command_id, .command = command});
         return SendResult::ok;
@@ -72,6 +72,16 @@ struct CommandFixture {
     }
 };
 
+void expect_lifecycle_identity(CommandService const& commands) {
+    auto const& metrics = commands.metrics();
+    auto const failed = metrics.failed_exhausted_total + metrics.failed_offline_total +
+                        metrics.failed_encode_fail_total;
+    EXPECT_EQ(
+        metrics.dispatched_total,
+        metrics.succeeded_total + failed + metrics.superseded_total + commands.pending_count()
+    );
+}
+
 TEST(CommandServiceTest, DispatchSendsCommandAndRegistersSlot) {
     CommandFixture f;
 
@@ -86,15 +96,32 @@ TEST(CommandServiceTest, DispatchSendsCommandAndRegistersSlot) {
     EXPECT_EQ(sent_mode(f.sender.sent[0].command), Mode::performance);
 }
 
-TEST(CommandServiceTest, DispatchReturnsInvalidWhenSendRejected) {
+TEST(CommandServiceTest, InitialOfflineDispatchFailureDoesNotEnterLogicalCommandLifecycle) {
     CommandFixture f;
-    f.sender.accept = false;
+    f.sender.result = SendResult::offline;
 
     auto const id = f.send(Mode::performance);
 
     EXPECT_FALSE(id.valid());
     EXPECT_EQ(f.commands.pending_count(), 0u);
     EXPECT_EQ(f.commands.metrics().dispatched_total, 0u);
+    EXPECT_EQ(f.commands.metrics().dispatch_failures_offline_total, 1u);
+    EXPECT_EQ(f.commands.metrics().failed_offline_total, 0u);
+    expect_lifecycle_identity(f.commands);
+}
+
+TEST(CommandServiceTest, InitialEncodeFailureDoesNotEnterLogicalCommandLifecycle) {
+    CommandFixture f;
+    f.sender.result = SendResult::encode_fail;
+
+    auto const id = f.send(Mode::performance);
+
+    EXPECT_FALSE(id.valid());
+    EXPECT_EQ(f.commands.pending_count(), 0u);
+    EXPECT_EQ(f.commands.metrics().dispatched_total, 0u);
+    EXPECT_EQ(f.commands.metrics().dispatch_failures_encode_fail_total, 1u);
+    EXPECT_EQ(f.commands.metrics().failed_encode_fail_total, 0u);
+    expect_lifecycle_identity(f.commands);
 }
 
 TEST(CommandServiceTest, SupersedeReplacesSameFamilyCommand) {
@@ -109,24 +136,27 @@ TEST(CommandServiceTest, SupersedeReplacesSameFamilyCommand) {
 
     // 대체된 명령의 늦은 응답
     f.commands.settle(make_device_id(0xAA), old_id, true, 0, f.clock.now());
-    EXPECT_EQ(f.commands.metrics().completed_total, 0u);
-    EXPECT_EQ(f.commands.metrics().stale_total, 1u);
+    EXPECT_EQ(f.commands.metrics().succeeded_total, 0u);
+    EXPECT_EQ(f.commands.metrics().stale_responses_total, 1u);
 
     f.commands.settle(make_device_id(0xAA), new_id, true, 0, f.clock.now());
-    EXPECT_EQ(f.commands.metrics().completed_total, 1u);
+    EXPECT_EQ(f.commands.metrics().succeeded_total, 1u);
     EXPECT_EQ(f.commands.pending_count(), 0u);
+    expect_lifecycle_identity(f.commands);
 }
 
 TEST(CommandServiceTest, SupersedeAppliesEvenWhenSendFails) {
     CommandFixture f;
     ASSERT_TRUE(f.send(Mode::performance).valid());
 
-    f.sender.accept = false;
+    f.sender.result = SendResult::offline;
     auto const new_id = f.send(Mode::normal);
 
     EXPECT_FALSE(new_id.valid());
     EXPECT_EQ(f.commands.metrics().superseded_total, 1u); // 의도 폐기는 송신 성패와 무관
     EXPECT_EQ(f.commands.pending_count(), 0u);            // 옛 슬롯 닫힘 + 새 슬롯 없음
+    EXPECT_EQ(f.commands.metrics().dispatch_failures_offline_total, 1u);
+    expect_lifecycle_identity(f.commands);
 }
 
 TEST(CommandServiceTest, AcknowledgeExtendsDeadline) {
@@ -139,11 +169,11 @@ TEST(CommandServiceTest, AcknowledgeExtendsDeadline) {
     f.clock.advance(2s); // 최초 deadline(5s)은 지났지만 연장 deadline(9s) 전
     f.commands.sweep(f.clock.now());
 
-    EXPECT_EQ(f.commands.metrics().timed_out_total, 0u);
+    EXPECT_EQ(f.commands.metrics().attempt_failures_timeout_total, 0u);
     EXPECT_EQ(f.commands.pending_count(), 1u);
 }
 
-TEST(CommandServiceTest, SettleSuccessClosesSlotAndRecordsRtt) {
+TEST(CommandServiceTest, SettleSuccessClosesSlotAndRecordsMicrosecondRtt) {
     CommandFixture f;
     auto const id = f.send(Mode::performance);
 
@@ -151,19 +181,22 @@ TEST(CommandServiceTest, SettleSuccessClosesSlotAndRecordsRtt) {
     f.commands.settle(make_device_id(0xAA), id, true, 0, f.clock.now());
 
     EXPECT_EQ(f.commands.pending_count(), 0u);
-    EXPECT_EQ(f.commands.metrics().completed_total, 1u);
-    EXPECT_EQ(f.commands.metrics().rtt_ms_sum, 2000u);
+    EXPECT_EQ(f.commands.metrics().succeeded_total, 1u);
+    EXPECT_EQ(f.commands.metrics().rtt_us_sum, 2'000'000u);
+    expect_lifecycle_identity(f.commands);
 }
 
-TEST(CommandServiceTest, SettleFailureGivesUpWhenNoRetry) {
+TEST(CommandServiceTest, AgentFailureIsAnAttemptFailureAndExhaustsWhenNoRetryRemains) {
     CommandFixture f;
     auto const id = f.send(Mode::performance);
 
     f.commands.settle(make_device_id(0xAA), id, false, 2, f.clock.now());
 
     EXPECT_EQ(f.commands.pending_count(), 0u);
-    EXPECT_EQ(f.commands.metrics().gave_up_total, 1u);
-    EXPECT_EQ(f.commands.metrics().completed_total, 0u);
+    EXPECT_EQ(f.commands.metrics().attempt_failures_agent_failure_total, 1u);
+    EXPECT_EQ(f.commands.metrics().failed_exhausted_total, 1u);
+    EXPECT_EQ(f.commands.metrics().succeeded_total, 0u);
+    expect_lifecycle_identity(f.commands);
 }
 
 TEST(CommandServiceTest, StaleResponseCountedQuietly) {
@@ -173,21 +206,23 @@ TEST(CommandServiceTest, StaleResponseCountedQuietly) {
     f.commands.acknowledge(make_device_id(0xAA), CommandId{999}, f.clock.now());
     f.commands.settle(make_device_id(0xAA), CommandId{999}, true, 0, f.clock.now());
 
-    EXPECT_EQ(f.commands.metrics().stale_total, 2u); // 정상 부산물. 카운터로만 관측
+    EXPECT_EQ(f.commands.metrics().stale_responses_total, 2u); // 정상 부산물. 카운터로만 관측
     EXPECT_EQ(f.commands.pending_count(), 1u);
-    EXPECT_EQ(f.commands.metrics().completed_total, 0u);
+    EXPECT_EQ(f.commands.metrics().succeeded_total, 0u);
+    expect_lifecycle_identity(f.commands);
 }
 
-TEST(CommandServiceTest, SweepTimeoutGivesUpWhenNoRetry) {
+TEST(CommandServiceTest, TimeoutIsAnAttemptFailureAndExhaustsWhenNoRetryRemains) {
     CommandFixture f;
     ASSERT_TRUE(f.send(Mode::performance).valid());
 
     f.clock.advance(6s);
     f.commands.sweep(f.clock.now());
 
-    EXPECT_EQ(f.commands.metrics().timed_out_total, 1u);
-    EXPECT_EQ(f.commands.metrics().gave_up_total, 1u);
+    EXPECT_EQ(f.commands.metrics().attempt_failures_timeout_total, 1u);
+    EXPECT_EQ(f.commands.metrics().failed_exhausted_total, 1u);
     EXPECT_EQ(f.commands.pending_count(), 0u);
+    expect_lifecycle_identity(f.commands);
 }
 
 TEST(CommandServiceTest, RetryResendsSameIdWithRetainedCommand) {
@@ -203,13 +238,13 @@ TEST(CommandServiceTest, RetryResendsSameIdWithRetainedCommand) {
 
     clock.advance(6s);
     commands.sweep(clock.now()); // timeout 후 backoff
-    EXPECT_EQ(commands.metrics().timed_out_total, 1u);
+    EXPECT_EQ(commands.metrics().attempt_failures_timeout_total, 1u);
     EXPECT_EQ(commands.pending_count(), 1u);
 
     clock.advance(1s); // backoff(500ms) 경과
     commands.sweep(clock.now());
 
-    EXPECT_EQ(commands.metrics().retried_total, 1u);
+    EXPECT_EQ(commands.metrics().resends_total, 1u);
     ASSERT_EQ(sender.sent.size(), 2u);
     EXPECT_EQ(sender.sent[1].command_id, id);                        // 재전송은 동일 id
     EXPECT_EQ(sent_mode(sender.sent[1].command), Mode::performance); // 보관본에서 복원
@@ -217,10 +252,11 @@ TEST(CommandServiceTest, RetryResendsSameIdWithRetainedCommand) {
 
     commands.settle(make_device_id(0xAA), id, true, 0, clock.now());
     EXPECT_EQ(commands.pending_count(), 0u);
-    EXPECT_EQ(commands.metrics().completed_total, 1u);
+    EXPECT_EQ(commands.metrics().succeeded_total, 1u);
+    expect_lifecycle_identity(commands);
 }
 
-TEST(CommandServiceTest, RetryGivesUpWhenSendRejected) {
+TEST(CommandServiceTest, RetryOfflineFailureTerminatesAnAlreadyDispatchedLogicalCommand) {
     ManualClock clock;
     FakeCommandSender sender;
     CommandService commands{sender, 5s, 2, 500ms};
@@ -233,19 +269,44 @@ TEST(CommandServiceTest, RetryGivesUpWhenSendRejected) {
                     .valid());
 
     clock.advance(6s);
-    commands.sweep(clock.now()); // timeout 후 backoff
-    sender.accept = false;       // 끊긴 뒤 재접속 없음 등가
+    commands.sweep(clock.now());         // timeout 후 backoff
+    sender.result = SendResult::offline; // 끊긴 뒤 재접속 없음 등가
 
     clock.advance(1s);
     commands.sweep(clock.now()); // 재전송 시도 시 거부되어 포기
 
-    EXPECT_EQ(commands.metrics().gave_up_total, 1u);
+    EXPECT_EQ(commands.metrics().attempt_failures_timeout_total, 1u);
+    EXPECT_EQ(commands.metrics().failed_offline_total, 1u);
     EXPECT_EQ(commands.pending_count(), 0u);
-    EXPECT_EQ(commands.metrics().retried_total, 0u);
+    EXPECT_EQ(commands.metrics().resends_total, 0u);
+    expect_lifecycle_identity(commands);
+}
+
+TEST(CommandServiceTest, RetryEncodeFailureTerminatesAnAlreadyDispatchedLogicalCommand) {
+    ManualClock clock;
+    FakeCommandSender sender;
+    CommandService commands{sender, 5s, 2, 500ms};
+
+    ASSERT_TRUE(commands
+                    .dispatch(
+                        make_device_id(0xAA),
+                        SetMode{.mode = ddcs::device::encode_mode(Mode::performance)}, clock.now()
+                    )
+                    .valid());
+    clock.advance(6s);
+    commands.sweep(clock.now()); // timeout 후 backoff
+    sender.result = SendResult::encode_fail;
+    clock.advance(1s);
+    commands.sweep(clock.now()); // resend encode failure
+
+    EXPECT_EQ(commands.metrics().attempt_failures_timeout_total, 1u);
+    EXPECT_EQ(commands.metrics().failed_encode_fail_total, 1u);
+    EXPECT_EQ(commands.pending_count(), 0u);
+    expect_lifecycle_identity(commands);
 }
 
 // NACK(settle success=false)인데 재시도 예산이 남으면 포기하지 말고 backoff 후 재전송해야 한다.
-// 기존 NACK 테스트는 전부 max_attempts=1이라 곧장 gave_up으로 단락되어 이 분기를 못 본다(timeout이
+// 기존 NACK 테스트는 전부 max_attempts=1이라 곧장 exhausted로 단락되어 이 분기를 못 본다(timeout이
 // 아니라 NACK이 fail_attempt를 거쳐 재시도로 가는 경로).
 TEST(CommandServiceTest, NackWithRetryBudgetResendsInsteadOfGivingUp) {
     ManualClock clock;
@@ -258,23 +319,25 @@ TEST(CommandServiceTest, NackWithRetryBudgetResendsInsteadOfGivingUp) {
     );
     ASSERT_TRUE(id.valid());
 
-    // NACK: 예산이 남았으니 포기(gave_up) 대신 backoff 대기로 전환한다.
+    // NACK: 예산이 남았으니 final failure 대신 backoff 대기로 전환한다.
     commands.settle(make_device_id(0xAA), id, false, 2, clock.now());
-    EXPECT_EQ(commands.metrics().gave_up_total, 0u); // 핵심: NACK이라도 예산 있으면 포기 X
-    EXPECT_EQ(commands.pending_count(), 1u);         // 여전히 미결(backoff 대기)
-    EXPECT_EQ(sender.sent.size(), 1u);               // 아직 재전송 전
+    EXPECT_EQ(commands.metrics().attempt_failures_agent_failure_total, 1u);
+    EXPECT_EQ(commands.metrics().failed_exhausted_total, 0u); // 핵심: NACK이라도 예산 있으면 포기 X
+    EXPECT_EQ(commands.pending_count(), 1u);                  // 여전히 미결(backoff 대기)
+    EXPECT_EQ(sender.sent.size(), 1u);                        // 아직 재전송 전
 
     clock.advance(600ms); // backoff(500ms) 경과
     commands.sweep(clock.now());
 
-    EXPECT_EQ(commands.metrics().retried_total, 1u); // backoff 후 동일 id 재전송
+    EXPECT_EQ(commands.metrics().resends_total, 1u); // backoff 후 동일 id 재전송
     ASSERT_EQ(sender.sent.size(), 2u);
     EXPECT_EQ(sender.sent[1].command_id, id);
     EXPECT_EQ(sent_mode(sender.sent[1].command), Mode::performance); // 보관본에서 복원
+    expect_lifecycle_identity(commands);
 }
 
-// 현실 설정(max_attempts=3)에서 예산을 모두 소진하면(재시도 2회 후) 포기한다. 또한 backoff가
-// attempt마다 2배로 자라는지(500ms -> 1000ms) 동일한 600ms 프로브로 확인한다.
+// 현실 설정(max_attempts=3)에서 예산을 모두 소진하면(재시도 2회 후) terminal failure가 된다. 또한
+// backoff가 attempt마다 2배로 자라는지(500ms -> 1000ms) 동일한 600ms 프로브로 확인한다.
 TEST(CommandServiceTest, ExhaustsRetryBudgetThenGivesUpWithBackoffDoubling) {
     ManualClock clock;
     FakeCommandSender sender;
@@ -289,38 +352,39 @@ TEST(CommandServiceTest, ExhaustsRetryBudgetThenGivesUpWithBackoffDoubling) {
     // attempt 1 timeout -> backoff_for(1) = 500ms
     clock.advance(6s);
     commands.sweep(clock.now());
-    EXPECT_EQ(commands.metrics().timed_out_total, 1u);
+    EXPECT_EQ(commands.metrics().attempt_failures_timeout_total, 1u);
 
     // 600ms 프로브: attempt 1 backoff(500ms)는 경과 -> 재전송(attempt 2).
     clock.advance(600ms);
     commands.sweep(clock.now());
-    EXPECT_EQ(commands.metrics().retried_total, 1u);
+    EXPECT_EQ(commands.metrics().resends_total, 1u);
     ASSERT_EQ(sender.sent.size(), 2u);
 
     // attempt 2 timeout -> backoff_for(2) = 1000ms (2배)
     clock.advance(6s);
     commands.sweep(clock.now());
-    EXPECT_EQ(commands.metrics().timed_out_total, 2u);
+    EXPECT_EQ(commands.metrics().attempt_failures_timeout_total, 2u);
 
     // 동일한 600ms 프로브: 이번엔 backoff가 1000ms라 아직 미경과 -> 재전송 없음(= 2배로 자랐다는
     // 증거).
     clock.advance(600ms);
     commands.sweep(clock.now());
-    EXPECT_EQ(commands.metrics().retried_total, 1u);
+    EXPECT_EQ(commands.metrics().resends_total, 1u);
     EXPECT_EQ(sender.sent.size(), 2u);
 
     // 추가 600ms(누적 1200ms > 1000ms) -> 재전송(attempt 3)
     clock.advance(600ms);
     commands.sweep(clock.now());
-    EXPECT_EQ(commands.metrics().retried_total, 2u);
+    EXPECT_EQ(commands.metrics().resends_total, 2u);
     ASSERT_EQ(sender.sent.size(), 3u);
 
     // attempt 3 timeout -> 예산 소진(attempts 3 >= max 3) -> 포기
     clock.advance(6s);
     commands.sweep(clock.now());
-    EXPECT_EQ(commands.metrics().timed_out_total, 3u);
-    EXPECT_EQ(commands.metrics().gave_up_total, 1u);
+    EXPECT_EQ(commands.metrics().attempt_failures_timeout_total, 3u);
+    EXPECT_EQ(commands.metrics().failed_exhausted_total, 1u);
     EXPECT_EQ(commands.pending_count(), 0u);
+    expect_lifecycle_identity(commands);
 }
 
 } // namespace

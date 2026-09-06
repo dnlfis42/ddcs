@@ -9,15 +9,13 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace ddcs::ctrl::app::metrics {
 
 namespace {
 
-// 단일 메트릭을 Prometheus text(HELP/TYPE/value)로 append. type은 "gauge" 또는 "counter".
-void append_metric(
-    std::string& out, char const* name, char const* help, char const* type, std::uint64_t value
-) {
+void append_metric_header(std::string& out, char const* name, char const* help, char const* type) {
     out += "# HELP ";
     out += name;
     out += ' ';
@@ -27,14 +25,54 @@ void append_metric(
     out += ' ';
     out += type;
     out += '\n';
+}
+
+// 정수 microseconds를 locale/부동소수 오차 없이 Prometheus base unit seconds로 쓴다.
+void append_microseconds_as_seconds(std::string& out, std::uint64_t microseconds) {
+    constexpr std::uint64_t microseconds_per_second = 1'000'000;
+    auto const whole = microseconds / microseconds_per_second;
+    auto fractional = microseconds % microseconds_per_second;
+    out += std::to_string(whole);
+    if (fractional == 0) {
+        return;
+    }
+
+    std::array<char, 6> digits{};
+    for (std::size_t i = digits.size(); i != 0; --i) {
+        digits[i - 1] = static_cast<char>('0' + (fractional % 10));
+        fractional /= 10;
+    }
+    auto last = digits.size();
+    while (last != 0 && digits[last - 1] == '0') {
+        --last;
+    }
+    out += '.';
+    out.append(digits.data(), last);
+}
+
+// 단일 metric을 Prometheus text(HELP/TYPE/value)로 append한다.
+void append_metric(
+    std::string& out, char const* name, char const* help, char const* type, std::uint64_t value
+) {
+    append_metric_header(out, name, help, type);
     out += name;
     out += ' ';
     out += std::to_string(value);
     out += '\n';
 }
 
+void append_seconds_metric(
+    std::string& out, char const* name, char const* help, char const* type, std::uint64_t value_us
+) {
+    append_metric_header(out, name, help, type);
+    out += name;
+    out += ' ';
+    append_microseconds_as_seconds(out, value_us);
+    out += '\n';
+}
+
 // Prometheus label value escaping (backslash, double-quote, newline).
-void append_label_value(std::string& out, std::string const& value) {
+void append_label_value(std::string& out, std::string_view value) {
     for (char const c : value) {
         switch (c) {
         case '\\':
@@ -53,7 +91,18 @@ void append_label_value(std::string& out, std::string const& value) {
     }
 }
 
-// pool 라벨 게이지 한 줄. 라벨값은 코드 상수라 이스케이프 불필요.
+void append_reason_counter(
+    std::string& out, char const* name, std::string_view reason, std::uint64_t value
+) {
+    out += name;
+    out += "{reason=\"";
+    append_label_value(out, reason);
+    out += "\"} ";
+    out += std::to_string(value);
+    out += '\n';
+}
+
+// pool 라벨 gauge 한 줄. 라벨값은 코드 상수라 이스케이프 불필요.
 void append_pool_gauge(std::string& out, char const* name, char const* pool, std::uint64_t value) {
     out += name;
     out += "{pool=\"";
@@ -63,7 +112,7 @@ void append_pool_gauge(std::string& out, char const* name, char const* pool, std
     out += '\n';
 }
 
-// group 라벨 게이지 한 줄 (locale-독립 double 포맷, json writer와 동일 규약).
+// group 라벨 gauge 한 줄 (locale-독립 double 포맷, json writer와 같은 규약).
 void append_group_gauge(
     std::string& out, char const* name, std::string const& group, double value
 ) {
@@ -77,31 +126,35 @@ void append_group_gauge(
     out += '\n';
 }
 
-// command RTT를 Prometheus histogram으로 append (누적 le 버킷 + _sum + _count).
+// command RTT를 Prometheus histogram으로 append한다. 내부 us를 seconds bucket/sum으로 바꾼다.
 void append_rtt_histogram(
-    std::string& out, std::span<std::uint64_t const> bounds_ms,
-    std::span<std::uint64_t const> buckets, std::uint64_t sum_ms
+    std::string& out, std::span<std::uint64_t const> bounds_us,
+    std::span<std::uint64_t const> buckets, std::uint64_t sum_us
 ) {
-    out += "# HELP ddcs_command_rtt_ms Command dispatch->outcome latency in milliseconds.\n";
-    out += "# TYPE ddcs_command_rtt_ms histogram\n";
-    std::uint64_t cum = 0;
-    for (std::size_t i = 0; i < bounds_ms.size(); ++i) {
-        cum += buckets[i];
-        out += "ddcs_command_rtt_ms_bucket{le=\"";
-        out += std::to_string(bounds_ms[i]);
+    constexpr char name[] = "ddcs_command_rtt_seconds";
+    append_metric_header(out, name, "Command dispatch-to-outcome latency in seconds.", "histogram");
+    std::uint64_t cumulative = 0;
+    for (std::size_t i = 0; i < bounds_us.size(); ++i) {
+        cumulative += buckets[i];
+        out += name;
+        out += "_bucket{le=\"";
+        append_microseconds_as_seconds(out, bounds_us[i]);
         out += "\"} ";
-        out += std::to_string(cum);
+        out += std::to_string(cumulative);
         out += '\n';
     }
-    cum += buckets[bounds_ms.size()]; // +Inf 오버플로 -> 누적이 곧 전체 관측 수(= count)
-    out += "ddcs_command_rtt_ms_bucket{le=\"+Inf\"} ";
-    out += std::to_string(cum);
+    cumulative += buckets[bounds_us.size()]; // +Inf 오버플로 -> 전체 관측 수(= count)
+    out += name;
+    out += "_bucket{le=\"+Inf\"} ";
+    out += std::to_string(cumulative);
     out += '\n';
-    out += "ddcs_command_rtt_ms_sum ";
-    out += std::to_string(sum_ms);
+    out += name;
+    out += "_sum ";
+    append_microseconds_as_seconds(out, sum_us);
     out += '\n';
-    out += "ddcs_command_rtt_ms_count ";
-    out += std::to_string(cum);
+    out += name;
+    out += "_count ";
+    out += std::to_string(cumulative);
     out += '\n';
 }
 
@@ -109,138 +162,187 @@ void append_rtt_histogram(
 
 std::string MetricsService::scrape() {
     std::string out;
-    // gauge. 현재값.
+
+    // session gauges. connections는 handshaking/confirming/active를 모두 포함하고,
+    // devices는 DeviceRegistry가 Controller 수명 동안 관리하는 Device 수다.
     append_metric(
-        out, "ddcs_connections", "Current session connections (all phases).", "gauge",
+        out, "ddcs_connections", "Current session connections across all protocol phases.", "gauge",
         sessions_.size()
     );
     append_metric(
-        out, "ddcs_devices_known", "Persistently known devices (by uuid).", "gauge", devices_.size()
+        out, "ddcs_devices", "Devices managed by the Controller in this process lifetime.", "gauge",
+        devices_.size()
     );
+
+    // command lifecycle. pending은 현재 gauge, 나머지는 logical command/attempt counter다.
     append_metric(
-        out, "ddcs_commands_pending", "In-flight commands awaiting outcome.", "gauge",
+        out, "ddcs_commands_pending", "Logical commands awaiting a terminal outcome.", "gauge",
         commands_.pending_count()
     );
-    // counter. 누적. 실패율 = gave_up/dispatched, 평균 RTT = rtt_ms_sum/completed.
     append_metric(
-        out, "ddcs_commands_dispatched_total", "Commands sent to sessions.", "counter",
+        out, "ddcs_commands_dispatched_total",
+        "Logical commands whose initial dispatch entered the retry state machine.", "counter",
         commands_.metrics().dispatched_total
     );
     append_metric(
-        out, "ddcs_commands_completed_total", "Commands that received a success outcome.",
-        "counter", commands_.metrics().completed_total
-    );
-    append_metric(
-        out, "ddcs_commands_timed_out_total",
-        "Command attempts dropped after no outcome (timeout).", "counter",
-        commands_.metrics().timed_out_total
-    );
-    append_metric(
-        out, "ddcs_commands_retried_total", "Command re-sends after timeout/NACK.", "counter",
-        commands_.metrics().retried_total
-    );
-    append_metric(
         out, "ddcs_commands_superseded_total",
-        "Commands replaced by a newer intent (same device and type).", "counter",
-        commands_.metrics().superseded_total
+        "Dispatched logical commands replaced by newer intent for the same device and command "
+        "family.",
+        "counter", commands_.metrics().superseded_total
     );
     append_metric(
-        out, "ddcs_commands_stale_total", "Late responses to closed/superseded commands (ignored).",
-        "counter", commands_.metrics().stale_total
+        out, "ddcs_commands_succeeded_total",
+        "Dispatched logical commands that received a successful outcome.", "counter",
+        commands_.metrics().succeeded_total
     );
-    // 알람 counter. 명령 최종 실패 + session 건강 (operator가 rate로 알람)
+    append_metric_header(
+        out, "ddcs_commands_failed_total",
+        "Dispatched logical commands that reached a terminal failure, partitioned by reason.",
+        "counter"
+    );
+    append_reason_counter(
+        out, "ddcs_commands_failed_total", "exhausted", commands_.metrics().failed_exhausted_total
+    );
+    append_reason_counter(
+        out, "ddcs_commands_failed_total", "offline", commands_.metrics().failed_offline_total
+    );
+    append_reason_counter(
+        out, "ddcs_commands_failed_total", "encode_fail",
+        commands_.metrics().failed_encode_fail_total
+    );
+    append_metric_header(
+        out, "ddcs_command_dispatch_failures_total",
+        "Initial command dispatches that did not enter the retry state machine, partitioned by "
+        "reason.",
+        "counter"
+    );
+    append_reason_counter(
+        out, "ddcs_command_dispatch_failures_total", "offline",
+        commands_.metrics().dispatch_failures_offline_total
+    );
+    append_reason_counter(
+        out, "ddcs_command_dispatch_failures_total", "encode_fail",
+        commands_.metrics().dispatch_failures_encode_fail_total
+    );
+    append_metric_header(
+        out, "ddcs_command_attempt_failures_total",
+        "Failed command attempts that may still retry, partitioned by reason.", "counter"
+    );
+    append_reason_counter(
+        out, "ddcs_command_attempt_failures_total", "agent_failure",
+        commands_.metrics().attempt_failures_agent_failure_total
+    );
+    append_reason_counter(
+        out, "ddcs_command_attempt_failures_total", "timeout",
+        commands_.metrics().attempt_failures_timeout_total
+    );
     append_metric(
-        out, "ddcs_commands_gave_up_total",
-        "Commands abandoned, by retry exhaustion or send failure.", "counter",
-        commands_.metrics().gave_up_total
+        out, "ddcs_command_resends_total",
+        "Retry transmissions accepted by the command transport adapter.", "counter",
+        commands_.metrics().resends_total
     );
     append_metric(
-        out, "ddcs_agents_evicted_total", "Agents force-closed after liveness timeout (unhealthy).",
-        "counter", session_service_.metrics().evicted_total
+        out, "ddcs_command_stale_responses_total",
+        "Responses for closed or superseded logical commands that were ignored.", "counter",
+        commands_.metrics().stale_responses_total
     );
-    append_metric(
-        out, "ddcs_handshake_expired_total",
-        "Connections dropped for not completing registration in time.", "counter",
-        session_service_.metrics().handshake_expired_total
-    );
-    // 유입량 counter. 포화 판정의 분자: rate(received)가 유입, sweep 여유가 처리 한계.
-    append_metric(
-        out, "ddcs_messages_received_total",
-        "Messages arriving at the session layer from agents (all types).", "counter",
-        session_service_.metrics().messages_received_total
-    );
-
-    // command RTT 분포(histogram). 평균(sum/count)이 숨기는 꼬리(p99 등)를 백분위로 본다.
     append_rtt_histogram(
-        out, device::CommandService::Metrics::rtt_bucket_bounds_ms, commands_.metrics().rtt_buckets,
-        commands_.metrics().rtt_ms_sum
+        out, device::CommandService::Metrics::rtt_bucket_bounds_us, commands_.metrics().rtt_buckets,
+        commands_.metrics().rtt_us_sum
     );
 
-    // sweep tick 작업 소요(us). 단일 스레드 포화 신호: max/avg가 sweep 주기에 근접하면 한계.
-    append_metric(
-        out, "ddcs_sweep_duration_us", "Work time of the latest sweep tick in microseconds.",
+    // tick duration. DurationStats의 정수 us 누산을 Prometheus base unit seconds로 노출한다.
+    append_seconds_metric(
+        out, "ddcs_tick_duration_seconds", "Work time of the latest Controller tick in seconds.",
         "gauge", sweep_.last_us
     );
-    append_metric(
-        out, "ddcs_sweep_duration_us_max", "Peak sweep tick work time in microseconds since start.",
-        "gauge", sweep_.max_us
+    append_seconds_metric(
+        out, "ddcs_tick_duration_seconds_max",
+        "Maximum Controller tick work time since process start in seconds.", "gauge", sweep_.max_us
     );
-    append_metric(
-        out, "ddcs_sweep_duration_us_sum",
-        "Cumulative sweep tick work time in us (avg = /ddcs_sweep_ticks_total).", "counter",
-        sweep_.sum_us
+    append_seconds_metric(
+        out, "ddcs_tick_duration_seconds_total", "Cumulative Controller tick work time in seconds.",
+        "counter", sweep_.sum_us
     );
-    append_metric(
-        out, "ddcs_sweep_ticks_total", "Number of sweep ticks executed.", "counter", sweep_.count
-    );
+    append_metric(out, "ddcs_ticks_total", "Completed Controller ticks.", "counter", sweep_.count);
 
-    // 전송 자원 게이지. 상한 없는 송신 큐(느린 소비자)와 풀 성장(누수/폭주)의 유일한 계기.
+    // session counter. 실제 Session이 registry에서 지워질 때 한 번만 센다.
+    append_metric(
+        out, "ddcs_messages_received_total",
+        "Messages arriving at the Controller session layer from agents.", "counter",
+        session_service_.metrics().messages_received_total
+    );
+    append_metric_header(
+        out, "ddcs_connections_closed_total",
+        "Session connections closed, partitioned by the bounded close reason.", "counter"
+    );
+    for (auto const reason : transport::port::disconnect_reasons) {
+        append_reason_counter(
+            out, "ddcs_connections_closed_total", transport::port::to_string(reason),
+            session_service_.metrics().connections_closed(reason)
+        );
+    }
+
+    // 전송 자원 gauges. scrape 시점의 snapshot이며 connection 수에 비례하는 순회는 scrape에만 있다.
     auto const transport = transport_stats_.transport_stats();
     append_metric(
-        out, "ddcs_tx_queued_messages",
-        "Messages waiting in per-connection send queues (all connections).", "gauge",
+        out, "ddcs_send_queue_messages",
+        "Messages waiting in per-connection send queues across all connections.", "gauge",
         transport.tx_queued_messages
     );
-    out +=
-        "# HELP ddcs_pool_capacity Object pool slot capacity (grows in chunks, never shrinks).\n";
-    out += "# TYPE ddcs_pool_capacity gauge\n";
-    append_pool_gauge(out, "ddcs_pool_capacity", "connection", transport.connection_pool_capacity);
-    append_pool_gauge(out, "ddcs_pool_capacity", "message", transport.message_pool_capacity);
-    out += "# HELP ddcs_pool_acquired Object pool slots currently in use.\n";
-    out += "# TYPE ddcs_pool_acquired gauge\n";
-    append_pool_gauge(out, "ddcs_pool_acquired", "connection", transport.connection_pool_acquired);
-    append_pool_gauge(out, "ddcs_pool_acquired", "message", transport.message_pool_acquired);
+    append_metric_header(
+        out, "ddcs_pool_slots",
+        "Object pool slot capacity; pools grow in chunks and do not shrink.", "gauge"
+    );
+    append_pool_gauge(out, "ddcs_pool_slots", "connection", transport.connection_pool_capacity);
+    append_pool_gauge(out, "ddcs_pool_slots", "message", transport.message_pool_capacity);
+    append_metric_header(
+        out, "ddcs_pool_slots_acquired", "Object pool slots currently acquired.", "gauge"
+    );
+    append_pool_gauge(
+        out, "ddcs_pool_slots_acquired", "connection", transport.connection_pool_acquired
+    );
+    append_pool_gauge(out, "ddcs_pool_slots_acquired", "message", transport.message_pool_acquired);
 
-    // per-group 게이지. 집계 규칙은 정책 평가와 같은 aggregate_groups를 공유한다.
+    // per-group gauges. aggregate_groups is the single implementation of policy/metric membership.
     auto const groups = device::aggregate_groups(active_devices_, devices_, policy_);
-
-    out += "# HELP ddcs_group_load_avg Average reported load across active devices in the group.\n";
-    out += "# TYPE ddcs_group_load_avg gauge\n";
-    for (auto const& [group, agg] : groups) {
-        double const avg =
-            agg.device_count != 0 ? agg.load_sum / static_cast<double>(agg.device_count) : 0.0;
-        append_group_gauge(out, "ddcs_group_load_avg", group, avg);
+    append_metric_header(
+        out, "ddcs_group_load_ratio",
+        "Average reported simulator load for active devices in the group, normalized from 0-100 to "
+        "0-1.",
+        "gauge"
+    );
+    for (auto const& [group, aggregate] : groups) {
+        double const average =
+            aggregate.device_count != 0
+                ? aggregate.load_sum / static_cast<double>(aggregate.device_count)
+                : 0.0;
+        append_group_gauge(out, "ddcs_group_load_ratio", group, average / 100.0);
     }
 
-    out += "# HELP ddcs_group_temp_avg Average reported temperature (C) across active devices in "
-           "the group.\n";
-    out += "# TYPE ddcs_group_temp_avg gauge\n";
-    for (auto const& [group, agg] : groups) {
-        double const avg =
-            agg.device_count != 0 ? agg.temp_sum / static_cast<double>(agg.device_count) : 0.0;
-        append_group_gauge(out, "ddcs_group_temp_avg", group, avg);
+    append_metric_header(
+        out, "ddcs_group_temperature_celsius",
+        "Average reported temperature in Celsius for active devices in the group.", "gauge"
+    );
+    for (auto const& [group, aggregate] : groups) {
+        double const average =
+            aggregate.device_count != 0
+                ? aggregate.temp_sum / static_cast<double>(aggregate.device_count)
+                : 0.0;
+        append_group_gauge(out, "ddcs_group_temperature_celsius", group, average);
     }
 
-    out += "# HELP ddcs_group_devices Active devices per group and mode.\n";
-    out += "# TYPE ddcs_group_devices gauge\n";
-    for (auto const& [group, agg] : groups) {
-        for (std::uint8_t m = 0; m < 3; ++m) {
+    append_metric_header(
+        out, "ddcs_group_devices", "Active devices per group and current mode.", "gauge"
+    );
+    for (auto const& [group, aggregate] : groups) {
+        for (std::uint8_t mode = 0; mode < 3; ++mode) {
             out += "ddcs_group_devices{group=\"";
             append_label_value(out, group);
             out += "\",mode=\"";
-            out += ddcs::device::to_string(static_cast<ddcs::device::Mode>(m));
+            out += ddcs::device::to_string(static_cast<ddcs::device::Mode>(mode));
             out += "\"} ";
-            out += std::to_string(agg.by_mode[m]);
+            out += std::to_string(aggregate.by_mode[mode]);
             out += '\n';
         }
     }

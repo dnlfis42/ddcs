@@ -10,7 +10,6 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -19,23 +18,28 @@ namespace ddcs::ctrl::app::device {
 // 명령 전달 use-case. device 1급 장부에 계열(type)당 미결 슬롯 1개를 유지한다.
 class CommandService {
 public:
-    // 누적 메트릭(monotonic). 실패율 = gave_up/dispatched, 평균 RTT = rtt_ms_sum/completed.
-    // 분모 dispatched는 재시도 상태 기계에 들어간 명령만 센다. 첫 송신부터 실패해 슬롯을
-    // 만들지 못한 명령은 어느 쪽에도 들어가지 않고 command.dispatch.fail 로만 남는다.
+    // 누적 메트릭(monotonic). 논리 명령의 terminal 상태와 개별 시도 실패를 분리한다.
+    // dispatched는 첫 송신에 성공해 상태 기계에 들어간 논리 명령만 센다. 따라서 같은 시점에
+    // dispatched = succeeded + failed + superseded + pending 이다.
     struct Metrics {
         std::uint64_t dispatched_total{};
-        std::uint64_t completed_total{};
-        std::uint64_t timed_out_total{}; // 응답 timeout(시도 단위)
-        std::uint64_t retried_total{};
-        std::uint64_t gave_up_total{};    // 재시도 소진(최종 실패, 알람)
         std::uint64_t superseded_total{}; // 새 의도가 옛 미결을 교체(정상 종결)
-        std::uint64_t stale_total{}; // 닫힌/대체된 명령의 늦은 응답(정상 부산물)
-        std::uint64_t rtt_ms_sum{};  // dispatch에서 outcome까지 지연(ms) 합(성공 한정)
+        std::uint64_t succeeded_total{};
+        std::uint64_t failed_exhausted_total{};          // 재시도 budget 소진
+        std::uint64_t failed_offline_total{};            // 재송신 중 연결 없음
+        std::uint64_t failed_encode_fail_total{};        // 재송신 encode 방어 실패
+        std::uint64_t dispatch_failures_offline_total{}; // 첫 송신이 연결 없음으로 실패
+        std::uint64_t dispatch_failures_encode_fail_total{};  // 첫 송신 encode 방어 실패
+        std::uint64_t attempt_failures_agent_failure_total{}; // Agent outcome 실패
+        std::uint64_t attempt_failures_timeout_total{};       // outcome timeout
+        std::uint64_t resends_total{};         // 전송 adapter가 수락한 재송신
+        std::uint64_t stale_responses_total{}; // 닫힌/대체된 명령의 늦은 응답(정상 부산물)
+        std::uint64_t rtt_us_sum{}; // dispatch부터 success outcome까지 지연(us) 합
 
-        // RTT 히스토그램 버킷 경계(ms, le). 평균이 숨기는 꼬리(p99 등)를 백분위로 보기 위함.
-        static constexpr std::array<std::uint64_t, 10> rtt_bucket_bounds_ms{1,   2,   5,   10,
-                                                                            20,  50,  100, 250,
-                                                                            500, 1000};
+        // RTT 히스토그램 버킷 경계(us). Prometheus에는 seconds로 정확히 변환해 노출한다.
+        static constexpr std::array<std::uint64_t, 10> rtt_bucket_bounds_us{
+            1'000, 2'000, 5'000, 10'000, 20'000, 50'000, 100'000, 250'000, 500'000, 1'000'000
+        };
 
         // 버킷별 관측 수(비누적, 성공 한정). 마지막(index 10)은 마지막 경계 초과(+Inf) 오버플로.
         std::array<std::uint64_t, 11> rtt_buckets{};
@@ -65,7 +69,7 @@ public:
 
     // CommandOutcome 반영:
     // - 성공은 슬롯 종료(RTT 기록)
-    // - 실패는 시도 실패(재시도/포기)
+    // - Agent failure는 시도 실패(재시도/소진)
     // - 미지 id는 stale
     // code는 검증 전 wire byte다. codec이 어휘 밖 값을 통과시키므로 해석은 여기 몫이고,
     // 로그에는 어휘 이름이 아니라 byte 그대로 싣는다(어휘 밖이면 이름이 빈 문자열이 된다).
@@ -79,9 +83,14 @@ public:
     void sweep(common::Clock::time_point now);
 
 private:
-    enum class Phase : std::uint8_t {
+    enum class State : std::uint8_t {
         in_flight,
         backoff,
+    };
+
+    enum class AttemptFailureReason : std::uint8_t {
+        agent_failure,
+        timeout,
     };
 
     struct Slot {
@@ -90,7 +99,7 @@ private:
         common::Clock::time_point dispatched_at{}; // 최초 dispatch(총 RTT 기준)
         common::Clock::time_point next_at{}; // in_flight=응답 deadline / backoff=재전송 시각
         int attempts = 1;
-        Phase phase = Phase::in_flight;
+        State state = State::in_flight;
     };
 
     struct DeviceCommands {
@@ -99,11 +108,12 @@ private:
 
     Slot* find_slot(domain::DeviceId device, port::CommandId command_id);
     void close_slot(domain::DeviceId device, port::CommandId command_id);
-    // reason은 이번 시도가 왜 실패했는지다. 재시도를 다 쓰면 그대로 command.fail에 실린다.
     void fail_attempt(
         domain::DeviceId device, port::CommandId command_id, common::Clock::time_point now,
-        std::string_view reason
+        AttemptFailureReason reason
     );
+    void record_dispatch_failure(port::SendResult result) noexcept;
+    void record_final_send_failure(port::SendResult result) noexcept;
     void resend(domain::DeviceId device, port::CommandId command_id, common::Clock::time_point now);
     [[nodiscard]] std::chrono::nanoseconds backoff_for(int attempt) const noexcept;
 

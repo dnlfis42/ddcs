@@ -104,10 +104,10 @@ public:
 
     std::vector<ConnectionId> disconnected;
 
-    void disconnect(ConnectionId id, DisconnectReason) override {
+    void disconnect(ConnectionId id, DisconnectReason reason) override {
         disconnected.push_back(id);
         if (listener != nullptr) {
-            listener->on_disconnected(id, DisconnectReason::shutdown);
+            listener->on_disconnected(id, reason);
         }
     }
 };
@@ -452,7 +452,7 @@ TEST(SessionServiceTest, CommandAckAndOutcomeSettlePending) {
     );
 
     EXPECT_EQ(f.commands.pending_count(), 0u);
-    EXPECT_EQ(f.commands.metrics().completed_total, 1u);
+    EXPECT_EQ(f.commands.metrics().succeeded_total, 1u);
 }
 
 TEST(SessionServiceTest, BrokenActivePayloadKicks) {
@@ -496,7 +496,7 @@ TEST(SessionServiceTest, SweepEvictsSilentActive) {
 
     EXPECT_EQ(f.disconnector.disconnected.size(), 1u);
     EXPECT_EQ(f.sessions.size(), 0u);
-    EXPECT_EQ(f.service.metrics().evicted_total, 1u);
+    EXPECT_EQ(f.service.metrics().connections_closed(DisconnectReason::liveness_expired), 1u);
 }
 
 TEST(SessionServiceTest, SweepKeepsActiveWithRecentTraffic) {
@@ -539,7 +539,7 @@ TEST(SessionServiceTest, SweepExpiresSilentHandshaking) {
     f.service.sweep(f.clock.now());
 
     EXPECT_EQ(f.disconnector.disconnected.size(), 1u);
-    EXPECT_EQ(f.service.metrics().handshake_expired_total, 1u);
+    EXPECT_EQ(f.service.metrics().connections_closed(DisconnectReason::handshake_expired), 1u);
 }
 
 TEST(SessionServiceTest, SweepKeepsFreshHandshaking) {
@@ -562,7 +562,7 @@ TEST(SessionServiceTest, SweepExpiresSilentConfirming) {
     f.service.sweep(f.clock.now());
 
     EXPECT_EQ(f.disconnector.disconnected.size(), 1u);
-    EXPECT_EQ(f.service.metrics().handshake_expired_total, 1u);
+    EXPECT_EQ(f.service.metrics().connections_closed(DisconnectReason::handshake_expired), 1u);
 }
 
 TEST(SessionServiceTest, SweepGrantsConfirmingItsOwnBudget) {
@@ -591,8 +591,8 @@ TEST(SessionServiceTest, SweepSurvivesSynchronousErase) {
 
     EXPECT_EQ(f.disconnector.disconnected.size(), 3u);
     EXPECT_EQ(f.sessions.size(), 0u);
-    EXPECT_EQ(f.service.metrics().evicted_total, 2u);
-    EXPECT_EQ(f.service.metrics().handshake_expired_total, 1u);
+    EXPECT_EQ(f.service.metrics().connections_closed(DisconnectReason::liveness_expired), 2u);
+    EXPECT_EQ(f.service.metrics().connections_closed(DisconnectReason::handshake_expired), 1u);
 }
 
 } // namespace

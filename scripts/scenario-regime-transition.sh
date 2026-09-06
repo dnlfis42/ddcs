@@ -21,8 +21,8 @@ idle=$(logcount '"regime":"idle"')
 narrate "관측된 Regime 전환 (policy.regime.update):"
 docker logs "$CTRL" 2>&1 | grep '"event":"policy.regime.update"' |
     tail -8 | sed "s/^/  ${C_D}/;s/$/${C_0}/"
-narrate "현재 Group 평균 부하:"
-curl -s --max-time 5 "$METRICS_URL" | grep '^ddcs_group_load_avg' | sort | sed "s/^/  ${C_D}/;s/$/${C_0}/"
+narrate "현재 Group 평균 load ratio (0–1):"
+curl -s --max-time 5 "$METRICS_URL" | grep '^ddcs_group_load_ratio' | sort | sed "s/^/  ${C_D}/;s/$/${C_0}/"
 
 narrate "단언"
 assert_ge "busy 전환 발생(평균 부하가 busy_load 초과)" "$busy" 1

@@ -16,6 +16,7 @@
 #include "ddcs/ctrl/domain/group_policy.hpp"
 #include "ddcs/wire/message/message.hpp"
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <string_view>
@@ -48,13 +49,18 @@ public:
     // active는 liveness budget을 받는다.
     void sweep(common::Clock::time_point now);
 
-    // 누적 메트릭(monotonic, 알람)
+    // 누적 메트릭(monotonic). close 이유의 cardinality는 DisconnectReason 어휘로 고정한다.
     struct Metrics {
-        std::uint64_t handshake_expired_total{}; // 등록 단계 시한 초과
-        std::uint64_t evicted_total{};           // active 침묵 evict
         // 세션 계층에 도착한 수신 메시지(모든 타입, decode 이전). 유입 rate의 분자로,
         // sweep 여유와 함께 봐야 단일 스레드의 포화 여부를 판정할 수 있다.
         std::uint64_t messages_received_total{};
+        std::array<std::uint64_t, port::disconnect_reason_count> connections_closed_total{};
+
+        [[nodiscard]] std::uint64_t connections_closed(port::DisconnectReason reason
+        ) const noexcept {
+            auto const index = port::disconnect_reason_index(reason);
+            return index < connections_closed_total.size() ? connections_closed_total[index] : 0;
+        }
     };
 
     [[nodiscard]] Metrics const& metrics() const noexcept {

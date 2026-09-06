@@ -54,7 +54,7 @@ name="$(docker inspect -f '{{.Name}}' "$cid" | sed 's|^/||')"
 [ "${#cids[@]}" -gt 1 ] && info "복제본 ${#cids[@]}개 중 첫 번째를 고릅니다: ${name}"
 
 conn() { metric_int ddcs_connections; }
-evicted() { metric_int ddcs_agents_evicted_total; }
+liveness_closed() { metric_reason_int ddcs_connections_closed_total liveness_expired; }
 
 case "$action" in
 pause)
@@ -80,22 +80,22 @@ cycle)
     tail_s="${DDCS_FAULT_TAIL:-15}"
     start_epoch="$(date +%s)"
     pre_conn="$(conn)"
-    pre_evict="$(evicted)"
+    pre_liveness_closed="$(liveness_closed)"
     narrate "장애 주입 사이클: ${name}"
-    info "시작 $(date '+%H:%M:%S') — connections=${pre_conn}, evicted=${pre_evict}"
+    info "시작 $(date '+%H:%M:%S') — connections=${pre_conn}, liveness_closed=${pre_liveness_closed}"
 
     docker pause "$cid" >/dev/null
     t0="$SECONDS"
     wait_for "축출 (connections ${pre_conn} 아래로)" 20 metric_at_most ddcs_connections "$((pre_conn - 1))" || true
     detect=$((SECONDS - t0))
-    info "정지 중 — connections=$(conn), evicted=$(evicted), 감지까지 ${detect}초"
+    info "정지 중 — connections=$(conn), liveness_closed=$(liveness_closed), 감지까지 ${detect}초"
     # 그래프에서 계단이 보이려면 정지 구간이 충분히 넓어야 한다. 감지에 쓴 시간을 뺀 나머지를 채운다.
     [ "$hold" -gt "$detect" ] && soak $((hold - detect)) "정지 구간 유지"
 
     docker unpause "$cid" >/dev/null
     t1="$SECONDS"
     wait_for "복구 (connections ${pre_conn})" 30 metric_at_least ddcs_connections "$pre_conn" || true
-    info "복구 후 — connections=$(conn), devices_known=$(metric_int ddcs_devices_known), $((SECONDS - t1))초"
+    info "복구 후 — connections=$(conn), devices=$(metric_int ddcs_devices), $((SECONDS - t1))초"
     [ "$tail_s" -gt 0 ] && soak "$tail_s" "복구 구간 유지"
 
     end_epoch="$(date +%s)"

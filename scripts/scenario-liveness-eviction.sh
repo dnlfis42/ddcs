@@ -16,16 +16,16 @@ stack_up controller agent-01 agent-02 agent-03 agent-04 || exit 1
 wait_for "Agent 4대 연결" 40 metric_at_least ddcs_connections 4 || exit 1
 soak "${DDCS_SCENARIO_SOAK:-8}" "정상 운영"
 
-pre_evict=$(metric_int ddcs_agents_evicted_total)
+pre_liveness_closed=$(metric_reason_int ddcs_connections_closed_total liveness_expired)
 pre_reg=$(register_count "$DEV")
 cid=$(compose ps -q agent-01)
 
 narrate "agent-01 정지 (docker pause, heartbeat 중단)"
 docker pause "$cid" >/dev/null
 wait_for "Controller liveness 축출(연결 3으로 감소)" 15 metric_at_most ddcs_connections 3 || true
-mid_evict=$(metric_int ddcs_agents_evicted_total)
+mid_liveness_closed=$(metric_reason_int ddcs_connections_closed_total liveness_expired)
 mid_conn=$(metric_int ddcs_connections)
-info "정지 중: connections=$mid_conn, evicted_total=$mid_evict"
+info "정지 중: connections=$mid_conn, liveness_closed_total=$mid_liveness_closed"
 
 narrate "agent-01 재개 (docker unpause)"
 docker unpause "$cid" >/dev/null
@@ -35,7 +35,7 @@ post_reg=$(register_count "$DEV")
 info "재개 후: connections=$post_conn, register(${DEV:0:8})=$post_reg"
 
 narrate "단언"
-assert_ge "정지 중 liveness 축출 발생" "$mid_evict" $((pre_evict + 1))
+assert_ge "정지 중 liveness 축출 발생" "$mid_liveness_closed" $((pre_liveness_closed + 1))
 assert_eq "정지 중 연결 수 감소" "$mid_conn" "3"
 assert_ge "재개 후 연결 복구" "$post_conn" 4
 assert_ge "Device 재등록(재접속)" "$post_reg" $((pre_reg + 1))

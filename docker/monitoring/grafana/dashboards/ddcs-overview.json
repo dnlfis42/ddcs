@@ -1,9 +1,7 @@
 {
   "uid": "ddcs-overview",
   "title": "DDCS Controller Overview",
-  "tags": [
-    "ddcs"
-  ],
+  "tags": ["ddcs"],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 2,
@@ -102,9 +100,7 @@
         "justifyMode": "auto",
         "textMode": "auto",
         "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
+          "calcs": ["lastNotNull"],
           "fields": "",
           "values": false
         }
@@ -113,8 +109,8 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Known devices",
-      "description": "영속적으로 알려진 Device 수 (uuid 기준). gauge ddcs_devices_known.",
+      "title": "Managed devices",
+      "description": "Controller 프로세스 수명 동안 관리한 Device 수 (uuid 기준). gauge ddcs_devices.",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -128,7 +124,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ddcs_devices_known",
+          "expr": "ddcs_devices",
           "legendFormat": "devices"
         }
       ],
@@ -156,9 +152,7 @@
         "justifyMode": "auto",
         "textMode": "auto",
         "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
+          "calcs": ["lastNotNull"],
           "fields": "",
           "values": false
         }
@@ -218,9 +212,7 @@
         "justifyMode": "auto",
         "textMode": "auto",
         "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
+          "calcs": ["lastNotNull"],
           "fields": "",
           "values": false
         }
@@ -230,7 +222,7 @@
       "id": 5,
       "type": "stat",
       "title": "Avg command RTT",
-      "description": "완료 명령 평균 RTT = rate(rtt_ms_sum)/rate(completed_total). 무완료 구간은 표시 없음.",
+      "description": "성공 outcome 평균 RTT = 1000 × rate(rtt_seconds_sum)/rate(rtt_seconds_count). 무완료 구간은 표시 없음.",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -244,7 +236,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(ddcs_command_rtt_ms_sum[$__rate_interval]) / rate(ddcs_commands_completed_total[$__rate_interval])",
+          "expr": "1000 * rate(ddcs_command_rtt_seconds_sum[$__rate_interval]) / rate(ddcs_command_rtt_seconds_count[$__rate_interval])",
           "legendFormat": "avg RTT"
         }
       ],
@@ -280,9 +272,7 @@
         "justifyMode": "auto",
         "textMode": "auto",
         "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
+          "calcs": ["lastNotNull"],
           "fields": "",
           "values": false
         }
@@ -305,7 +295,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "Command rates (ops/s)",
-      "description": "명령 수명주기 카운터의 초당 증가율.",
+      "description": "논리 명령 terminal state, 첫 송신 실패, attempt 실패를 분리한 초당 증가율.",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -324,28 +314,38 @@
         },
         {
           "refId": "B",
-          "expr": "rate(ddcs_commands_completed_total[$__rate_interval])",
-          "legendFormat": "completed"
+          "expr": "rate(ddcs_commands_succeeded_total[$__rate_interval])",
+          "legendFormat": "succeeded"
         },
         {
           "refId": "C",
-          "expr": "rate(ddcs_commands_timed_out_total[$__rate_interval])",
-          "legendFormat": "timed_out"
+          "expr": "sum(rate(ddcs_commands_failed_total[$__rate_interval]))",
+          "legendFormat": "terminal failed"
         },
         {
           "refId": "D",
-          "expr": "rate(ddcs_commands_retried_total[$__rate_interval])",
-          "legendFormat": "retried"
+          "expr": "sum(rate(ddcs_command_dispatch_failures_total[$__rate_interval]))",
+          "legendFormat": "initial dispatch failed"
         },
         {
           "refId": "E",
+          "expr": "sum(rate(ddcs_command_attempt_failures_total[$__rate_interval]))",
+          "legendFormat": "attempt failed"
+        },
+        {
+          "refId": "F",
+          "expr": "rate(ddcs_command_resends_total[$__rate_interval])",
+          "legendFormat": "resends"
+        },
+        {
+          "refId": "G",
           "expr": "rate(ddcs_commands_superseded_total[$__rate_interval])",
           "legendFormat": "superseded"
         },
         {
-          "refId": "F",
-          "expr": "rate(ddcs_commands_stale_total[$__rate_interval])",
-          "legendFormat": "stale"
+          "refId": "H",
+          "expr": "rate(ddcs_command_stale_responses_total[$__rate_interval])",
+          "legendFormat": "stale responses"
         }
       ],
       "fieldConfig": {
@@ -367,10 +367,7 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": [
-            "last",
-            "max"
-          ]
+          "calcs": ["last", "max"]
         },
         "tooltip": {
           "mode": "multi",
@@ -382,7 +379,7 @@
       "id": 12,
       "type": "timeseries",
       "title": "Avg command RTT (ms)",
-      "description": "rate(rtt_ms_sum)/rate(completed_total).",
+      "description": "1000 × rate(rtt_seconds_sum)/rate(rtt_seconds_count).",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -396,7 +393,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(ddcs_command_rtt_ms_sum[$__rate_interval]) / rate(ddcs_commands_completed_total[$__rate_interval])",
+          "expr": "1000 * rate(ddcs_command_rtt_seconds_sum[$__rate_interval]) / rate(ddcs_command_rtt_seconds_count[$__rate_interval])",
           "legendFormat": "avg RTT"
         }
       ],
@@ -431,7 +428,7 @@
       "id": 13,
       "type": "timeseries",
       "title": "Command success ratio",
-      "description": "rate(completed)/rate(dispatched). 1.0 = 모든 명령 성공.",
+      "description": "rate(succeeded)/rate(dispatched). 1.0 = 해당 창에서 dispatch된 논리 명령이 성공으로 종결.",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -445,7 +442,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(ddcs_commands_completed_total[$__rate_interval]) / rate(ddcs_commands_dispatched_total[$__rate_interval])",
+          "expr": "rate(ddcs_commands_succeeded_total[$__rate_interval]) / rate(ddcs_commands_dispatched_total[$__rate_interval])",
           "legendFormat": "success ratio"
         }
       ],
@@ -558,18 +555,18 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(ddcs_commands_gave_up_total[$__rate_interval])",
-          "legendFormat": "commands_gave_up"
+          "expr": "sum(rate(ddcs_commands_failed_total[$__rate_interval]))",
+          "legendFormat": "commands terminal failed"
         },
         {
           "refId": "B",
-          "expr": "rate(ddcs_agents_evicted_total[$__rate_interval])",
-          "legendFormat": "agents_evicted"
+          "expr": "sum(rate(ddcs_command_dispatch_failures_total[$__rate_interval]))",
+          "legendFormat": "initial dispatch failed"
         },
         {
           "refId": "C",
-          "expr": "rate(ddcs_handshake_expired_total[$__rate_interval])",
-          "legendFormat": "handshake_expired"
+          "expr": "sum by (reason) (rate(ddcs_connections_closed_total{reason=~\"liveness_expired|handshake_expired\"}[$__rate_interval]))",
+          "legendFormat": "{{reason}}"
         }
       ],
       "fieldConfig": {
@@ -591,10 +588,7 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": [
-            "last",
-            "max"
-          ]
+          "calcs": ["last", "max"]
         },
         "tooltip": {
           "mode": "multi",
@@ -620,18 +614,18 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ddcs_commands_gave_up_total",
-          "legendFormat": "commands_gave_up"
+          "expr": "sum(ddcs_commands_failed_total)",
+          "legendFormat": "commands terminal failed"
         },
         {
           "refId": "B",
-          "expr": "ddcs_agents_evicted_total",
-          "legendFormat": "agents_evicted"
+          "expr": "sum(ddcs_command_dispatch_failures_total)",
+          "legendFormat": "initial dispatch failed"
         },
         {
           "refId": "C",
-          "expr": "ddcs_handshake_expired_total",
-          "legendFormat": "handshake_expired"
+          "expr": "ddcs_connections_closed_total{reason=~\"liveness_expired|handshake_expired\"}",
+          "legendFormat": "{{reason}}"
         }
       ],
       "fieldConfig": {
@@ -663,9 +657,7 @@
         "textMode": "value_and_name",
         "orientation": "horizontal",
         "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
+          "calcs": ["lastNotNull"],
           "fields": "",
           "values": false
         }
@@ -674,8 +666,8 @@
     {
       "id": 23,
       "type": "timeseries",
-      "title": "Connections & known devices over time",
-      "description": "gauge ddcs_connections, ddcs_devices_known 추이.",
+      "title": "Connections & managed devices over time",
+      "description": "gauge ddcs_connections, ddcs_devices 추이.",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -694,8 +686,8 @@
         },
         {
           "refId": "B",
-          "expr": "ddcs_devices_known",
-          "legendFormat": "devices_known"
+          "expr": "ddcs_devices",
+          "legendFormat": "managed devices"
         }
       ],
       "fieldConfig": {
@@ -741,8 +733,8 @@
     {
       "id": 41,
       "type": "timeseries",
-      "title": "Group avg load",
-      "description": "그룹별 active device 평균 load (정책 입력 신호). gauge ddcs_group_load_avg{group}.",
+      "title": "Group avg load ratio",
+      "description": "그룹별 active device 평균 load를 0–1로 정규화한 값. gauge ddcs_group_load_ratio{group}.",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -756,13 +748,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ddcs_group_load_avg{group=~\"$group\"}",
+          "expr": "ddcs_group_load_ratio{group=~\"$group\"}",
           "legendFormat": "{{group}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "percentunit",
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "linear",
@@ -779,11 +771,7 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": [
-            "last",
-            "min",
-            "max"
-          ]
+          "calcs": ["last", "min", "max"]
         },
         "tooltip": {
           "mode": "multi",
@@ -833,9 +821,7 @@
         "legend": {
           "displayMode": "table",
           "placement": "right",
-          "calcs": [
-            "lastNotNull"
-          ]
+          "calcs": ["lastNotNull"]
         },
         "tooltip": {
           "mode": "multi",
@@ -846,8 +832,8 @@
     {
       "id": 43,
       "type": "timeseries",
-      "title": "Group avg temp",
-      "description": "그룹별 active device 평균 온도(C). mode-구동 상태(performance 가열 / safe 냉각). gauge ddcs_group_temp_avg{group}.",
+      "title": "Group avg temperature",
+      "description": "그룹별 active device 평균 온도(C). mode-구동 상태(performance 가열 / safe 냉각). gauge ddcs_group_temperature_celsius{group}.",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -861,7 +847,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ddcs_group_temp_avg{group=~\"$group\"}",
+          "expr": "ddcs_group_temperature_celsius{group=~\"$group\"}",
           "legendFormat": "{{group}}"
         }
       ],
@@ -884,11 +870,7 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": [
-            "last",
-            "min",
-            "max"
-          ]
+          "calcs": ["last", "min", "max"]
         },
         "tooltip": {
           "mode": "multi",
@@ -912,8 +894,8 @@
     {
       "id": 51,
       "type": "timeseries",
-      "title": "Sweep tick duration (us)",
-      "description": "주기 sweep tick 작업 시간(마이크로초). 단일 스레드 포화 신호: sweep 주기(기본 1s = 1e6 us)에 근접하면 한 코어가 포화에 이른다. gauge ddcs_sweep_duration_us / _max + 평균(sum/ticks).",
+      "title": "Controller tick duration (ms)",
+      "description": "주기 Controller tick 작업 시간. 단일 스레드 포화 신호: tick 주기(기본 1s)에 근접하면 한 코어가 포화에 이른다. Prometheus seconds를 화면에서 ms로 환산한다.",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -927,23 +909,23 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(ddcs_sweep_duration_us_sum[$__rate_interval]) / rate(ddcs_sweep_ticks_total[$__rate_interval])",
+          "expr": "1000 * rate(ddcs_tick_duration_seconds_total[$__rate_interval]) / rate(ddcs_ticks_total[$__rate_interval])",
           "legendFormat": "avg"
         },
         {
           "refId": "B",
-          "expr": "ddcs_sweep_duration_us",
+          "expr": "1000 * ddcs_tick_duration_seconds",
           "legendFormat": "last"
         },
         {
           "refId": "C",
-          "expr": "ddcs_sweep_duration_us_max",
+          "expr": "1000 * ddcs_tick_duration_seconds_max",
           "legendFormat": "max (since start)"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "ms",
           "min": 0,
           "custom": {
             "drawStyle": "line",
@@ -961,10 +943,7 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": [
-            "last",
-            "max"
-          ]
+          "calcs": ["last", "max"]
         },
         "tooltip": {
           "mode": "multi",
@@ -976,7 +955,7 @@
       "id": 52,
       "type": "timeseries",
       "title": "Command RTT percentiles (ms)",
-      "description": "histogram ddcs_command_rtt_ms 로 계산한 명령 RTT 분포. 평균이 숨기는 꼬리를 p50/p99로 본다.",
+      "description": "histogram ddcs_command_rtt_seconds로 계산한 명령 RTT 분포. Prometheus seconds를 화면에서 ms로 환산해 평균이 숨기는 꼬리를 p50/p99로 본다.",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -990,12 +969,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum(rate(ddcs_command_rtt_ms_bucket[$__rate_interval])) by (le))",
+          "expr": "1000 * histogram_quantile(0.5, sum(rate(ddcs_command_rtt_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.99, sum(rate(ddcs_command_rtt_ms_bucket[$__rate_interval])) by (le))",
+          "expr": "1000 * histogram_quantile(0.99, sum(rate(ddcs_command_rtt_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "p99"
         }
       ],
@@ -1019,10 +998,7 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": [
-            "last",
-            "max"
-          ]
+          "calcs": ["last", "max"]
         },
         "tooltip": {
           "mode": "multi",
@@ -1034,7 +1010,7 @@
       "id": 53,
       "type": "timeseries",
       "title": "Inflow (msgs/s)",
-      "description": "세션 계층 수신 메시지 유입률. 기대치는 대략 3 x agent 수(heartbeat 2/s + status 1/s)에 명령 응답이 더해진 값. sweep 여유(왼쪽 위 패널)와 함께 봐야 단일 스레드의 포화를 판정할 수 있다. counter ddcs_messages_received_total.",
+      "description": "세션 계층 수신 메시지 유입률. 기대치는 대략 3 x agent 수(heartbeat 2/s + status 1/s)에 명령 응답이 더해진 값. tick 여유(왼쪽 위 패널)와 함께 봐야 단일 스레드의 포화를 판정할 수 있다. counter ddcs_messages_received_total.",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -1072,10 +1048,7 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": [
-            "last",
-            "max"
-          ]
+          "calcs": ["last", "max"]
         },
         "tooltip": {
           "mode": "multi",
@@ -1086,8 +1059,8 @@
     {
       "id": 54,
       "type": "timeseries",
-      "title": "TX queue depth",
-      "description": "전 연결 송신 큐 대기 메시지 합. 큐에 상한이 없으므로(설계 한계) 이 게이지가 느린 소비자를 잡는 유일한 계기다. 0 근처 유지가 정상, 지속 증가는 특정 Agent가 소비를 못 따라가는 것. gauge ddcs_tx_queued_messages.",
+      "title": "Send queue depth",
+      "description": "전 연결 송신 큐 대기 메시지 합. 큐에 상한이 없으므로(설계 한계) 이 게이지가 느린 소비자를 잡는 유일한 계기다. 0 근처 유지가 정상, 지속 증가는 특정 Agent가 소비를 못 따라가는 것. gauge ddcs_send_queue_messages.",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -1101,7 +1074,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ddcs_tx_queued_messages",
+          "expr": "ddcs_send_queue_messages",
           "legendFormat": "queued"
         }
       ],
@@ -1125,10 +1098,7 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": [
-            "last",
-            "max"
-          ]
+          "calcs": ["last", "max"]
         },
         "tooltip": {
           "mode": "multi",
@@ -1139,8 +1109,8 @@
     {
       "id": 55,
       "type": "timeseries",
-      "title": "Pool slots (acquired / capacity)",
-      "description": "ObjectPool 사용률. capacity는 chunk 단위로만 자라고 줄지 않으므로, 평평한 capacity와 안정된 acquired가 무할당 정상 상태의 증거다. capacity 계단 상승 = 순간 수요 폭증(burst), acquired 단조 증가 = 반납 누락. gauge ddcs_pool_acquired / ddcs_pool_capacity {pool=connection|message}.",
+      "title": "Pool slots (acquired / total)",
+      "description": "ObjectPool 사용률. slot capacity는 chunk 단위로만 자라고 줄지 않으므로, 평평한 slots와 안정된 acquired가 무할당 정상 상태의 증거다. slots 계단 상승 = 순간 수요 폭증(burst), acquired 단조 증가 = 반납 누락. gauge ddcs_pool_slots_acquired / ddcs_pool_slots {pool=connection|message}.",
       "datasource": {
         "type": "prometheus",
         "uid": "ddcs-prometheus"
@@ -1154,13 +1124,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "ddcs_pool_acquired",
+          "expr": "ddcs_pool_slots_acquired",
           "legendFormat": "{{pool}} acquired"
         },
         {
           "refId": "B",
-          "expr": "ddcs_pool_capacity",
-          "legendFormat": "{{pool}} capacity"
+          "expr": "ddcs_pool_slots",
+          "legendFormat": "{{pool}} slots"
         }
       ],
       "fieldConfig": {
@@ -1183,10 +1153,7 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": [
-            "last",
-            "max"
-          ]
+          "calcs": ["last", "max"]
         },
         "tooltip": {
           "mode": "multi",
