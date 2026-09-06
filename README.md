@@ -205,7 +205,7 @@ Device 동작(`DDCS_SIM_NOISE`/`DDCS_SIM_JITTER`)은 compose 파일의 agent `en
 Agent 1,000대가 접속한 상태에서 Controller tick은 한 번에 평균 3.7ms를 사용했습니다.
 
 > [!IMPORTANT]
-> 아래 수치는 현재 metric contract와 profiler가 확정되기 전 capture입니다. 제출용 포트폴리오의 정본으로 쓰지 않고, 통제된 재측정 단계에서 같은 입력·반복 조건으로 교체합니다.
+> 아래 수치는 현재 metric contract와 profiler가 확정되기 전 capture입니다. 제출용 포트폴리오의 정본으로 쓰지 않고, 통제된 재측정 단계에서 같은 입력·안정화·측정 시간 조건으로 교체합니다.
 
 ### 측정 환경
 
@@ -234,20 +234,22 @@ Agent마다 heartbeat를 0.5초, Status 보고를 1초 간격으로 보내므로
 - `rtt_ms`: 정책 명령 발행부터 성공 outcome까지의 왕복 시간(측정 창에서 완료된 명령의 평균).
 - `liveness_closed`: 측정 창에 `ddcs_connections_closed_total{reason="liveness_expired"}`가 증가한 수.
 
-`scripts/perf-ramp.sh`가 `balance` 또는 `single` 배치를 받아 Agent 수를 단계별로 늘리며, 레벨마다 기본 30초씩 지표를 수집합니다. `balance`는 4개 zone에 균등 분배하므로 레벨이 4의 배수여야 하고, `single`은 전부 zone_a 하나에 둡니다. 스크립트는 표를 터미널에 출력하되 `rows.tsv`는 남기지 않습니다. 각 레벨의 양끝 Prometheus 원문과 `measurement.json`에는 실제 snapshot 시각 및 Controller CPU jiffies를 남기므로, rate와 CPU 평균은 언제든 원문에서 다시 계산할 수 있습니다. RTT 평균의 분모는 성공 계수가 아니라 같은 histogram의 `ddcs_command_rtt_seconds_count`입니다.
+`scripts/perf-ramp.sh`가 `balance` 또는 `single` 배치를 받아 Agent 수를 단계별로 늘립니다. 각 레벨은 목표 연결 뒤 30초간 안정화하고, 120초 동안 지표를 수집합니다. `balance`는 4개 zone에 균등 분배하므로 레벨이 4의 배수여야 하고, `single`은 전부 zone_a 하나에 둡니다. 스크립트는 표를 터미널에 출력하되 `rows.tsv`는 남기지 않습니다. 각 레벨의 양끝 Prometheus 원문과 `measurement.json`에는 실제 snapshot 시각 및 Controller CPU jiffies를 남기므로, rate와 CPU 평균은 언제든 원문에서 다시 계산할 수 있습니다. RTT 평균의 분모는 성공 계수가 아니라 같은 histogram의 `ddcs_command_rtt_seconds_count`입니다.
 500대 이상은 호스트 전제(ARP 이웃 테이블 상한)가 있으므로 스크립트 머리말을 먼저 읽으십시오:
 
 ```sh
-DDCS_PERF_LEVELS="100 200 400 600 800 1000" DDCS_PERF_SOAK=30 scripts/perf-ramp.sh balance
+DDCS_PERF_LEVELS="100 200 400 600 800 1000" \
+DDCS_PERF_SETTLE=30 \
+DDCS_PERF_SOAK=120 \
+scripts/perf-ramp.sh balance
 ```
 
-제출용 반복 자료는 `perf-suite.sh`로 수집합니다. suite는 Controller와 Agent 이미지를 한 번만 build한 뒤 `balance`와 `single`을 각각 반복하고, child ramp가 같은 build-key와 두 image ID를 재사용하는지 manifest로 검사합니다. suite manifest는 각 child manifest의 SHA-256·크기와 preflight warning 수를 보관하므로, 반복 사이에 build가 바뀌거나 경고를 놓치는 일을 막습니다.
+제출용 자료는 `perf-suite.sh`로 수집합니다. suite는 Controller와 Agent 이미지를 한 번만 build한 뒤 `balance`와 `single`을 각각 한 번 실행하고, child ramp가 같은 build-key와 두 image ID를 재사용하는지 manifest로 검사합니다. suite manifest는 각 child manifest의 SHA-256·크기와 preflight warning 수를 보관해 build가 바뀌거나 경고를 놓치는 일을 막습니다.
 
 ```sh
-# balance 3회 + single 3회
 DDCS_PERF_SUITE_LEVELS="100 200 400 600 800 1000" \
-DDCS_PERF_SUITE_SOAK=30 \
-DDCS_PERF_SUITE_REPETITIONS=3 \
+DDCS_PERF_SUITE_SETTLE=30 \
+DDCS_PERF_SUITE_SOAK=120 \
 scripts/perf-suite.sh
 ```
 
@@ -267,9 +269,9 @@ var/result/<build-key>/
         metrics-end.prom
     <UTC>-perf-suite-<PID>/
       manifest.json
-      balance-01/
+      balance/
         ... 위 ramp 산출물 ...
-      single-01/
+      single/
         ... 위 ramp 산출물 ...
 ```
 
@@ -278,7 +280,7 @@ var/result/<build-key>/
 
 ```sh
 # 단일 Group 1000대: 최악 burst 측정 (rtt 분포 꼬리와 tick_max_cum_us를 본다)
-DDCS_PERF_LEVELS="1000" DDCS_PERF_SOAK=120 scripts/perf-ramp.sh single
+DDCS_PERF_LEVELS="1000" DDCS_PERF_SETTLE=30 DDCS_PERF_SOAK=120 scripts/perf-ramp.sh single
 ```
 
 ### 측정 결과
@@ -287,7 +289,7 @@ Agent 수, 지연, 유실 세 축으로 나눠 싣습니다.
 
 #### Agent 수에 따른 변화
 
-zone 4개 균등 분배, 레벨당 30초 측정 창이며, `scripts/perf-preflight.sh`를 통과한 고정 클럭 상태에서 측정했습니다.
+아래 사전 capture는 zone 4개 균등 분배, 레벨당 30초 측정 창이며, `scripts/perf-preflight.sh`를 통과한 고정 클럭 상태에서 측정했습니다.
 
 |agents|tick_avg_us|tick_max_cum_us|cpu_pct|in_msgs_s|rtt_ms|
 |---|---|---|---|---|---|

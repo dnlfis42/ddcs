@@ -10,21 +10,22 @@
 #
 #   balance                         총 Agent를 4개 zone에 균등 분배한다(각 레벨은 4의 배수).
 #   single                          전체 Agent를 zone_a 하나에 둔다.
-#   DDCS_PERF_LEVELS="100 200 400"  총 Agent 수 단계
-#   DDCS_PERF_SOAK=30               단계별 측정 창 (초)
+#   DDCS_PERF_LEVELS="100 200 400 600 800 1000"  총 Agent 수 단계
+#   DDCS_PERF_SETTLE=30                           목표 연결 뒤 안정화 시간 (초)
+#   DDCS_PERF_SOAK=120                            단계별 측정 창 (초)
 #   DDCS_PERF_SKIP_PREFLIGHT=1      전제 검사를 건너뛴다(비권장. 그렇게 잰 수치는 표에 싣지 않는다)
 #   DDCS_PERF_SKIP_BUILD=1          이미 준비한 Controller/Agent image를 재사용한다(perf-suite 내부용)
 #   DDCS_PERF_SOURCE_REVISION=...   evidence source identity를 외부 suite가 고정할 때 둘 다 함께 지정한다
 #   DDCS_PERF_SOURCE_DIRTY=true     (output 디렉터리 생성이 clean source 판정을 오염시키지 않게 한다)
 #   DDCS_PERF_OUTPUT_ROOT=...       결과 루트 override (perf-suite 내부용)
 #
-# 본 측정 예: DDCS_PERF_LEVELS="100 200 400 600 800 1000" DDCS_PERF_SOAK=30 scripts/perf-ramp.sh balance
-# 단일 Group 측정 예: DDCS_PERF_LEVELS="1000" DDCS_PERF_SOAK=120 scripts/perf-ramp.sh single
+# 본 측정 예: DDCS_PERF_LEVELS="100 200 400 600 800 1000" DDCS_PERF_SETTLE=30 DDCS_PERF_SOAK=120 scripts/perf-ramp.sh balance
+# 단일 Group 측정 예: DDCS_PERF_LEVELS="1000" DDCS_PERF_SETTLE=30 DDCS_PERF_SOAK=120 scripts/perf-ramp.sh single
 #
 # 종료 상태:
 #   0   모든 레벨의 측정이 정상
 #   1   실행 실패 (전제 검사 실패, 스택 기동 실패, 측정값을 수집하지 못한 레벨 존재)
-#   2   사용법 오류 (DDCS_PERF_LEVELS나 DDCS_PERF_SOAK가 정수가 아님)
+#   2   사용법 오류 (DDCS_PERF_LEVELS, DDCS_PERF_SETTLE, DDCS_PERF_SOAK가 정수가 아님)
 #
 # 주의: Agent 프로세스도 같은 호스트 CPU를 쓰므로 cpu_pct는 호스트 경합에 오염될 수 있다.
 #       tick_avg_us는 Controller가 tick당 실제로 일한 시간이라 호스트 경합에 오염되지 않는다.
@@ -58,8 +59,9 @@ source "$ROOT/scripts/result-lib.sh"
 # shellcheck disable=SC2034
 COMPOSE=docker-compose.scale.yml
 MODE="${1:-}"
-LEVELS="${DDCS_PERF_LEVELS:-100 200 400}"
-SOAK="${DDCS_PERF_SOAK:-30}"
+LEVELS="${DDCS_PERF_LEVELS:-100 200 400 600 800 1000}"
+SETTLE="${DDCS_PERF_SETTLE:-30}"
+SOAK="${DDCS_PERF_SOAK:-120}"
 OUTPUT_ROOT_OVERRIDE="${DDCS_PERF_OUTPUT_ROOT:-}"
 SKIP_BUILD="${DDCS_PERF_SKIP_BUILD:-0}"
 SOURCE_REVISION_OVERRIDE="${DDCS_PERF_SOURCE_REVISION:-}"
@@ -80,6 +82,11 @@ balance | single)
 esac
 
 # 환경 변수 검증. 정수가 아니면 산술 확장에서 코드 실행이나 즉사로 이어지므로 먼저 거른다.
+case "$SETTLE" in
+'' | 0 | *[!0-9]*)
+    echo "오류: DDCS_PERF_SETTLE은 양의 정수여야 합니다: $SETTLE" >&2
+    exit 2 ;;
+esac
 case "$SOAK" in
 '' | 0 | *[!0-9]*)
     echo "오류: DDCS_PERF_SOAK는 양의 정수여야 합니다: $SOAK" >&2
@@ -173,9 +180,9 @@ else
 fi
 
 if [ "$MODE" = single ]; then
-    narrate "성능 램프(single): 레벨 = [$LEVELS] (총 Agent 수, 전부 zone_a), 레벨당 ${SOAK}s 측정"
+    narrate "성능 램프(single): 레벨 = [$LEVELS] (총 Agent 수, 전부 zone_a), 레벨당 연결 안정화 ${SETTLE}s + ${SOAK}s 측정"
 else
-    narrate "성능 램프(balance): 레벨 = [$LEVELS] (총 Agent 수, zone 4개 균등 분배), 레벨당 ${SOAK}s 측정"
+    narrate "성능 램프(balance): 레벨 = [$LEVELS] (총 Agent 수, zone 4개 균등 분배), 레벨당 연결 안정화 ${SETTLE}s + ${SOAK}s 측정"
 fi
 if [ "$SKIP_BUILD" = 1 ]; then
     narrate "이미지 재사용"
@@ -388,7 +395,7 @@ write_manifest() {
         printf '%s\n' \
             '{' \
             '  "schema_name": "ddcs.perf_ramp_evidence",' \
-            '  "schema_version": 4,' \
+            '  "schema_version": 5,' \
             "  \"run_id\": \"${RUN_ID}\", " \
             "  \"build_key\": \"${DDCS_RESULT_BUILD_KEY}\", " \
             "  \"started_utc\": \"${RUN_STARTED_UTC}\", " \
@@ -401,6 +408,7 @@ write_manifest() {
             "  \"runtime_config_sha256\": \"${RUNTIME_CONFIG_SHA256}\", " \
             "  \"layout\": \"${MODE}\", " \
             "  \"requested_levels\": \"${LEVELS}\", " \
+            "  \"settle_seconds_per_level\": ${SETTLE}," \
             "  \"measurement_seconds_per_level\": ${SOAK}," \
             "  \"preflight_skipped\": ${PREFLIGHT_SKIPPED}," \
             "  \"image_build_skipped\": ${IMAGE_BUILD_SKIPPED}," \
@@ -456,13 +464,13 @@ for total in $LEVELS; do
         exit 1
     fi
 
-    # 목표 연결 수 도달 대기(최대 90s) + 접속 폭풍이 측정 창에 새지 않게 짧은 안정화
+    # 목표 연결 수 도달 대기(최대 90s) 뒤 접속 폭풍이 측정 창에 새지 않게 명시적으로 안정화한다.
     i=0
     while [ "$i" -lt 90 ]; do
         [ "$(metric_int ddcs_connections)" -ge "$want" ] && break
         sleep 1; i=$((i + 1))
     done
-    sleep 3
+    sleep "$SETTLE"
 
     set_stamp SNAP0_STARTED_UTC SNAP0_STARTED_UNIX_NS
     set_controller_cpu_snapshot SNAP0_CONTROLLER_PID SNAP0_CPU_JIFFIES

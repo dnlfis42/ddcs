@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# 같은 Release build로 balance와 single 성능 램프를 각각 반복 수집한다.
+# 같은 Release build로 balance와 single 성능 램프를 각각 한 번 수집한다.
 #
 # perf-ramp.sh 하나는 한 layout의 여러 Agent 수를 한 번 측정한다. 이 wrapper는 이미지를 한 번만
 # 빌드하고, child가 같은 source·image·config·build-key를 실제로 사용했는지 manifest로 확인한다.
 #
 # 사용법: scripts/perf-suite.sh
 #
-#   DDCS_PERF_SUITE_LEVELS="100 200 400"  balance/single 모두에 적용할 Agent 수 단계(4의 배수)
-#   DDCS_PERF_SUITE_SOAK=30                각 레벨의 측정 창(초)
-#   DDCS_PERF_SUITE_REPETITIONS=3          layout별 반복 수
+#   DDCS_PERF_SUITE_LEVELS="100 200 400 600 800 1000"  balance/single 모두에 적용할 Agent 수 단계(4의 배수)
+#   DDCS_PERF_SUITE_SETTLE=30                          목표 연결 뒤 각 레벨의 안정화 시간(초)
+#   DDCS_PERF_SUITE_SOAK=120                           각 레벨의 측정 창(초)
 #   DDCS_PERF_SUITE_ID=...                 내부/재현용 suite ID override; 기본은 UTC-perf-suite-PID
 
 set -euo pipefail
@@ -17,9 +17,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/result-lib.sh"
 
-LEVELS="${DDCS_PERF_SUITE_LEVELS:-100 200 400}"
-SOAK="${DDCS_PERF_SUITE_SOAK:-30}"
-REPETITIONS="${DDCS_PERF_SUITE_REPETITIONS:-3}"
+LEVELS="${DDCS_PERF_SUITE_LEVELS:-100 200 400 600 800 1000}"
+SETTLE="${DDCS_PERF_SUITE_SETTLE:-30}"
+SOAK="${DDCS_PERF_SUITE_SOAK:-120}"
 
 fail() {
     echo "오류: $*" >&2
@@ -49,8 +49,11 @@ validate_levels() { # 공백으로 구분한 4의 배수 양의 정수 목록
 }
 
 validate_levels "$LEVELS" || usage
+is_positive_integer "$SETTLE" || usage
 is_positive_integer "$SOAK" || usage
-is_positive_integer "$REPETITIONS" || usage
+if [ "${DDCS_PERF_SUITE_REPETITIONS+x}" = x ]; then
+    fail "DDCS_PERF_SUITE_REPETITIONS는 지원하지 않습니다. suite는 layout별로 한 번만 측정합니다."
+fi
 
 if [ -n "${DDCS_PERF_SUITE_ID:-}" ]; then
     SUITE_ID="$DDCS_PERF_SUITE_ID"
@@ -100,7 +103,7 @@ mkdir "$SUITE_DIR"
 SUITE_DIR="$(cd "$SUITE_DIR" && pwd -P)"
 SUITE_STARTED_UTC="$(date -u '+%Y-%m-%dT%H:%M:%S.%NZ')"
 
-declare -a RUN_LAYOUTS RUN_IDS RUN_LEVELS RUN_SOAK RUN_PREFLIGHT_WARNINGS
+declare -a RUN_LAYOUTS RUN_IDS RUN_LEVELS RUN_SETTLE RUN_SOAK RUN_PREFLIGHT_WARNINGS
 
 run_ramp() { # layout run-id
     local layout="$1" run_id="$2" run_dir manifest warnings
@@ -111,6 +114,7 @@ run_ramp() { # layout run-id
         DDCS_PERF_OUTPUT_ROOT="$SUITE_DIR" \
         DDCS_PERF_RUN_ID="$run_id" \
         DDCS_PERF_LEVELS="$LEVELS" \
+        DDCS_PERF_SETTLE="$SETTLE" \
         DDCS_PERF_SOAK="$SOAK" \
         DDCS_PERF_SKIP_BUILD=1 \
         DDCS_PERF_SOURCE_REVISION="$SOURCE_REVISION" \
@@ -129,6 +133,7 @@ run_ramp() { # layout run-id
         --arg layout "$layout" \
         --arg levels "$LEVELS" \
         --argjson source_dirty "$SOURCE_DIRTY" \
+        --argjson settle_seconds "$SETTLE" \
         --argjson seconds "$SOAK" '
             .build_key == $build_key and
             .source_revision == $revision and
@@ -139,6 +144,7 @@ run_ramp() { # layout run-id
             .runtime_config_sha256 == $runtime_config_sha256 and
             .layout == $layout and
             .requested_levels == $levels and
+            .settle_seconds_per_level == $settle_seconds and
             .measurement_seconds_per_level == $seconds and
             .preflight_skipped == false and
             .image_build_skipped == true and
@@ -150,15 +156,13 @@ run_ramp() { # layout run-id
     RUN_LAYOUTS+=("$layout")
     RUN_IDS+=("$run_id")
     RUN_LEVELS+=("$LEVELS")
+    RUN_SETTLE+=("$SETTLE")
     RUN_SOAK+=("$SOAK")
     RUN_PREFLIGHT_WARNINGS+=("$warnings")
 }
 
 for layout in balance single; do
-    for repetition in $(seq 1 "$REPETITIONS"); do
-        printf -v run_suffix '%02d' "$repetition"
-        run_ramp "$layout" "${layout}-${run_suffix}"
-    done
+    run_ramp "$layout" "$layout"
 done
 
 write_suite_manifest() {
@@ -168,7 +172,7 @@ write_suite_manifest() {
         printf '%s\n' \
             '{' \
             '  "schema_name": "ddcs.perf_suite_evidence",' \
-            '  "schema_version": 2,' \
+            '  "schema_version": 3,' \
             "  \"suite_id\": \"${SUITE_ID}\", " \
             "  \"build_key\": \"${DDCS_RESULT_BUILD_KEY}\", " \
             "  \"started_utc\": \"${SUITE_STARTED_UTC}\", " \
@@ -179,8 +183,8 @@ write_suite_manifest() {
             "  \"agent_image_id\": \"${AGENT_IMAGE_ID}\", " \
             "  \"runtime_config_sha256\": \"${RUNTIME_CONFIG_SHA256}\", " \
             "  \"requested_levels\": \"${LEVELS}\", " \
+            "  \"settle_seconds_per_level\": ${SETTLE}," \
             "  \"measurement_seconds_per_level\": ${SOAK}," \
-            "  \"repetitions_per_layout\": ${REPETITIONS}," \
             '  "runs": ['
         for index in "${!RUN_IDS[@]}"; do
             manifest_path="${RUN_IDS[$index]}/manifest.json"
@@ -188,9 +192,9 @@ write_suite_manifest() {
             bytes="$(wc -c <"$SUITE_DIR/$manifest_path" | tr -d '[:space:]')"
             separator=,
             [ "$index" -eq $(( ${#RUN_IDS[@]} - 1 )) ] && separator=
-            printf '    {"layout":"%s","run_id":"%s","requested_levels":"%s","measurement_seconds_per_level":%s,"preflight_warning_count":%s,"manifest":"%s","sha256":"%s","bytes":%s}%s\n' \
+            printf '    {"layout":"%s","run_id":"%s","requested_levels":"%s","settle_seconds_per_level":%s,"measurement_seconds_per_level":%s,"preflight_warning_count":%s,"manifest":"%s","sha256":"%s","bytes":%s}%s\n' \
                 "${RUN_LAYOUTS[$index]}" "${RUN_IDS[$index]}" "${RUN_LEVELS[$index]}" \
-                "${RUN_SOAK[$index]}" "${RUN_PREFLIGHT_WARNINGS[$index]}" \
+                "${RUN_SETTLE[$index]}" "${RUN_SOAK[$index]}" "${RUN_PREFLIGHT_WARNINGS[$index]}" \
                 "$manifest_path" "$checksum" "$bytes" "$separator"
         done
         printf '%s\n' '  ]' '}'
