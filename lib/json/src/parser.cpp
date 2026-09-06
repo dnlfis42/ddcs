@@ -350,6 +350,14 @@ private:
             if (int_result.ec == std::errc{} && int_result.ptr == last) {
                 return Value{int_value};
             }
+
+            if (*first != '-') {
+                std::uint64_t uint_value{};
+                auto const uint_result = std::from_chars(first, last, uint_value);
+                if (uint_result.ec == std::errc{} && uint_result.ptr == last) {
+                    return Value{uint_value};
+                }
+            }
         }
 
         double double_value{};

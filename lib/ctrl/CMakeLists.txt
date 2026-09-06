@@ -13,7 +13,9 @@ target_sources(
     PUBLIC
         FILE_SET HEADERS
             BASE_DIRS include
-            FILES include/ddcs/ctrl/controller.hpp
+            FILES
+                include/ddcs/ctrl/controller.hpp
+                include/ddcs/ctrl/detail/tick_execution.hpp
 )
 target_link_libraries(
     ddcs_ctrl
@@ -21,6 +23,7 @@ target_link_libraries(
         ddcs::build_options
         ddcs::json
         ddcs::io
+        ddcs::profile
         ddcs::ctrl::domain
         ddcs::ctrl::app
         ddcs::ctrl::infra

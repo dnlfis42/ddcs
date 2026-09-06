@@ -24,6 +24,7 @@ public:
     Value(bool value) noexcept;
     Value(int value) noexcept;
     Value(std::int64_t value) noexcept;
+    Value(std::uint64_t value) noexcept;
     Value(double value) noexcept;
     Value(char const* value);
     Value(std::string value);
@@ -40,6 +41,7 @@ public:
 
     [[nodiscard]] std::optional<bool> as_bool() const noexcept;
     [[nodiscard]] std::optional<std::int64_t> as_int64() const noexcept;
+    [[nodiscard]] std::optional<std::uint64_t> as_uint64() const noexcept;
     [[nodiscard]] std::optional<double> as_double() const noexcept;
     [[nodiscard]] std::optional<std::string_view> as_string() const noexcept;
 
@@ -89,7 +91,9 @@ private:
     // 현재 값을 compact JSON text로 out 뒤에 덧붙인다.
     void dump_to(std::string& out) const;
 
-    std::variant<std::nullptr_t, bool, std::int64_t, double, std::string, Array, Object> data_;
+    std::variant<
+        std::nullptr_t, bool, std::int64_t, std::uint64_t, double, std::string, Array, Object>
+        data_;
 };
 
 // JSON text를 파싱한다. 실패하면 nullopt를 반환한다.

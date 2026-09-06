@@ -36,6 +36,14 @@ void append_number(std::string& out, std::int64_t value) {
     }
 }
 
+void append_number(std::string& out, std::uint64_t value) {
+    std::array<char, 32> buf{};
+    auto const res = std::to_chars(buf.data(), buf.data() + buf.size(), value);
+    if (res.ec == std::errc{}) {
+        out.append(buf.data(), res.ptr);
+    }
+}
+
 void append_number(std::string& out, double value) {
     if (!std::isfinite(value)) {
         append_null(out);

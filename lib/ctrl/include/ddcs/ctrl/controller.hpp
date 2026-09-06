@@ -7,6 +7,10 @@
 #include <memory>
 #include <optional>
 
+namespace ddcs::profile {
+class Recorder;
+}
+
 namespace ddcs::ctrl {
 
 // Controller 조립 루트 facade. 외부(main, 통합 테스트)는 이 클래스만 다룬다.
@@ -40,7 +44,9 @@ public:
         std::optional<std::filesystem::path> policy_path{};
     };
 
-    explicit Controller(Config cfg);
+    // profile_recorder는 Controller보다 오래 사는 단일 writer Recorder여야 한다.
+    // nullptr이면 tick profiling은 비활성이다.
+    explicit Controller(Config cfg, ddcs::profile::Recorder* profile_recorder = nullptr);
     ~Controller();
 
     Controller(Controller const&) = delete;

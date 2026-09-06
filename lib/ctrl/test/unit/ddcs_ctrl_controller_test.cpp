@@ -1,6 +1,8 @@
 #include "ddcs/ctrl/controller.hpp"
 
 #include "ddcs/logger/log.hpp"
+#include "ddcs/profile/recorder.hpp"
+#include "ddcs/profile/tick_sample.hpp"
 
 #include <cerrno>
 #include <chrono>
@@ -110,6 +112,29 @@ TEST(ControllerTest, StartsBindsEphemeralPortAndDispatchesOnce) {
 
     controller.run_once(std::chrono::milliseconds{10}); // 클라이언트 없음, 루프 무사 통과
     controller.stop();
+}
+
+TEST(ControllerTest, RecordsCompletedTicksWhenARecorderIsProvided) {
+    CapturingSink sink;
+    ScopedLogger logger{sink, ddcs::logger::Level::warn};
+    Controller::Config cfg{};
+    cfg.sweep_interval = std::chrono::milliseconds{1};
+    ddcs::profile::Recorder recorder{4};
+
+    Controller controller{cfg, &recorder};
+    controller.start();
+    for (int i = 0; i < 10; ++i) {
+        controller.run_once(std::chrono::milliseconds{10});
+    }
+    controller.stop();
+
+    auto const recording = recorder.finish();
+    ASSERT_FALSE(recording.samples().empty());
+    for (auto const& sample : recording.samples()) {
+        EXPECT_EQ(sample.outcome, ddcs::profile::TickOutcome::completed);
+        EXPECT_EQ(sample.policy_evaluate_ended_ns, sample.finished_ns);
+        EXPECT_TRUE(ddcs::profile::is_valid_tick_sample(sample));
+    }
 }
 
 // 부팅 실패 진단: 점유된 포트로 start하면 포트와 EADDRINUSE가 예외에 실린다

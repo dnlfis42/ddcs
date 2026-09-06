@@ -22,6 +22,9 @@ Value::Value(int value) noexcept
 Value::Value(std::int64_t value) noexcept
     : data_(value) {}
 
+Value::Value(std::uint64_t value) noexcept
+    : data_(value) {}
+
 Value::Value(double value) noexcept
     : data_(value) {}
 
@@ -52,7 +55,8 @@ bool Value::is_bool() const noexcept {
 }
 
 bool Value::is_number() const noexcept {
-    return std::holds_alternative<std::int64_t>(data_) || std::holds_alternative<double>(data_);
+    return std::holds_alternative<std::int64_t>(data_) ||
+           std::holds_alternative<std::uint64_t>(data_) || std::holds_alternative<double>(data_);
 }
 
 bool Value::is_string() const noexcept {
@@ -83,12 +87,28 @@ std::optional<std::int64_t> Value::as_int64() const noexcept {
     return std::nullopt;
 }
 
+std::optional<std::uint64_t> Value::as_uint64() const noexcept {
+    if (auto const* value = std::get_if<std::uint64_t>(&data_)) {
+        return *value;
+    }
+
+    if (auto const* value = std::get_if<std::int64_t>(&data_); value != nullptr && *value >= 0) {
+        return static_cast<std::uint64_t>(*value);
+    }
+
+    return std::nullopt;
+}
+
 std::optional<double> Value::as_double() const noexcept {
     if (auto const* value = std::get_if<double>(&data_)) {
         return *value;
     }
 
     if (auto const* value = std::get_if<std::int64_t>(&data_)) {
+        return static_cast<double>(*value); // 정수도 double로 허용
+    }
+
+    if (auto const* value = std::get_if<std::uint64_t>(&data_)) {
         return static_cast<double>(*value); // 정수도 double로 허용
     }
 
@@ -213,6 +233,11 @@ void Value::dump_to(std::string& out) const {
 
     if (auto const* int_value = std::get_if<std::int64_t>(&data_)) {
         append_number(out, *int_value);
+        return;
+    }
+
+    if (auto const* uint_value = std::get_if<std::uint64_t>(&data_)) {
+        append_number(out, *uint_value);
         return;
     }
 

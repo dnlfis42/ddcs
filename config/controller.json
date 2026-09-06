@@ -5,6 +5,9 @@
   "controller": {
     "sweep_interval_ms": 1000
   },
+  "profile": {
+    "enabled": false
+  },
   "prometheus": {
     "port": 9000
   },

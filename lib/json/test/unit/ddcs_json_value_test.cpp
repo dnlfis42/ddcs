@@ -25,6 +25,7 @@ TEST(JsonValueTest, ScalarTypePredicatesAndAccessors) {
 
     EXPECT_TRUE(Value{42}.is_number());
     EXPECT_EQ(Value{42}.as_int64(), std::optional<std::int64_t>{42});
+    EXPECT_EQ(Value{42}.as_uint64(), std::optional<std::uint64_t>{42});
     EXPECT_EQ(Value{42}.as_double(), std::optional<double>{42.0}); // 정수도 double로
 
     EXPECT_TRUE(Value{3.5}.is_number());
@@ -40,6 +41,7 @@ TEST(JsonValueTest, AccessorsReturnNulloptOnTypeMismatch) {
     EXPECT_EQ(Value{"x"}.as_double(), std::nullopt);
     EXPECT_EQ(Value{true}.as_string(), std::nullopt);
     EXPECT_EQ(Value{}.as_int64(), std::nullopt);
+    EXPECT_EQ(Value{-1}.as_uint64(), std::nullopt);
 }
 
 TEST(JsonValueTest, ObjectPutFindContainsPreservesOrder) {
@@ -165,9 +167,11 @@ TEST(JsonWriterTest, AppendsPrimitiveTokens) {
     out.push_back(' ');
     ddcs::json::append_number(out, std::int64_t{-7});
     out.push_back(' ');
+    ddcs::json::append_number(out, std::uint64_t{18'446'744'073'709'551'615ULL});
+    out.push_back(' ');
     ddcs::json::append_number(out, 3.5);
 
-    EXPECT_EQ(out, "null true -7 3.5");
+    EXPECT_EQ(out, "null true -7 18446744073709551615 3.5");
 }
 
 TEST(JsonWriterTest, AppendsStringLiteralEscapes) {
@@ -219,6 +223,22 @@ TEST(JsonValueTest, ParseDistinguishesIntAndDouble) {
     EXPECT_EQ(parse("42")->as_double(), std::optional<double>{42.0});
     EXPECT_FALSE(parse("42.0")->as_int64().has_value()); // '.' 있으면 double
     EXPECT_EQ(parse("42.0")->as_double(), std::optional<double>{42.0});
+}
+
+TEST(JsonValueTest, PreservesUnsignedIntegersBeyondInt64) {
+    constexpr std::uint64_t beyond_int64 = 9'223'372'036'854'775'808ULL;
+    constexpr std::uint64_t max_uint64 = 18'446'744'073'709'551'615ULL;
+
+    Value const value{max_uint64};
+    EXPECT_TRUE(value.is_number());
+    EXPECT_EQ(value.as_uint64(), std::optional<std::uint64_t>{max_uint64});
+    EXPECT_EQ(value.as_int64(), std::nullopt);
+    EXPECT_EQ(value.dump(), "18446744073709551615");
+
+    auto const parsed = parse("9223372036854775808");
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->as_uint64(), std::optional<std::uint64_t>{beyond_int64});
+    EXPECT_EQ(parsed->as_int64(), std::nullopt);
 }
 
 TEST(JsonValueTest, ParsesStringEscapesAndUnicode) {

@@ -1,6 +1,7 @@
 # 기반 라이브러리
 add_subdirectory(common)
 add_subdirectory(json)
+add_subdirectory(profile)
 
 # 앱 지원
 add_subdirectory(logger)

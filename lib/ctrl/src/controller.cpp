@@ -10,6 +10,7 @@
 #include "ddcs/ctrl/app/session/command_sender.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
 #include "ddcs/ctrl/app/session/session_service.hpp"
+#include "ddcs/ctrl/detail/tick_execution.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/infra/prometheus/server.hpp"
 #include "ddcs/ctrl/infra/transport/server.hpp"
@@ -22,6 +23,8 @@
 #include "ddcs/io/timer_token.hpp"
 #include "ddcs/json/value.hpp"
 #include "ddcs/logger/event.hpp"
+#include "ddcs/profile/recorder.hpp"
+#include "ddcs/profile/timestamp_converter.hpp"
 
 #include <cassert>
 #include <csignal>
@@ -43,7 +46,7 @@ namespace {
 
 class Controller::Impl final : public io::TimerHandler {
 public:
-    explicit Impl(Config cfg);
+    explicit Impl(Config cfg, profile::Recorder* profile_recorder);
     ~Impl() override;
 
     Impl(Impl const&) = delete;
@@ -67,12 +70,23 @@ public:
 private:
     void on_expired(io::TimerToken id) override;
     void schedule_sweep();
+    [[nodiscard]] std::optional<std::uint64_t> relative_profile_ns(common::Clock::time_point time
+    ) const noexcept {
+        if (!profile_timestamp_converter_) {
+            return std::nullopt;
+        }
+
+        return profile_timestamp_converter_->relative_ns(time);
+    }
     // policy load (부팅 + SIGHUP 재적재). 실패는 WARN 후 옛 정책 유지.
     // trigger 는 "boot" 또는 "reload" 로, policy.load* 줄이 그대로 싣는다.
     void load_policy(std::string_view trigger);
     void handle_signal(int sig); // SIGHUP=정책 핫리로드 / SIGINT,SIGTERM=stop
 
     common::SteadyClock clock_;
+    profile::Recorder* const profile_recorder_;
+    std::optional<profile::TimestampConverter> profile_timestamp_converter_;
+    std::uint64_t next_profile_tick_id_ = 1;
     Config cfg_;
 
     io::Reactor reactor_;
@@ -103,8 +117,9 @@ private:
     io::TimerToken sweep_timer_;
 };
 
-Controller::Impl::Impl(Config cfg)
-    : cfg_(std::move(cfg)),
+Controller::Impl::Impl(Config cfg, profile::Recorder* profile_recorder)
+    : profile_recorder_(profile_recorder),
+      cfg_(std::move(cfg)),
       signal_source_(reactor_, {SIGINT, SIGTERM, SIGHUP}, [this](int sig) { handle_signal(sig); }),
       timer_scheduler_(reactor_),
       transport_server_(reactor_, cfg_.listen_port, cfg_.accept_backlog, cfg_.rx_buffer_size),
@@ -159,6 +174,10 @@ void Controller::Impl::start() {
         }
     }
     load_policy("boot");
+    if (profile_recorder_ != nullptr && !profile_timestamp_converter_) {
+        // origin은 첫 sweep 예약 직전, 이 Controller의 monotonic clock에서만 잡는다.
+        profile_timestamp_converter_.emplace(clock_.now());
+    }
     schedule_sweep();
 }
 
@@ -179,18 +198,71 @@ void Controller::Impl::stop() {
 void Controller::Impl::on_expired(io::TimerToken /*id*/) {
     // 이 핸들러로 오는 타이머는 주기 sweep 뿐이다. 한 tick의 now를 모든 호출에 공유한다.
     auto const now = clock_.now();
+    std::optional<profile::TickSample> profile_sample;
+    if (profile_recorder_ != nullptr && profile_timestamp_converter_) {
+        auto const tick_id = next_profile_tick_id_++;
+        if (auto const started_ns = relative_profile_ns(now)) {
+            profile_sample.emplace(profile::TickSample{
+                .tick_id = tick_id,
+                .started_ns = *started_ns,
+                .command_sweep_ended_ns = 0,
+                .session_sweep_ended_ns = 0,
+                .policy_evaluate_ended_ns = 0,
+                .finished_ns = 0,
+                .outcome = profile::TickOutcome::completed,
+            });
+        }
+    }
+
     // sweep 도중 예외가 나가도 다음 tick은 예약한다. 마지막 줄에만 두면 한 번의 실패로
     // 재전송/축출/정책 평가가 영구히 멈춘다.
     // 소멸자에 두지 않는 이유는 소멸자가 noexcept라, 재무장 자체가 실패하면 예외가 나갈 곳이
     // 없어 terminate가 되기 때문이다. 여기서 던지면 main의 catch가 한 줄로 알리고 끝낸다.
-    try {
-        command_service_.sweep(now);
-        session_service_.sweep(now);   // 등록 시한 초과 disconnect + active 침묵 evict
-        policy_service_.evaluate(now); // 그룹 load 집계 후 임계 전환 시 SetMode 발신
-        sweep_stats_.record(clock_.now() - now); // tick 작업 소요(schedule 제외) 기록
-    } catch (...) {
+    auto const failure = detail::execute_tick_phases(
+        [this, now, &profile_sample] {
+            command_service_.sweep(now);
+            if (profile_sample) {
+                if (auto const ended_ns = relative_profile_ns(clock_.now())) {
+                    profile_sample->command_sweep_ended_ns = *ended_ns;
+                } else {
+                    profile_sample.reset();
+                }
+            }
+        },
+        [this, now, &profile_sample] {
+            session_service_.sweep(now); // 등록 시한 초과 disconnect + active 침묵 evict
+            if (profile_sample) {
+                if (auto const ended_ns = relative_profile_ns(clock_.now())) {
+                    profile_sample->session_sweep_ended_ns = *ended_ns;
+                } else {
+                    profile_sample.reset();
+                }
+            }
+        },
+        [this, now, &profile_sample] {
+            policy_service_.evaluate(now); // Group load 집계 후 임계 전환 시 SetMode 발신
+            auto const finished = clock_.now();
+            sweep_stats_.record(finished - now); // tick 작업 소요(schedule 제외) 기록
+            if (profile_sample) {
+                if (auto const finished_ns = relative_profile_ns(finished)) {
+                    profile_sample->policy_evaluate_ended_ns = *finished_ns;
+                    profile_sample->finished_ns = *finished_ns;
+                    profile_sample->outcome = profile::TickOutcome::completed;
+                    profile_recorder_->record(*profile_sample);
+                }
+            }
+        }
+    );
+    if (failure) {
+        if (profile_sample) {
+            if (auto const finished_ns = relative_profile_ns(clock_.now())) {
+                profile_sample->finished_ns = *finished_ns;
+                profile_sample->outcome = failure->outcome;
+                profile_recorder_->record(*profile_sample);
+            }
+        }
         schedule_sweep();
-        throw;
+        std::rethrow_exception(failure->exception);
     }
     schedule_sweep();
 }
@@ -238,8 +310,8 @@ void Controller::Impl::handle_signal(int sig) {
     stop(); // SIGINT / SIGTERM
 }
 
-Controller::Controller(Config cfg)
-    : impl_(std::make_unique<Impl>(std::move(cfg))) {}
+Controller::Controller(Config cfg, profile::Recorder* profile_recorder)
+    : impl_(std::make_unique<Impl>(std::move(cfg), profile_recorder)) {}
 
 Controller::~Controller() = default;
 
