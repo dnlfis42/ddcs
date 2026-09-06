@@ -176,7 +176,8 @@ decode_register_ack(std::span<std::byte const> in) noexcept {
     return Heartbeat{};
 }
 
-[[nodiscard]] std::optional<StatusReport> decode_status_report(std::span<std::byte const> in) noexcept {
+[[nodiscard]] std::optional<StatusReport>
+decode_status_report(std::span<std::byte const> in) noexcept {
     StatusReport out{};
     if (!extract_le(in, out.mode)) {
         return std::nullopt;
@@ -304,8 +305,9 @@ std::optional<std::size_t> encode_heartbeat(std::span<std::byte> out) noexcept {
 }
 
 // StatusReport body: [mode(u8)][load(f64le)][temp(f64le)]
-std::optional<std::size_t>
-encode_status_report(std::span<std::byte> out, std::uint8_t mode, double load, double temp) noexcept {
+std::optional<std::size_t> encode_status_report(
+    std::span<std::byte> out, std::uint8_t mode, double load, double temp
+) noexcept {
     std::span<std::byte> cur = out;
     if (!append_type(cur, MessageType::status_report)) {
         return std::nullopt;

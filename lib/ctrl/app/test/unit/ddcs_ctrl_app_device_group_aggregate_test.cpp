@@ -71,7 +71,7 @@ TEST(GroupAggregateTest, AggregatesActiveDevicesOfPolicyGroups) {
     f.policy = AggregateFixture::sensors_policy();
     f.enroll(0x01, "sensors", 10.0, 40.0, Mode::normal);
     f.enroll(0x02, "sensors", 30.0, 60.0, Mode::performance);
-    f.enroll(0x03, "pumps", 99.0, 99.0, Mode::safe); // 정책 밖 group은 제외
+    f.enroll(0x03, "pumps", 99.0, 99.0, Mode::safe); // 정의되지 않은 Group은 제외
 
     auto const groups = aggregate_groups(f.active_devices, f.devices, f.policy);
 

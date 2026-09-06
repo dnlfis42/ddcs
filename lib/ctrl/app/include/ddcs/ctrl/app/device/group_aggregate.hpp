@@ -21,7 +21,7 @@ struct GroupAggregate {
 };
 
 // 정책 평가와 메트릭 노출이 공유하는 집계 규칙의 단일 소유자:
-// active 집합만, 관측(Status)이 있는 Shadow와 정책이 아는 Group만 센다.
+// active 집합만, 관측(Status)이 있는 Shadow와 정책에 정의된 Group만 센다.
 // 반환은 label 출력 순서 안정을 위해 ordered map이다.
 [[nodiscard]] std::map<std::string, GroupAggregate> aggregate_groups(
     port::ActiveDevices& active_devices, domain::DeviceRegistry const& devices,

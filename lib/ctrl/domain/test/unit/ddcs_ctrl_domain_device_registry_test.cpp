@@ -93,7 +93,8 @@ TEST(DeviceRegistryTest, UpdatesStatus) {
     DeviceRegistry reg;
     auto const u = make_uuid(10);
     reg.enroll(u, "sensors");
-    EXPECT_TRUE(reg.update_status(u, Status{.mode = Mode::performance, .load = 42.0, .temp = 55.5})
+    EXPECT_TRUE(
+        reg.update_status(u, Status{.mode = Mode::performance, .load = 42.0, .temp = 55.5})
     );
     DeviceShadow const* d = reg.find(u);
     ASSERT_NE(d, nullptr);

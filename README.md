@@ -1,6 +1,6 @@
 # Distributed Device Control System (DDCS)
 
-여러 가상 Device의 Mode를 자동으로 조정하는 **정책 기반 분산 디바이스 제어 시스템 시뮬레이터**
+여러 가상 Device의 Mode를 자동으로 조정하는 **정책 기반 분산 장치 제어 시스템 시뮬레이터**
 
 ## 목차
 

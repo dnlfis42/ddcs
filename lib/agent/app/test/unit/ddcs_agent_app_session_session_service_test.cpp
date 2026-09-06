@@ -73,8 +73,9 @@ public:
         ++registered_notifications;
     }
 
-    ObjectPool<LinearBuffer> pool{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{1024
-    })};
+    ObjectPool<LinearBuffer> pool{
+        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{1024})
+    };
 
     std::vector<std::string> sends; // 각 원소가 msg payload (`[type][body]`)
     std::vector<std::pair<TimerSlot, std::chrono::nanoseconds>> timers;
@@ -261,7 +262,7 @@ TEST(AgentSessionServiceTest, EnterActiveSendsInitialStatusReport) {
     EXPECT_EQ(sent_type(out.sends[2]), msg::MessageType::status_report);
     auto const st = sent_as<msg::StatusReport>(out.sends[2]);
     ASSERT_TRUE(st.has_value());
-    EXPECT_EQ(decode_mode(st->mode), Mode::performance); // 디바이스 실제 상태를 게시
+    EXPECT_EQ(decode_mode(st->mode), Mode::performance); // device 실제 상태를 게시
     EXPECT_DOUBLE_EQ(st->load, 42.0);
 }
 
@@ -360,9 +361,9 @@ TEST(AgentSessionServiceTest, StatusTimerSendsStatusFromDeviceAndReschedules) {
     EXPECT_EQ(sent_type(out.sends[0]), msg::MessageType::status_report);
     auto const st = sent_as<msg::StatusReport>(out.sends[0]);
     ASSERT_TRUE(st.has_value());
-    EXPECT_EQ(decode_mode(st->mode), Mode::performance); // mode 반영 (어휘 계약 라운드트립)
-    EXPECT_DOUBLE_EQ(st->load, 80.0);                    // load 반영
-    EXPECT_DOUBLE_EQ(st->temp, 55.0);                    // temp 반영
+    EXPECT_EQ(decode_mode(st->mode), Mode::performance);      // mode 반영 (어휘 계약 라운드트립)
+    EXPECT_DOUBLE_EQ(st->load, 80.0);                         // load 반영
+    EXPECT_DOUBLE_EQ(st->temp, 55.0);                         // temp 반영
     EXPECT_EQ(count_timer(out, TimerSlot::status_report), 1); // 재예약
 }
 
@@ -465,7 +466,8 @@ TEST(AgentSessionServiceTest, OutOfVocabularyModeOutcomesFailedWithoutApplying) 
 
     // 구조는 유효한 set_mode지만 mode byte가 어휘 밖(0xFF)이다.
     std::array<std::byte, 1> const bad_mode{std::byte{0xFF}};
-    svc.on_recv(payload_command(7, static_cast<std::uint8_t>(cmd::CommandType::set_mode), bad_mode)
+    svc.on_recv(
+        payload_command(7, static_cast<std::uint8_t>(cmd::CommandType::set_mode), bad_mode)
     );
 
     EXPECT_EQ(device.mode(), Mode::safe); // 적용 안 됨

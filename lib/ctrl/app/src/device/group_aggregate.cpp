@@ -14,7 +14,7 @@ std::map<std::string, GroupAggregate> aggregate_groups(
         auto const* shadow = devices.find(id);
         if (shadow == nullptr || !shadow->status || shadow->group.empty() ||
             !policy.contains(shadow->group)) {
-            return; // 미관측이거나 정책 밖 group이면 제외 -- 기본값과 config 밖 label을 차단
+            return; // 관측되지 않거나 정의되지 않은 Group이면 제외 (기본값·config 밖 label 차단)
         }
 
         auto& a = groups[shadow->group];

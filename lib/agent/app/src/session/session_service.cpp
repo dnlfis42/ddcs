@@ -128,7 +128,7 @@ void SessionService::handle_register_outcome(msg::RegisterOutcome const& outcome
 
     outbound_.cancel_timer(TimerSlot::register_timeout);
     outbound_.notify_registered(); // 등록 성공 확정: transport reconnect backoff를 base로 리셋
-    send_register_ack(); // 3-way: 결과 수신 확인. controller는 이 시점부터 liveness 측정
+    send_register_ack();           // 3-way: 결과 수신 확인. controller는 이 시점부터 liveness 측정
     enter_active();
     LOG_SESSION_CONNECTION_REGISTER_SUCCESS(device_.id().to_string());
 }
@@ -221,8 +221,7 @@ void SessionService::send_command_outcome(
     std::uint64_t command_id, msg::CommandOutcome::Code code
 ) {
     emit(
-        outbound_, msg::MessageType::command_outcome,
-        [command_id, code](std::span<std::byte> out) {
+        outbound_, msg::MessageType::command_outcome, [command_id, code](std::span<std::byte> out) {
             return msg::encode_command_outcome(out, command_id, code);
         }
     );

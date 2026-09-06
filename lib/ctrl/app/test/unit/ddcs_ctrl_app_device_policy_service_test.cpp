@@ -188,7 +188,7 @@ TEST(PolicyServiceTest, TransitionsToBusyAboveHighLoad) {
     PolicyFixture f;
     f.enroll(0x01, "sensors", 90.0);
     f.enroll(0x02, "sensors", 95.0);
-    f.enroll(0x03, "pumps", 99.0); // 정책 없는 그룹은 무관
+    f.enroll(0x03, "pumps", 99.0); // 정책 없는 Group은 무관
     f.policy.set_policy(PolicyFixture::sensors_policy());
 
     f.policy.evaluate(f.clock.now());
@@ -324,7 +324,7 @@ TEST(PolicyServiceTest, ReloadPreservesThermalLatchInDeadband) {
         PolicyFixture::hot_policy()
     ); // busy=safe / thermal hot->performance(high90/resume70)
 
-    // 과열 트립(temp 95 > high 90) -> hot_mode(performance)
+    // 과열 트립(temp 95 > hot_temp 90) -> hot_mode(performance)
     EXPECT_TRUE(
         f.devices.update_status(id, Status{.mode = Mode::performance, .load = 90.0, .temp = 95.0})
     );
@@ -471,7 +471,7 @@ TEST(PolicyServiceTest, ThermalReleasesToLoadModeBelowResume) {
     EXPECT_EQ(f.sender.sent[1].mode, Mode::safe);        // 해제 후 busy load_mode
 }
 
-// 회귀: load가 밴드 안(regime 미확정)에서 thermal 트립 후 식으면, hot_mode가 latch된 채
+// 회귀: load가 밴드 안(regime 미확정)에서 과열 트립 후 식으면, hot_mode가 latch된 채
 //       남지 않고 baseline(idle_mode)으로 해제돼야 한다.
 TEST(PolicyServiceTest, ThermalReleasesToBaselineWhenLoadInBand) {
     PolicyFixture f;
@@ -507,7 +507,7 @@ TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
     DeviceId const id1 = make_device_id(0x01);
     DeviceId const id2 = make_device_id(0x02);
     for (DeviceId const id :
-         {id1, id2}) { // sensors 그룹 active 2개, 평균 load > high라서 busy 전환
+         {id1, id2}) { // sensors Group active 2개, 평균 load > high라서 busy 전환
         devices.enroll(id, "sensors");
         EXPECT_TRUE(
             devices.update_status(id, Status{.mode = Mode::normal, .load = 95.0, .temp = 40.0})
@@ -519,7 +519,7 @@ TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
     ManualClock clock;
     policy.evaluate(clock.now());
 
-    ASSERT_EQ(sender.sent_count, 2); // busy 전환에서 그룹 전원에 발신됐다(경로가 실제로 탔다).
+    ASSERT_EQ(sender.sent_count, 2); // busy 전환에서 Group 전원에 발신됐다(경로가 실제로 탔다).
     EXPECT_FALSE(sender.dispatched_during_iteration); // 발송은 순회 밖에서만
 }
 

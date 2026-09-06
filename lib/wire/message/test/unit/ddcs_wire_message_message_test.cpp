@@ -256,9 +256,7 @@ TEST(MessageTest, RejectsTrailingBytes) {
 
 TEST(MessageTest, RejectsTruncatedBody) {
     // command_ack body는 command_id(8)인데 3바이트만 주면 부족
-    std::array<std::byte, 4> const raw{
-        std::byte{0x21}, std::byte{1}, std::byte{2}, std::byte{3}
-    };
+    std::array<std::byte, 4> const raw{std::byte{0x21}, std::byte{1}, std::byte{2}, std::byte{3}};
     EXPECT_FALSE(decode_message(raw).has_value());
 }
 

@@ -75,13 +75,15 @@ public:
         auto const set_mode = cmd::decode_set_mode(req->payload);
         ASSERT_TRUE(set_mode.has_value());
         std::array<std::byte, frame::header_size> const frame_stub{}; // frame 헤더 자리 검증
-        sent.push_back(Sent{
-            .conn = conn,
-            .command_id = req->command_id,
-            .type = req->command_type,
-            .mode = ddcs::device::decode_mode(set_mode->mode).value_or(Mode::safe),
-            .frame_headroom_ok = message->prepend(frame_stub),
-        });
+        sent.push_back(
+            Sent{
+                .conn = conn,
+                .command_id = req->command_id,
+                .type = req->command_type,
+                .mode = ddcs::device::decode_mode(set_mode->mode).value_or(Mode::safe),
+                .frame_headroom_ok = message->prepend(frame_stub),
+            }
+        );
     }
 
 private:
