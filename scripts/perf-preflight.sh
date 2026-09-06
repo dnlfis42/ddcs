@@ -13,6 +13,7 @@
 #   turbo를 켠 채 재면 노트북 열 상태에 따라 클럭이 오르내려 레벨 간 비교가 흔들린다.
 # - 실행 중 컨테이너 0, 고아 containerd-shim 0, 스왑 사용 최소, 가용 메모리 확보, 유휴 load.
 # - ARP 이웃 테이블 상한(500대 이상 컨테이너 전제).
+# - CPU 큰 프로세스는 `ps`의 누적 평균이 아니라 짧은 구간의 CPU jiffies delta로 판정한다.
 # 끝에 측정 기록에 함께 남길 환경 요약을 출력한다.
 
 set -u
@@ -108,13 +109,56 @@ else
     note "loadavg(1m) = $load1 (유휴가 아님. 다른 작업이 돌고 있으면 수치가 오염된다)"
 fi
 
-# 9. CPU를 크게 먹는 다른 프로세스
-# ps의 %CPU는 생애 평균이라 방금 태어난 ps 자신이 ~100%로 찍힌다. 자기 자신은 제외.
-hogs=$(ps -eo pcpu,comm --sort=-pcpu | awk 'NR>1 && $1>10 && $2!="ps" {printf "%s(%.0f%%) ", $2, $1}')
-if [ -z "$hogs" ]; then
-    ok "CPU 10%+ 점유 프로세스 없음"
+# 9. CPU를 크게 먹는 다른 프로세스. ps의 %CPU는 생애 평균이라 오래 켜 둔 desktop shell을
+# 현재도 점유 중인 것처럼 오인할 수 있다. 같은 PID의 utime+stime을 짧은 구간에 두 번 읽어
+# 실제 한 CPU 기준 점유율을 계산한다.
+sample_seconds="${DDCS_PERF_CPU_SAMPLE_SECONDS:-3}"
+case "$sample_seconds" in
+'' | 0 | *[!0-9]*)
+    bad "CPU sample 길이 = '$sample_seconds' (양의 정수 아님)" "DDCS_PERF_CPU_SAMPLE_SECONDS=3으로 지정"
+    sample_seconds=0
+    ;;
+esac
+clock_ticks=$(getconf CLK_TCK 2>/dev/null || true)
+if [ "$sample_seconds" -gt 0 ] && [ -n "$clock_ticks" ] && [ "$clock_ticks" -gt 0 ] 2>/dev/null; then
+    declare -A cpu_start_jiffies
+    declare -A cpu_start_comm
+    while read -r pid comm; do
+        case "$pid" in
+        '' | *[!0-9]*) continue ;;
+        esac
+        [ -r "/proc/$pid/stat" ] || continue
+        jiffies=$(awk '{print $14 + $15}' "/proc/$pid/stat" 2>/dev/null || true)
+        case "$jiffies" in
+        '' | *[!0-9]*) continue ;;
+        esac
+        cpu_start_jiffies["$pid"]="$jiffies"
+        cpu_start_comm["$pid"]="$comm"
+    done < <(ps -eo pid=,comm=)
+
+    sleep "$sample_seconds"
+
+    hogs=
+    for pid in "${!cpu_start_jiffies[@]}"; do
+        [ -r "/proc/$pid/stat" ] || continue
+        jiffies=$(awk '{print $14 + $15}' "/proc/$pid/stat" 2>/dev/null || true)
+        case "$jiffies" in
+        '' | *[!0-9]*) continue ;;
+        esac
+        delta=$((jiffies - cpu_start_jiffies[$pid]))
+        [ "$delta" -ge 0 ] || continue
+        pct=$(awk -v d="$delta" -v t="$clock_ticks" -v s="$sample_seconds" 'BEGIN { printf "%.1f", 100 * d / t / s }')
+        if awk -v p="$pct" 'BEGIN { exit !(p > 10.0) }'; then
+            hogs+="${cpu_start_comm[$pid]}(${pct}%) "
+        fi
+    done
+    if [ -z "$hogs" ]; then
+        ok "${sample_seconds}s 구간 CPU 10%+ 점유 프로세스 없음"
+    else
+        note "${sample_seconds}s 구간 CPU 점유 큰 프로세스: $hogs(측정 전 종료 또는 유휴 대기 권장)"
+    fi
 else
-    note "CPU 점유 큰 프로세스: $hogs(측정 전 종료 권장)"
+    note "CPU 구간 점유율 검사 생략 (CLK_TCK 또는 sample 길이 확인 필요)"
 fi
 
 echo

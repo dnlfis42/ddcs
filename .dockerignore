@@ -1,8 +1,8 @@
 .*
 
 build/
-data/
 docs/
 scripts/
+var/
 
 *.md

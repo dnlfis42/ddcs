@@ -37,6 +37,9 @@ Group은 agent의 `device.group` 키(환경변수 `DDCS_DEVICE_GROUP`, 기본 `z
 DeviceId는 `DDCS_DEVICE_ID` 환경변수, `DDCS_DEVICE_ID_FILE`이 가리키는 파일, 둘 다 없으면 새로 발급 순으로 결정합니다.
 둘 다 지정하지 않으면 어디에도 기록하지 않으므로 기동할 때마다 새 Device가 됩니다. 재시작한 뒤에도 같은 Device로 남으려면 둘 중 하나를 지정해야 합니다.
 
+파일로 신원을 남길 경우 프로젝트의 표준 위치는 `var/state/agent/<agent-name>.uuid`입니다. 이 경로는
+git에서 제외되는 runtime state이며, Agent마다 **서로 다른 파일 하나씩**을 지정해야 합니다.
+
 > [!TIP]
 > 한 디렉터리에서 Agent를 여러 대 띄울 때는 아무것도 지정하지 않는 편이 맞습니다.
 > 같은 `DDCS_DEVICE_ID_FILE`을 공유하면 전부 같은 DeviceId로 등록해, Controller가 Device당 연결 하나만 남기며(kick-old) 서로를 끊어냅니다.

@@ -198,7 +198,10 @@ Device 동작(`DDCS_SIM_NOISE`/`DDCS_SIM_JITTER`)은 compose 파일의 agent `en
 
 ## 성능
 
-Agent 1,000대가 접속한 상태에서 Controller의 sweep은 한 번에 평균 3.7ms를 사용합니다.
+Agent 1,000대가 접속한 상태에서 Controller tick은 한 번에 평균 3.7ms를 사용했습니다.
+
+> [!IMPORTANT]
+> 아래 수치는 현재 metric contract와 profiler가 확정되기 전 capture입니다. 제출용 포트폴리오의 정본으로 쓰지 않고, 통제된 재측정 단계에서 같은 입력·반복 조건으로 교체합니다.
 
 ### 측정 환경
 
@@ -216,27 +219,62 @@ Agent 1,000대가 접속한 상태에서 Controller의 sweep은 한 번에 평�
 부하는 실제 운영 경로를 그대로 사용합니다.
 Agent마다 heartbeat를 0.5초, Status 보고를 1초 간격으로 보내므로(배포 설정 기준), Agent가 N대면 Controller는 초당 약 3N건을 수신하고, 여기에 정책이 발행하는 명령과 응답 왕복이 더해집니다.
 
-지표는 세 가지입니다:
+지표는 네 가지입니다:
 
-- `sweep_avg_us` / `sweep_max_us`: sweep tick(명령 재전송, liveness 검사, 정책 평가) 한 번의 소요 시간.
-  이 값이 sweep 주기(기본 1초)에 근접하면 코어 하나로 감당할 수 있는 한계이며, 같은 값을 `ddcs_sweep_duration_us` 계열 메트릭으로 운영 중에도 확인할 수 있습니다.
+- `tick_avg_us` / `tick_max_cum_us`: Controller tick(명령 재전송, liveness 검사, 정책 평가) 한 번의 소요 시간.
+  이 값이 tick 주기(기본 1초)에 근접하면 코어 하나로 감당할 수 있는 한계이며, 같은 값을 `ddcs_tick_duration_seconds` 계열 메트릭으로 운영 중에도 확인할 수 있습니다.
 - `in_msgs_s`: 초당 수신 메시지.
   유입이 기대치(약 3N)에 못 미치면 병목이 Controller가 아니라 부하 생성 쪽이므로, 그 레벨의 다른 열도 재해석해야 합니다.
-- `rtt_ms`: 정책 명령 발행부터 Agent 응답까지의 왕복 시간(측정 창에서 완료된 명령의 평균).
+- `controller_cpu_pct`: 측정 창 양끝에서 읽은 같은 Controller host PID의 CPU jiffies 차이를, 실제 snapshot 간격과 `CLK_TCK`로 환산한 평균 사용률.
+  PID가 바뀌었거나 host `/proc`을 읽을 수 없으면 추정값으로 대체하지 않고 `N/A`로 남깁니다.
+- `rtt_ms`: 정책 명령 발행부터 성공 outcome까지의 왕복 시간(측정 창에서 완료된 명령의 평균).
+- `liveness_closed`: 측정 창에 `ddcs_connections_closed_total{reason="liveness_expired"}`가 증가한 수.
 
-`scripts/perf-ramp.sh`가 Agent 수를 단계별로 늘려가며 레벨마다 30초씩 지표를 수집합니다(누적 카운터는 측정 창 양끝의 델타).
+`scripts/perf-ramp.sh`가 `balance` 또는 `single` 배치를 받아 Agent 수를 단계별로 늘리며, 레벨마다 기본 30초씩 지표를 수집합니다. `balance`는 4개 zone에 균등 분배하므로 레벨이 4의 배수여야 하고, `single`은 전부 zone_a 하나에 둡니다. 스크립트는 표를 터미널에 출력하되 `rows.tsv`는 남기지 않습니다. 각 레벨의 양끝 Prometheus 원문과 `measurement.json`에는 실제 snapshot 시각 및 Controller CPU jiffies를 남기므로, rate와 CPU 평균은 언제든 원문에서 다시 계산할 수 있습니다. RTT 평균의 분모는 성공 계수가 아니라 같은 histogram의 `ddcs_command_rtt_seconds_count`입니다.
 500대 이상은 호스트 전제(ARP 이웃 테이블 상한)가 있으므로 스크립트 머리말을 먼저 읽으십시오:
 
 ```sh
-DDCS_PERF_LEVELS="100 200 400 600 800 1000" DDCS_PERF_SOAK=30 scripts/perf-ramp.sh
+DDCS_PERF_LEVELS="100 200 400 600 800 1000" DDCS_PERF_SOAK=30 scripts/perf-ramp.sh balance
+```
+
+제출용 반복 자료는 `perf-suite.sh`로 수집합니다. suite는 Controller와 Agent 이미지를 한 번만 build한 뒤 `balance`와 `single`을 각각 반복하고, child ramp가 같은 build-key와 두 image ID를 재사용하는지 manifest로 검사합니다. suite manifest는 각 child manifest의 SHA-256·크기와 preflight warning 수를 보관하므로, 반복 사이에 build가 바뀌거나 경고를 놓치는 일을 막습니다.
+
+```sh
+# balance 3회 + single 3회
+DDCS_PERF_SUITE_LEVELS="100 200 400 600 800 1000" \
+DDCS_PERF_SUITE_SOAK=30 \
+DDCS_PERF_SUITE_REPETITIONS=3 \
+scripts/perf-suite.sh
+```
+
+각 Release build는 `source revision/dirty 상태`, Controller·Agent image ID, `config/` 전체의 경로+내용 SHA-256을 줄 단위로 고정해 다시 SHA-256한 `build-key`로 식별합니다. `var/result/<build-key>/build.json`은 그 식별값과 향후 profile/scenario가 채울 상태 칸을 초기화하고, 성능 원문은 그 아래 `performance/`에 둡니다. suite가 output directory를 만들기 전 source 상태를 고정해 child에 전달하므로, 새 local 결과 파일 자체가 clean revision 판정을 dirty로 바꾸지 않습니다. `source_dirty=true`, preflight fail, 또는 기록된 warning은 숨기지 않고 진단 자료로 분류합니다.
+
+```text
+var/result/<build-key>/
+  build.json
+  performance/
+    <UTC>-perf-balance-<PID>/
+      manifest.json
+      preflight.txt
+      controller.jsonl
+      0100/
+        measurement.json
+        metrics-start.prom
+        metrics-end.prom
+    <UTC>-perf-suite-<PID>/
+      manifest.json
+      balance-01/
+        ... 위 ramp 산출물 ...
+      single-01/
+        ... 위 ramp 산출물 ...
 ```
 
 같은 총 대수에서 가장 적대적인 케이스는 Group 하나에 몰아넣는 구성입니다.
 밴드 교차가 한 번 일어나면 정책 엔진이 Group 전체에 한 tick 안에 다시 명령하므로, burst 크기가 Group 크기와 같아집니다:
 
 ```sh
-# 단일 Group 1000대: 최악 burst 측정 (rtt 분포 꼬리와 sweep_max_us를 본다)
-DDCS_PERF_SINGLE_GROUP=1 DDCS_PERF_LEVELS="1000" DDCS_PERF_SOAK=120 scripts/perf-ramp.sh
+# 단일 Group 1000대: 최악 burst 측정 (rtt 분포 꼬리와 tick_max_cum_us를 본다)
+DDCS_PERF_LEVELS="1000" DDCS_PERF_SOAK=120 scripts/perf-ramp.sh single
 ```
 
 ### 측정 결과
@@ -247,7 +285,7 @@ Agent 수, 지연, 유실 세 축으로 나눠 싣습니다.
 
 zone 4개 균등 분배, 레벨당 30초 측정 창이며, `scripts/perf-preflight.sh`를 통과한 고정 클럭 상태에서 측정했습니다.
 
-|agents|sweep_avg_us|sweep_max_cum_us|cpu_pct|in_msgs_s|rtt_ms|
+|agents|tick_avg_us|tick_max_cum_us|cpu_pct|in_msgs_s|rtt_ms|
 |---|---|---|---|---|---|
 |100|333|9,491|0.8|356|1|
 |200|607|9,491|1.3|706|2|
@@ -260,14 +298,14 @@ zone 4개 균등 분배, 레벨당 30초 측정 창이며, `scripts/perf-preflig
 |900|2,574|16,140|4.2|3,143|11|
 |1000|3,734|16,140|5.4|3,593|14|
 
-sweep은 Agent 수에 선형이며(한 대당 약 3.4us), 1,000대에서 평균 3.7ms로 sweep 주기(1초)의 0.37%입니다.
-모든 레벨에서 미결 명령(`pending`)과 축출(`evicted`)은 0이었고, `in_msgs_s`가 기대 유입(약 3N + 명령 응답)과 일치하므로 부하가 실제로 걸렸음을 표에서 그대로 확인할 수 있습니다.
+tick은 Agent 수에 선형이며(한 대당 약 3.4us), 1,000대에서 평균 3.7ms로 tick 주기(1초)의 0.37%입니다.
+모든 레벨에서 미결 명령(`pending`)과 liveness 종료(`liveness_closed`)는 0이었고, `in_msgs_s`가 기대 유입(약 3N + 명령 응답)과 일치하므로 부하가 실제로 걸렸음을 표에서 그대로 확인할 수 있습니다.
 램프 전체에서 완료된 명령 74,789건 중 50ms를 넘긴 것은 0건입니다.
-`sweep_max_cum_us`는 시작 후 누적 최대라 레벨 전이(수백 컨테이너 생성 폭풍)를 포함한 값이고, 상위 레벨의 `rtt_ms`에는 Agent 프로세스 1,000개와 코어를 나눠 쓰는 호스트 경합 몫이 섞입니다.
+`tick_max_cum_us`는 시작 후 누적 최대라 레벨 전이(수백 컨테이너 생성 폭풍)를 포함한 값이고, 상위 레벨의 `rtt_ms`에는 Agent 프로세스 1,000개와 코어를 나눠 쓰는 호스트 경합 몫이 섞입니다.
 
 **단일 Group(burst 최악 케이스).** zone_a 하나에 250대부터 1,000대까지 단계 상승시키며 레벨당 60초씩, 같은 고정 클럭 환경에서 측정했습니다:
 
-|agents (단일 Group)|sweep_avg_us|cpu_pct|in_msgs_s|rtt_ms|
+|agents (단일 Group)|tick_avg_us|cpu_pct|in_msgs_s|rtt_ms|
 |---|---|---|---|---|
 |250|691|1.6|870|3|
 |500|1,626|3.1|1,785|8|
@@ -275,21 +313,21 @@ sweep은 Agent 수에 선형이며(한 대당 약 3.4us), 1,000대에서 평균 
 |1000|3,275|5.1|3,587|14|
 
 전 구간에서 Regime 전환은 11회 일어났습니다.
-1,000대 레벨에서는 전환 한 번이 최대 1,000건의 동시 dispatch가 되는데, 그 tick을 포함해도 sweep 최대 누적은 11.2ms로 sweep 주기(1초)의 1.2%입니다.
-완료 84,171건 중 50ms 초과는 0.9%, 100ms 초과는 0건이었고, pending과 evicted는 전부 0이었습니다.
+1,000대 레벨에서는 전환 한 번이 최대 1,000건의 동시 dispatch가 되는데, 그 tick을 포함해도 tick 최대 누적은 11.2ms로 tick 주기(1초)의 1.2%입니다.
+완료 84,171건 중 50ms 초과는 0.9%, 100ms 초과는 0건이었고, pending과 liveness_closed는 전부 0이었습니다.
 같은 대수를 zone 4개에 나눈 구성보다 rtt가 0~3ms 높은 것이 burst의 비용입니다.
 이 차이는 모든 명령에 고르게 퍼지지 않고 느린 쪽 명령에 몰리지만, 가장 느린 명령도 100ms 안에 끝납니다.
 
-![Agent 수에 따른 sweep 평균과 명령 왕복 시간](assets/perf-scalability.svg)
+![Agent 수에 따른 tick 평균과 명령 왕복 시간](assets/perf-scalability.svg)
 
-_그림 4. sweep 평균과 명령 왕복 시간 (zone 4개 분배와 단일 Group)_
+_그림 4. tick 평균과 명령 왕복 시간 (zone 4개 분배와 단일 Group)_
 
-이 비례는 sweep이 매 tick 등록된 항목 전부를 훑기 때문에 나타납니다.
+이 비례는 tick이 매 주기 등록된 항목 전부를 훑기 때문에 나타납니다.
 단순 외삽으로는 한 코어가 수만 대까지 감당하지만 그 전에 소켓 fd, 메모리, 네트워크가 먼저 한계에 도달하며, 만료된 항목만 골라 처리하는 구조가 다음 개선 과제입니다([한계점과 확장 방향](docs/ARCHITECTURE.md#102-제약과-개선-방향)).
 
 #### 지연 시간
 
-Controller는 명령 왕복 시간을 히스토그램(`ddcs_command_rtt_ms`)으로 기록하므로 평균뿐 아니라 p50, p99 같은 분위수를 뽑을 수 있습니다.
+Controller는 명령 왕복 시간을 히스토그램(`ddcs_command_rtt_seconds`)으로 기록하므로 평균뿐 아니라 p50, p99 같은 분위수를 뽑을 수 있습니다.
 아래는 그 분포 덕에 잡은 결함의 진단 기록이며, **Agent 소켓의 `TCP_NODELAY` 수정 전 값입니다.**
 
 Agent 30대를 3시간 운영했을 때 평균은 약 5.2ms로 무난해 보였지만, 히스토그램은 완료 76,634건 중 84%가 1ms 이내, 12%가 21~50ms 구간에 몰린 이봉 분포였습니다.
@@ -297,11 +335,11 @@ Agent 30대를 3시간 운영했을 때 평균은 약 5.2ms로 무난해 보였�
 원인은 네트워크가 아니라 코드에 있었는데, Agent는 명령 하나에 ack와 outcome을 중간 read 없이 연달아 보내면서도 connect하는 소켓에 `TCP_NODELAY`가 빠져 있어, Nagle이 두 번째 write를 상대 ACK까지 붙잡았습니다.
 Agent 소켓에도 같은 옵션을 걸어 수정했고([설계 결정](docs/ARCHITECTURE.md#9-설계-결정)), 평균만 노출했다면 5.2ms 하나로 지나쳤을 문제를 분포를 노출한 덕에 잡았습니다.
 
-![명령 왕복 시간과 sweep 추이](assets/grafana-saturation.png)
+![명령 왕복 시간과 tick 추이](assets/grafana-saturation.png)
 
-_그림 5. 3시간 연속 운영 구간의 rtt와 sweep (`TCP_NODELAY` 수정 전)_
+_그림 5. 3시간 연속 운영 구간의 rtt와 tick (`TCP_NODELAY` 수정 전)_
 
-오른쪽이 명령 왕복 시간(p50/p99), 왼쪽이 sweep 시간이며, sweep 시간은 3시간 내내 증가 추세 없이 일정합니다.
+오른쪽이 명령 왕복 시간(p50/p99), 왼쪽이 tick 시간이며, tick 시간은 3시간 내내 증가 추세 없이 일정합니다.
 
 > [!NOTE]
 > 위 측정은 단일 호스트(loopback)라 실제 네트워크의 전파 지연이 빠져 있습니다.

@@ -73,7 +73,9 @@ scripts/    # 로컬 실행(run.sh), 검증 시나리오(scenario.sh), 단계별
 docker/     # Dockerfile + compose (core / scale / 관측 스택)
 docs/       # ARCHITECTURE / DECISION / PROTOCOL / SCENARIO / CONFIG / METRICS / LOG
 test/e2e/   # Controller <-> Agent E2E
-data/       # DDCS_DEVICE_ID_FILE을 지정했을 때의 agent UUID 저장 위치 (런타임 생성, gitignore 대상)
+var/
+├── state/agent/  # DDCS_DEVICE_ID_FILE이 가리키는 Agent UUID의 선택적 영속 위치 (런타임 생성, gitignore 대상)
+└── result/       # build-key별 profile/scenario/performance 실행 결과 (런타임 생성, gitignore 대상)
 ```
 
 ![모듈 의존 그래프](../assets/architecture-modules.svg)
