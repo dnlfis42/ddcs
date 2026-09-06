@@ -141,6 +141,10 @@ scripts/scenario.sh policy-reload      # SIGHUP으로 정책 교체: 잘못된 �
 scripts/scenario.sh all                # 다섯 시나리오 순차 실행
 ```
 
+시나리오는 원시 artifact를 남기지 않습니다. 각 실행은 해당 build의
+`var/result/<build-key>/build.json`에서 scenario별 `pass`/`fail` 상태만 갱신합니다.
+성능·프로파일 측정 결과의 경로와 보존 규칙은 [docs/PROFILE.md](docs/PROFILE.md)에 정리했습니다.
+
 ### Docker 배포
 
 Controller 1대 + Agent 4대(zone당 1대) + 관측 스택(Prometheus/Grafana)을 한 번에 기동합니다.

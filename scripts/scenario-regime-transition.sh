@@ -4,8 +4,11 @@
 #
 # Group 평균 부하가 히스테리시스 밴드를 넘나들며 busy와 idle을 오가는지 검증한다.
 
+# shellcheck source=scripts/scenario-lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scenario-lib.sh"
 
+# shellcheck disable=SC2034 # scenario-lib.sh가 동적으로 읽는다.
+SCENARIO_NAME=regime-transition
 COMPOSE=docker-compose.yml # zone당 1대라 Group 평균이 곧 그 Device의 부하, 진동이 선명하다
 arm_cleanup
 

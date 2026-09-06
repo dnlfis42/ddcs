@@ -4,8 +4,11 @@
 #
 # 재시작한 Agent가 다시 접속하면 Device가 현재 목표 Mode를 다시 명령받는지 검증한다.
 
+# shellcheck source=scripts/scenario-lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scenario-lib.sh"
 
+# shellcheck disable=SC2034 # scenario-lib.sh가 동적으로 읽는다.
+SCENARIO_NAME=agent-reconnect
 COMPOSE=docker-compose.yml
 DEV=11111111-1111-1111-1111-111111111111 # agent-01의 고정 DDCS_DEVICE_ID
 arm_cleanup
@@ -16,7 +19,7 @@ stack_up controller agent-01 agent-02 agent-03 agent-04 || exit 1
 wait_for "Agent 4대 연결" 40 metric_at_least ddcs_connections 4 || exit 1
 # 재시작 전에 첫 명령을 기다려 명령 기억을 만든다. 기억이 없으면 재명령과 첫 명령을 구별할 수 없다.
 # 대기 상한은 SOAK 노브와 분리해 고정한다(SOAK을 줄였을 때 거짓 FAIL이 났던 지점).
-wait_for "Device가 정책 Mode로 수렴(첫 명령 수신)" 60 dispatched_at_least "$DEV" 1 || true
+wait_for "Device가 정책 Mode로 수렴(첫 명령 수신)" 60 dispatched_at_least "$DEV" 1 || exit 1
 soak 2 "명령 기억 정착"
 
 pre_disp=$(dispatch_count "$DEV")

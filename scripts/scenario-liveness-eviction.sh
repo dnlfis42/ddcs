@@ -4,8 +4,11 @@
 #
 # heartbeat가 끊긴 Agent를 Controller가 liveness로 축출하고, 재개하면 다시 접속하는지 검증한다.
 
+# shellcheck source=scripts/scenario-lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scenario-lib.sh"
 
+# shellcheck disable=SC2034 # scenario-lib.sh가 동적으로 읽는다.
+SCENARIO_NAME=liveness-eviction
 COMPOSE=docker-compose.yml
 DEV=11111111-1111-1111-1111-111111111111 # agent-01
 arm_cleanup

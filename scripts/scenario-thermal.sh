@@ -2,14 +2,17 @@
 #
 # 시나리오: thermal
 #
-# 같은 zone에서 과열된 Device만 safe로 빠지는지(Device 단위 트립) 검증한다.
+# 같은 zone에서 과열된 Device만 safe로 빠지는지(Device마다 따로 판정) 검증한다.
 
+# shellcheck source=scripts/scenario-lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scenario-lib.sh"
 
+# shellcheck disable=SC2034 # scenario-lib.sh가 동적으로 읽는다.
+SCENARIO_NAME=thermal
 COMPOSE=docker-compose.scale.yml
 PER_ZONE="${DDCS_SCENARIO_PER_ZONE:-5}"
 case "$PER_ZONE" in
-'' | *[!0-9]*)
+'' | 0 | *[!0-9]*)
     echo "오류: DDCS_SCENARIO_PER_ZONE는 양의 정수여야 합니다: $PER_ZONE" >&2
     exit 2 ;;
 esac
@@ -26,7 +29,7 @@ wait_for "Agent ${EXPECTED}대 연결" 60 metric_at_least ddcs_connections "$EXP
 soak 3 "연결 안정화"
 info "연결된 Device 수: $(metric_int ddcs_connections)"
 
-soak "${DDCS_SCENARIO_SOAK:-70}" "과열 트립 누적: 발열이 hot_temp(65)에 도달"
+soak "${DDCS_SCENARIO_SOAK:-70}" "발열 누적: Device가 저마다의 시점에 hot_temp(65)를 넘김"
 
 narrate "현재 Mode 분포 (ddcs_group_devices):"
 curl -s --max-time 5 "$METRICS_URL" | grep '^ddcs_group_devices' | sort | sed "s/^/  ${C_D}/;s/$/${C_0}/"
@@ -65,7 +68,7 @@ done
 hot=$(hot_distinct)
 
 narrate "단언"
-assert_ge "모든 Device가 한 번 이상 개별 과열 트립(thermal=hot)" "$hot" "$EXPECTED"
+assert_ge "모든 Device가 한 번 이상 과열 트립(thermal=hot)" "$hot" "$EXPECTED"
 assert_ge "한 Group 안에 performance와 safe가 공존(과열 Device만 safe)" "$mix_seen" 1
 assert_ge "과열 Device가 cool_temp 아래로 식어 Base Mode로 회복(safe 수 감소 관측)" "$recover_seen" 1
 

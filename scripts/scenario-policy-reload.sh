@@ -4,8 +4,11 @@
 #
 # SIGHUP으로 정책을 재시작 없이 교체하고, 형식이 깨진 편집은 거부하는지 검증한다.
 
+# shellcheck source=scripts/scenario-lib.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scenario-lib.sh"
 
+# shellcheck disable=SC2034 # scenario-lib.sh가 동적으로 읽는다.
+SCENARIO_NAME=policy-reload
 COMPOSE=docker-compose.yml
 CFG="$ROOT/config/controller.json" # 컨테이너가 /config로 bind-mount해 읽는 바로 그 파일
 BAK="$(mktemp)"
@@ -14,10 +17,16 @@ cp "$CFG" "$BAK" || {
     exit 1
 }
 
-# arm_cleanup의 EXIT 트랩(stack_down)에 더해 config 원복까지 한다. INT/TERM은 arm_cleanup이
-# exit 130으로 바꿔 이 EXIT 트랩을 한 번 태운다(SIGKILL이 아닌 한 repo를 더럽히지 않는다).
+# config를 원복한 뒤 공통 finalizer가 상태 기록과 stack 정리를 맡긴다.
 arm_cleanup
-trap 'cp "$BAK" "$CFG" && rm -f "$BAK"; stack_down' EXIT
+policy_reload_cleanup() {
+    local status=$?
+    trap - EXIT INT TERM
+    cp "$BAK" "$CFG" || status=1
+    rm -f "$BAK"
+    scenario_finalize_exit "$status"
+}
+trap 'policy_reload_cleanup' EXIT
 
 # wait_for와 단언에 쓸 조건 함수다.
 dispatch_total() { logcount '"event":"command.dispatch"'; }
@@ -44,7 +53,7 @@ wait_for "Agent 4대 연결" 40 metric_at_least ddcs_connections 4 || exit 1
 # Device들이 부팅 정책으로 한 번이라도 명령받아 명령 기억을 갖게 한다. 그래야 reload가
 # 기억을 비우고 다시 명령했는지를 단언으로 구별할 수 있다.
 # 대기 상한은 soak 노브와 분리한다(eviction과 같은 이유).
-wait_for "Device가 정책 Mode로 수렴(첫 명령)" 40 dispatch_total_at_least 4 || true
+wait_for "Device가 정책 Mode로 수렴(첫 명령)" 40 dispatch_total_at_least 4 || exit 1
 soak 2 "명령 기억 정착"
 
 pre_disp=$(dispatch_total)

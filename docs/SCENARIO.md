@@ -48,8 +48,9 @@ graph LR
   fault["운영자 수단으로만 개입<br/>docker pause/restart,<br/>SIGHUP, 설정 파일 편집"]
   wait["wait_for (1초 폴링)<br/>진행 페이싱, 판정 아님"]
   assert["assert_* 단언<br/>메트릭 + 이벤트 로그만 근거"]
+  record["build.json 상태 갱신<br/>pass 또는 fail"]
   down["EXIT 트랩 정리<br/>성공/실패/Ctrl+C 공통"]
-  up --> fault --> wait --> assert --> down
+  up --> fault --> wait --> assert --> record --> down
 ```
 
 _그림 1. 시나리오 공통 골격_
@@ -58,7 +59,12 @@ _그림 1. 시나리오 공통 골격_
 - **공허한 통과 방지**: 측정 후에야 알 수 있는 수치를 기대값으로 박아두지 않고, 전환의 발생·공존·증가분 같은 정성 명제를 단언합니다.
   단언이 의미를 갖도록 사전 조건(예: 재명령 검증의 "첫 명령 수신")을 먼저 만들어 둡니다.
 
-전제 조건: docker, docker compose v2, curl. 호스트 포트 8080(wire)/9000(메트릭)이 비어 있어야 합니다.
+전제 조건: docker, docker compose v2, curl, jq. 호스트 포트 8080(wire)/9000(메트릭)이 비어 있어야 합니다.
+
+시나리오는 stdout과 종료 코드로 판정 과정을 보여주되 raw 로그·metrics snapshot·evidence 디렉터리는
+보존하지 않습니다. 이미지와 runtime config를 포함해 계산한 build key의
+`var/result/<build-key>/build.json`에서 해당 scenario 상태만 `pass` 또는 `fail`로 갱신합니다.
+build identity를 만들기 전의 Docker build 실패처럼 실행 자체가 시작되지 못한 경우에는 상태를 기록할 수 없습니다.
 
 ## thermal: 과열된 Device만 보호 Mode로
 
