@@ -270,7 +270,7 @@ _그림 7. Device thermal 상태 기계_
 이 제어 루프의 반대편 절반은 Agent 쪽 `SimulatedDevice`가 담당합니다.
 Mode별 초당 변화율을 매 보고 주기에 적분해 load와 temp를 변화시키며(performance는 부하를 줄이는 대신 발열이 증가하고, safe는 냉각), Device마다 초기값과 noise가 달라 같은 Group 안에서도 thermal이 서로 다른 시점에 발생합니다.
 
-집계와 명령의 대상은 active 집합뿐이므로 끊긴 Device의 stale Shadow는 평균에 반영되지 않고, 아직 보고하지 않은 active Device는 기본 `load = 0`으로 포함되며, Group 없는 Device와 빈 Group은 집계에서 제외합니다.
+집계와 명령의 대상은 active 집합뿐이므로 끊긴 Device의 stale Shadow는 평균에 반영되지 않고, 아직 Status를 보고하지 않은 active Device, Group을 선언하지 않은 Device, 정의되지 않은 Group은 모두 집계에서 빠지며, active Device가 없는 Group은 평가를 건너뜁니다.
 
 정책은 Device별로 마지막에 발행한 Effective Mode의 기억(코드의 commanded belief)과 thermal 상태를 보관해, 변경이 없으면 명령을 생략합니다.
 Session이 끝나면(정상 종료, kick-old, liveness 축출) `SessionService`의 통지(`DeviceReleaseSink::on_device_released`)로 이 명령 기억을 폐기해, 다시 접속한 Device가 다음 평가에서 반드시 현재 Effective Mode를 다시 명령받게 합니다.

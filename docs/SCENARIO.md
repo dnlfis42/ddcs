@@ -29,7 +29,7 @@ scripts/scenario.sh all                # 다섯 시나리오 순차 실행
 
 |시나리오|검증하는 주장|스택|대략 소요|
 |---|---|---|---|
-|`thermal`|thermal 트립은 Group이 아니라 **Device 단위**로 동작한다|zone 4개 × 5대 (scale)|약 3분|
+|`thermal`|온도 국면은 Group이 아니라 **Device마다 따로** 판정된다|zone 4개 × 5대 (scale)|약 3분|
 |`agent-reconnect`|재접속한 Device는 **반드시 현재 정책 Mode로 재명령**받는다|Agent 4대|약 2분|
 |`regime-transition`|Group 평균 부하가 **히스테리시스 밴드**로 busy/idle을 전환한다|Agent 4대|약 2.5분|
 |`liveness-eviction`|응답이 멎은 Agent를 **Controller가 liveness로 축출**하고, 재개하면 다시 접속한다|Agent 4대|약 1.5분|
@@ -68,17 +68,17 @@ build identity를 만들기 전의 Docker build 실패처럼 실행 자체가 �
 
 ## thermal: 과열된 Device만 보호 Mode로
 
-**주장.** 과열 트립은 Device 단위로 동작합니다.
+**주장.** 온도 국면은 Device마다 따로 판정됩니다.
 같은 zone에서 과열된 Device만 safe로 빠지고, `cool_temp` 아래로 식으면 Base Mode로 복귀합니다.
 
-**증거 논리.** 같은 zone의 Device들은 같은 Policy를 공유하므로, 트립이 Group 단위라면 어느 순간이든 zone 전체가 같은 Mode여야 합니다.
-따라서 **한 스냅샷 안에 performance와 safe가 공존**하는 것 자체가 Device 단위 분기의 증거이며, 공존은 두 값이 같은 순간에 있었다는 주장이므로 반드시 한 번의 scrape 응답 안에서 두 값을 함께 읽습니다.
+**증거 논리.** 같은 zone의 Device들은 같은 Policy를 공유하므로, 과열 판정이 Group 단위라면 어느 순간이든 zone 전체가 같은 Mode여야 합니다.
+따라서 **한 스냅샷 안에 performance와 safe가 공존**하는 것 자체가 Device마다 따로 판정된다는 증거이며, 공존은 두 값이 같은 순간에 있었다는 주장이므로 반드시 한 번의 scrape 응답 안에서 두 값을 함께 읽습니다.
 발열 시점이 어긋나는 개체차는 Agent가 만듭니다(초기 load/temp 랜덤, load rate ±10% jitter, Device별 noise 시드).
 
 **진행.**
 
 1. scale compose로 zone 4개 × `DDCS_SCENARIO_PER_ZONE`(기본 5)대를 기동하고 전 대수 연결을 기다립니다.
-2. 70초 동안 대기합니다. performance 구간의 발열(+6°/s)이 `hot_temp`(65°)에 도달하면서 트립이 누적됩니다.
+2. 70초 동안 대기합니다. performance 구간의 발열(+6°/s)이 `hot_temp`(65°)를 넘으면서 Device가 저마다의 시점에 하나씩 트립합니다.
 3. 약 28초간 2초 간격으로 `ddcs_group_devices`를 14회 샘플링해, zone별 (performance, safe) 공존과 safe 수의 감소(= 회복)를 찾습니다.
 4. Controller 로그에서 `policy.thermal.update`(thermal=hot)의 distinct Device 수를 셉니다.
 
@@ -86,8 +86,8 @@ build identity를 만들기 전의 Docker build 실패처럼 실행 자체가 �
 
 |단언|의미|
 |---|---|
-|distinct hot Device ≥ 전 대수|모든 Device가 저마다의 시점에 개별 트립했다|
-|한 스냅샷에 performance·safe 공존 ≥ 1회|트립이 Group이 아니라 Device 단위다|
+|distinct hot Device ≥ 전 대수|모든 Device가 개별 시점에 과열 트립했다|
+|한 스냅샷에 performance·safe 공존 ≥ 1회|판정이 Group이 아니라 Device마다 따로다|
 |zone의 safe 수 감소 ≥ 1회|과열 Device가 식어서 Base Mode로 복귀했다|
 
 ## agent-reconnect: 재접속한 Device에 재명령
