@@ -38,6 +38,7 @@ using ddcs::common::ManualClock;
 using ddcs::io::Fd;
 using ddcs::io::Reactor;
 using ddcs::io::TimerScheduler;
+
 using namespace std::chrono_literals;
 
 // app(SessionService) 대역
@@ -55,6 +56,7 @@ public:
 
     void on_connected() override {
         ++connected;
+
         if (notify_registered_on_connected && out != nullptr) {
             out->notify_registered();
         }
@@ -86,17 +88,24 @@ struct TcpListener {
 
     TcpListener() {
         int const s = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+
         EXPECT_GE(s, 0);
+
         int yes = 1;
         ::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = ::htonl(INADDR_LOOPBACK);
         addr.sin_port = 0; // ephemeral
+
         EXPECT_EQ(::bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), 0);
         EXPECT_EQ(::listen(s, 16), 0);
+
         socklen_t len = sizeof(addr);
+
         EXPECT_EQ(::getsockname(s, reinterpret_cast<sockaddr*>(&addr), &len), 0);
+
         port = ::ntohs(addr.sin_port);
         fd = Fd{s};
     }
@@ -104,7 +113,9 @@ struct TcpListener {
     // blocking accept: connect()는 loopback에서 곧 큐에 들어오므로 대기는 짧다.
     Fd accept_one() {
         int const c = ::accept(fd.get(), nullptr, nullptr);
+
         EXPECT_GE(c, 0);
+
         return Fd{c};
     }
 };
@@ -122,7 +133,9 @@ void write_frame(int fd, std::uint8_t type, std::string_view body) {
     std::string payload;
     payload.push_back(static_cast<char>(type));
     payload.append(body);
+
     auto const hb = frame_header(static_cast<std::uint16_t>(payload.size()));
+
     ASSERT_EQ(::write(fd, hb.data(), hb.size()), static_cast<ssize_t>(hb.size()));
     ASSERT_EQ(::write(fd, payload.data(), payload.size()), static_cast<ssize_t>(payload.size()));
 }
@@ -157,8 +170,10 @@ struct ConnectorFixture {
     // 첫 connect를 개시하고 connected까지 구동(on_connected 발화). 서버측 peer fd 반환.
     Fd open() {
         EXPECT_TRUE(connector.start()); // init 후 start이므로 성공
+
         Fd peer = listener.accept_one();
         pump();
+
         return peer;
     }
 };
@@ -176,22 +191,28 @@ TEST(AgentConnectorTest, StartWhileConnectedIsNoop) {
 }
 
 // backoff 대기 중(connection_ 은 idle)의 start() 는 막지 않는다. 즉시 재시도로 동작하고,
-// 남아 있던 예약은 connect() 가 토큰을 비워 만료 시 무시된다.
+// 남아 있던 예약은 connect()가 취소한다.
 TEST(AgentConnectorTest, StartDuringBackoffRetriesImmediately) {
     ConnectorFixture f;
+
     Fd peer = f.open();
     peer.close(); // peer 종료 -> disconnect + 재연결 예약
-    f.pump();
-    ASSERT_EQ(f.handler.disconnected, 1);
 
-    EXPECT_TRUE(f.connector.start());
-    Fd second = f.listener.accept_one(); // 곧바로 새 연결을 시도한다
     f.pump();
+
+    ASSERT_EQ(f.handler.disconnected, 1);
+    EXPECT_TRUE(f.connector.start());
+
+    Fd second = f.listener.accept_one(); // 곧바로 새 연결을 시도한다
+
+    f.pump();
+
     EXPECT_EQ(f.handler.connected, 2);
 
     // 남아 있던 예약이 만료돼도 아무 일도 일어나지 않는다
     f.clock.advance(60s);
     f.timers.dispatch_expired();
+
     EXPECT_EQ(f.handler.connected, 2);
     EXPECT_EQ(f.handler.disconnected, 1);
 }
@@ -211,6 +232,54 @@ TEST(AgentConnectorTest, UnfitRxBufferSizeStillConstructs) {
     for (std::size_t const requested : {std::size_t{512}, std::size_t{1028}, std::size_t{5000}}) {
         EXPECT_NO_THROW(construct(requested)) << "requested=" << requested;
     }
+}
+
+TEST(AgentConnectorTest, SharedPoolSurvivesConnectorAndDestroyedConnectorCancelsTimers) {
+    Reactor reactor;
+    ManualClock clock;
+    TimerScheduler timers{reactor, clock};
+    timers.start();
+
+    TcpListener listener;
+    MockHandler handler;
+    auto pool = ddcs::common::ObjectPool<ddcs::common::LinearBuffer>::create<4>(1028u);
+    MessageBuffer outstanding;
+
+    {
+        Connector connector{reactor,       timers, "127.0.0.1",
+                            listener.port, 4096,   BackoffSchedule{1s, 30s, 123u},
+                            pool};
+        connector.init(handler);
+
+        outstanding = connector.make_message_buffer();
+
+        EXPECT_EQ(pool.acquired_count(), 1u);
+
+        connector.schedule_timer(TimerSlot::heartbeat, 1s);
+
+        EXPECT_TRUE(connector.start());
+
+        auto peer = listener.accept_one();
+        reactor.run_once(200ms);
+
+        peer.close();
+        reactor.run_once(200ms); // 재접속 타이머 예약
+
+        EXPECT_TRUE(connector.start()); // 기존 재접속 예약도 취소되어야 한다.
+
+        auto second = listener.accept_one();
+    }
+
+    EXPECT_EQ(pool.acquired_count(), 1u);
+
+    outstanding.reset();
+
+    EXPECT_EQ(pool.acquired_count(), 0u);
+
+    clock.advance(60s);
+    timers.dispatch_expired(); // 소멸한 Connector의 콜백은 호출되지 않아야 한다.
+
+    EXPECT_TRUE(handler.timers.empty());
 }
 
 TEST(AgentConnectorTest, ConnectReachesConnectedAndNotifiesHandler) {
@@ -284,15 +353,20 @@ TEST(AgentConnectorTest, PartialFrameWaitsThenDelivers) {
 
     auto const hb = frame_header(4);                 // payload length = type(1) + body(3)
     ASSERT_EQ(::write(peer.get(), hb.data(), 2), 2); // header 절반만
+
     f.pump();
+
     EXPECT_TRUE(f.handler.recvs.empty());
     EXPECT_EQ(f.connector.state(), Connection::State::connected); // 부분 frame은 오류가 아님
 
     ASSERT_EQ(
         ::write(peer.get(), hb.data() + 2, hb.size() - 2), static_cast<ssize_t>(hb.size() - 2)
     );
+
     std::array<char, 4> const body{0x42, 'a', 'b', 'c'};
+
     ASSERT_EQ(::write(peer.get(), body.data(), body.size()), static_cast<ssize_t>(body.size()));
+
     f.pump();
 
     ASSERT_EQ(f.handler.recvs.size(), 1u);
@@ -309,6 +383,7 @@ TEST(AgentConnectorTest, PartialFrameWaitsThenDelivers) {
 TEST(AgentConnectorTest, RxBufferFullReReadDeliversAllFrames) {
     ConnectorFixture f;
     Fd const peer = f.open();
+
     ASSERT_EQ(f.connector.state(), Connection::State::connected);
 
     // rx ring = 4096
@@ -323,22 +398,27 @@ TEST(AgentConnectorTest, RxBufferFullReReadDeliversAllFrames) {
     f.pump();
 
     ASSERT_EQ(f.handler.recvs.size(), n);
+
     for (std::size_t i = 0; i < n; ++i) {
         ASSERT_EQ(f.handler.recvs[i].size(), body.size() + 1);
         EXPECT_EQ(
             static_cast<std::uint8_t>(f.handler.recvs[i][0]), static_cast<std::uint8_t>(0x20u + i)
         );
     }
+
     EXPECT_EQ(f.handler.disconnected, 0);
 }
 
 TEST(AgentConnectorTest, BadMagicDisconnectsAndGoesIdle) {
     ConnectorFixture f;
     Fd const peer = f.open();
+
     ASSERT_EQ(f.connector.state(), Connection::State::connected);
 
     std::array<std::uint8_t, 4> const junk{0xDE, 0xAD, 0x00, 0x00}; // magic != 0xDDC5
+
     ASSERT_EQ(::write(peer.get(), junk.data(), junk.size()), static_cast<ssize_t>(junk.size()));
+
     f.pump();
 
     EXPECT_TRUE(f.handler.recvs.empty());
@@ -349,10 +429,13 @@ TEST(AgentConnectorTest, BadMagicDisconnectsAndGoesIdle) {
 TEST(AgentConnectorTest, OversizedFrameDisconnectsAndGoesIdle) {
     ConnectorFixture f;
     Fd const peer = f.open();
+
     ASSERT_EQ(f.connector.state(), Connection::State::connected);
 
     auto const hb = frame_header(0xFFFF); // length 0xFFFF > max_payload_length(1024)
+
     ASSERT_EQ(::write(peer.get(), hb.data(), hb.size()), static_cast<ssize_t>(hb.size()));
+
     f.pump();
 
     EXPECT_TRUE(f.handler.recvs.empty());
@@ -363,6 +446,7 @@ TEST(AgentConnectorTest, OversizedFrameDisconnectsAndGoesIdle) {
 TEST(AgentConnectorTest, PeerCloseDisconnectsThenReconnectTimerReconnects) {
     ConnectorFixture f;
     Fd peer = f.open();
+
     ASSERT_EQ(f.connector.state(), Connection::State::connected);
 
     peer.close(); // 서버측 FIN
@@ -374,10 +458,12 @@ TEST(AgentConnectorTest, PeerCloseDisconnectsThenReconnectTimerReconnects) {
     // 끊김 시 reconnect 타이머가 예약된다. 만료시키면 다시 connect로 진입한다.
     f.clock.advance(60s); // 어떤 backoff(cap 30s)도 만료
     f.timers.dispatch_expired();
+
     ASSERT_EQ(f.connector.state(), Connection::State::connecting);
 
     Fd const peer2 = f.listener.accept_one();
     f.pump();
+
     EXPECT_EQ(f.connector.state(), Connection::State::connected);
     EXPECT_EQ(f.handler.connected, 2);
 }
@@ -393,24 +479,31 @@ TEST(AgentConnectorTest, BackoffGrowsWhileRegistrationNeverSucceeds) {
         true; // 등록 없이 매 연결 직후 disconnect (등록 실패 사이클 모사)
 
     // cycle 1: connect -> on_connected -> disconnect -> reconnect T1 예약 (예약 시점 attempt 0)
-    { Fd const p1 = f.open(); }
+    {
+        Fd const p1 = f.open();
+    }
+
     ASSERT_EQ(f.connector.state(), Connection::State::idle);
     ASSERT_EQ(f.handler.disconnected, 1);
 
     // T1(base 범위, <=1.25s) 만료 -> 재연결 -> 다시 disconnect -> reconnect T2 예약
     f.clock.advance(2s);
     f.timers.dispatch_expired();
+
     ASSERT_EQ(f.connector.state(), Connection::State::connecting);
+
     {
         Fd const p2 = f.listener.accept_one();
         f.pump();
     }
+
     ASSERT_EQ(f.connector.state(), Connection::State::idle);
     ASSERT_EQ(f.handler.disconnected, 2);
 
     // T2를 base 창(1.3s)으로 측정: backoff가 자랐다면(attempt1 >= 1.5s) 만료되지 않는다.
     f.clock.advance(1300ms);
     f.timers.dispatch_expired();
+
     EXPECT_EQ(f.connector.state(), Connection::State::idle)
         << "reconnect fired within the base window; exponential backoff did not grow "
            "(backoff reset is happening on TCP connect instead of on registration success)";
@@ -418,6 +511,7 @@ TEST(AgentConnectorTest, BackoffGrowsWhileRegistrationNeverSucceeds) {
     // 시간을 충분히 흘리면 결국 만료(자란 backoff도 cap 30s 이내)되어 재연결한다.
     f.clock.advance(60s);
     f.timers.dispatch_expired();
+
     EXPECT_EQ(f.connector.state(), Connection::State::connecting);
 }
 
@@ -428,21 +522,28 @@ TEST(AgentConnectorTest, NotifyRegisteredKeepsBackoffAtBase) {
     f.handler.notify_registered_on_connected = true; // 매 연결마다 등록 성공 통지
     f.handler.disconnect_on_connected = true;        // 그 후 disconnect
 
-    { Fd const p1 = f.open(); }
+    {
+        Fd const p1 = f.open();
+    }
+
     ASSERT_EQ(f.connector.state(), Connection::State::idle);
 
     f.clock.advance(2s);
     f.timers.dispatch_expired();
+
     ASSERT_EQ(f.connector.state(), Connection::State::connecting);
+
     {
         Fd const p2 = f.listener.accept_one();
         f.pump();
     }
+
     ASSERT_EQ(f.connector.state(), Connection::State::idle);
 
     // notify_registered가 매번 backoff를 리셋했으므로 T2도 base 범위 -> 1.3s 안에 만료된다.
     f.clock.advance(1300ms);
     f.timers.dispatch_expired();
+
     EXPECT_EQ(f.connector.state(), Connection::State::connecting)
         << "notify_registered should have reset backoff to base";
 }

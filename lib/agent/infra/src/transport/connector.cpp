@@ -24,7 +24,7 @@ namespace {
 
 constexpr std::size_t pool_chunk = 64;
 
-// 완료를 writable로 감지
+// 쓰기 가능 이벤트로 비동기 연결 완료를 확인한다.
 constexpr io::ChannelEvents connect_interest{
     io::ChannelEvents::writable | io::ChannelEvents::edge_triggered
 };
@@ -43,9 +43,31 @@ Connector::Connector(
       timer_scheduler_(timer_scheduler),
       host_(std::move(host)),
       port_(port),
-      message_pool_(
+      owned_message_pool_(
           common::ObjectPool<common::LinearBuffer>::create<pool_chunk>(wire::frame::max_frame_size)
       ),
+      message_pool_(owned_message_pool_),
+      connection_(wire::frame::fit_rx_capacity(rx_buffer_size)),
+      backoff_(backoff) {
+    if (auto const fitted = wire::frame::fit_rx_capacity(rx_buffer_size);
+        fitted != rx_buffer_size) {
+        LOG_TRANSPORT_RX_BUFFER_ADJUST(rx_buffer_size, fitted);
+    }
+}
+
+Connector::Connector(
+    io::Reactor& reactor, io::TimerScheduler& timer_scheduler, std::string host, std::uint16_t port,
+    std::size_t rx_buffer_size, BackoffSchedule backoff,
+    common::ObjectPool<common::LinearBuffer>& message_pool
+)
+    : reactor_(reactor),
+      timer_scheduler_(timer_scheduler),
+      host_(std::move(host)),
+      port_(port),
+      owned_message_pool_(
+          common::ObjectPool<common::LinearBuffer>::create<pool_chunk>(wire::frame::max_frame_size)
+      ),
+      message_pool_(message_pool),
       connection_(wire::frame::fit_rx_capacity(rx_buffer_size)),
       backoff_(backoff) {
     if (auto const fitted = wire::frame::fit_rx_capacity(rx_buffer_size);
@@ -58,11 +80,16 @@ Connector::~Connector() {
     if (connection_.registered()) {
         reactor_.remove(connection_.channel());
     }
-    // connection_ dtor가 fd를 닫고, 타이머는 TimerScheduler와 함께 소멸
+
+    timer_scheduler_.cancel(reconnect_timer_);
+    for (auto const timer : app_timer_) {
+        timer_scheduler_.cancel(timer);
+    }
+    // connection_ 소멸 시 소켓을 닫고 송신 버퍼를 풀에 반환한다.
 }
 
 void Connector::notify_registered() {
-    // app 등록 성공: 다음 끊김부터 backoff를 base에서 다시 시작
+    // Agent 등록에 성공하면 다음 재연결은 기본 대기 시간부터 시작한다.
     backoff_.reset();
 }
 
@@ -72,30 +99,34 @@ void Connector::disconnect(port::DisconnectReason reason) {
 
 port::MessageBuffer Connector::make_message_buffer() {
     auto buf = message_pool_.acquire();
-    // frame header 자리 확보. 실패해도 여기서는 알리지 않는다. 그 버퍼는 프레이밍이 안 되므로
-    // send의 encode_frame이 같은 사실을 한 번 알린다.
+    // 프레임 헤더 공간을 확보한다. 실패 로그는 send()에서 한 번만 남긴다.
     (void)buf->set_headroom(wire::frame::header_size);
+
     return buf;
 }
 
 void Connector::send(port::MessageBuffer message) {
     if (connection_.state() != Connection::State::connected) {
-        return; // 미연결이면 드롭
+        return; // 연결되지 않았으면 메시지를 버린다.
     }
-    // message는 메시지 통째(`[type][body]`). frame은 length만 싣는다.
+
+    // 메시지의 [type][body] 앞에 프레임 헤더를 붙인다.
     if (!wire::frame::encode_frame(*message)) {
-        // payload 상한 초과 또는 make_message_buffer()를 거치지 않은 버퍼(프로그래머 오류)
+        // 메시지 크기나 헤더 공간이 프레임 조건을 만족하지 않는다.
         LOG_TRANSPORT_FRAME_ENCODE_FAIL(message->data_span().size());
+
         return;
     }
+
     connection_.tx_enqueue(std::move(message));
-    update_interests(); // writable 관심을 켠다
+
+    update_interests(); // 송신할 데이터가 있으면 쓰기 가능 이벤트를 받는다.
 }
 
 void Connector::schedule_timer(port::TimerSlot id, std::chrono::nanoseconds delay) {
     auto& slot = app_timer_.at(static_cast<std::size_t>(id));
     if (slot.valid()) {
-        timer_scheduler_.cancel(slot); // reschedule = 기존 취소
+        timer_scheduler_.cancel(slot); // 같은 슬롯의 기존 예약을 취소한다.
     }
     slot = timer_scheduler_.schedule(delay, *this);
 }
@@ -112,58 +143,61 @@ void Connector::on_expired(io::TimerToken id) {
     if (id == reconnect_timer_) {
         reconnect_timer_ = io::TimerToken{};
         connect();
+
         return;
     }
 
     for (std::size_t i = 0; i < port::timer_slot_count; ++i) {
         if (app_timer_.at(i) == id) {
-            app_timer_.at(i) =
-                io::TimerToken{}; // one-shot 소비 (app이 on_timer 안에서 재예약 가능)
+            // on_timer()에서 다시 예약할 수 있도록 기존 토큰을 먼저 비운다.
+            app_timer_.at(i) = io::TimerToken{};
             handler_->on_timer(static_cast<port::TimerSlot>(i));
+
             return;
         }
     }
-    // 취소 후 잔여 등은 무시
+    // 현재 예약과 일치하지 않는 만료 알림은 무시한다.
 }
 
 io::SysResult Connector::start() {
     if (handler_ == nullptr) {
-        return io::SysResult::fail(); // init 전 start
+        return io::SysResult::fail(); // init()이 먼저 호출되어야 한다.
     }
-    // 이미 연결 중이거나 연결된 상태면 아무것도 하지 않는다. 그대로 connect()로 가면
-    // Connection::init의 전제조건을 어겨 죽는다.
-    // backoff 재연결을 기다리는 중(connection_은 idle)은 막지 않는다. 그때의 start()는
-    // "지금 바로 재시도"로 동작하고, connect()가 첫 줄에서 예약 토큰을 비워 준다.
+    // 연결 중이거나 연결된 상태에서는 중복 연결을 막는다.
+    // 재연결 대기 중이면 connect()에서 예약을 취소하고 즉시 시도한다.
     if (connection_.state() != Connection::State::idle) {
         return io::SysResult::success();
     }
 
     connect();
+
     return io::SysResult::success();
 }
 
 void Connector::connect() {
+    timer_scheduler_.cancel(reconnect_timer_);
     reconnect_timer_ = io::TimerToken{};
 
     int const raw = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (raw < 0) {
         LOG_TRANSPORT_CONNECT_FAIL(errno);
         schedule_reconnect();
+
         return;
     }
+
     io::Fd sock{raw};
 
-    // ack와 outcome처럼 짧은 write가 중간 read 없이 연달아 나가는 구간에서 Nagle이
-    // 두 번째 write를 상대 ACK(delayed-ACK 최대 40ms)까지 붙잡는다.
-    // Controller(acceptor.cpp)와 대칭으로 양쪽 모두 Nagle을 끈다.
+    // ack와 outcome을 연속으로 보낼 때 TCP ACK 대기로 송신이 지연되지 않도록
+    // Controller와 마찬가지로 Nagle 알고리즘을 끈다.
     int const nodelay = 1;
     (void)::setsockopt(sock.get(), IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = ::htons(port_);
-    // 호스트네임(DNS) 또는 숫자 IP 해석
-    // 단일 연결 client 이므로 (재)연결 시 blocking resolve 1회 허용
+
+    // 연결할 때마다 호스트 이름 또는 IPv4 주소를 동기적으로 해석한다.
     addrinfo hints{};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -171,11 +205,14 @@ void Connector::connect() {
     int const gai = ::getaddrinfo(host_.c_str(), nullptr, &hints, &res);
     if (gai != 0 || res == nullptr) {
         ++unresolved_attempts_;
+
         if (!host_unresolved_) {
             host_unresolved_ = true;
             LOG_TRANSPORT_HOST_RESOLVE_FAIL(host_, gai);
         }
+
         schedule_reconnect();
+
         return;
     }
     if (host_unresolved_) {
@@ -183,16 +220,19 @@ void Connector::connect() {
         LOG_TRANSPORT_HOST_RESOLVE_RECOVER(host_, unresolved_attempts_);
         unresolved_attempts_ = 0;
     }
+
     addr.sin_addr = reinterpret_cast<sockaddr_in const*>(res->ai_addr)->sin_addr;
     ::freeaddrinfo(res);
 
     int r = 0;
+
     do {
         r = ::connect(raw, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
     } while (r < 0 && errno == EINTR);
     if (r < 0 && errno != EINPROGRESS) {
         LOG_TRANSPORT_CONNECT_FAIL(errno);
         schedule_reconnect();
+
         return;
     }
 
@@ -202,6 +242,7 @@ void Connector::connect() {
         LOG_TRANSPORT_REACTOR_ADD_FAIL(result.err);
         connection_.close();
         schedule_reconnect();
+
         return;
     }
 
@@ -225,6 +266,7 @@ void Connector::handle_connecting(io::ChannelEvents events) {
     if (io::contains(events, io::ChannelEvents::error) ||
         io::contains(events, io::ChannelEvents::hangup)) {
         disconnect_and_reconnect(port::DisconnectReason::connect_fail);
+
         return;
     }
 
@@ -233,27 +275,31 @@ void Connector::handle_connecting(io::ChannelEvents events) {
     if (::getsockopt(connection_.fd(), SOL_SOCKET, SO_ERROR, &err, &len) < 0 || err != 0) {
         LOG_TRANSPORT_CONNECT_FAIL(err);
         disconnect_and_reconnect(port::DisconnectReason::connect_fail);
+
         return;
     }
 
     connection_.transition(Connection::State::connected);
-    // backoff_.reset()은 여기(TCP 연결)가 아니라 app 등록 성공 시(notify_registered)에 한다.
-    // TCP는 붙지만 등록이 안 끝나는 controller를 상대로 backoff가 지수적으로 자라게 하기 위함.
+
+    // TCP 연결 후에도 Agent 등록에 실패할 수 있으므로, 재시도 간격은
+    // notify_registered()에서 등록 성공을 확인한 뒤 초기화한다.
     if (auto const result = reactor_.modify(connection_.channel(), read_interest); !result) {
         LOG_TRANSPORT_REACTOR_MODIFY_FAIL(result.err);
         disconnect_and_reconnect(port::DisconnectReason::io_error);
+
         return;
     }
 
     LOG_TRANSPORT_CONNECT_SUCCESS(host_, port_);
-    handler_->on_connected(); // app이 register 시작 (send가 writable 관심을 켠다)
+    handler_->on_connected(); // Agent 등록 절차를 시작한다.
 }
 
 void Connector::handle_connected(io::ChannelEvents events) {
     if (io::contains(events, io::ChannelEvents::error) ||
         io::contains(events, io::ChannelEvents::hangup)) {
-        // epoll이 둘을 한 비트로 뭉개므로 여기서는 peer_closed와 갈라내지 못한다.
+        // 오류 또는 연결 종료 이벤트는 io_error로 처리한다.
         disconnect_and_reconnect(port::DisconnectReason::io_error);
+
         return;
     }
 
@@ -263,17 +309,16 @@ void Connector::handle_connected(io::ChannelEvents events) {
 
             wire::frame::dispatch_frames(
                 message_pool_,
-                // get_rx: 연결이 살아있는 동안만 rx ring 제공(on_recv가 연결을 끊으면 nullptr -> 종료)
+                // on_recv()에서 연결을 끊으면 nullptr를 반환해 프레임 처리를 멈춘다.
                 [this]() -> common::CircularBuffer* {
                     return connection_.state() == Connection::State::connected
                                ? &connection_.rx_buffer()
                                : nullptr;
                 },
-                // payload = msg `[type][body]` 통째. type 디스패치는 app(message_type)이 한다.
+                // [type][body]를 전달하고, 메시지 종류에 따른 처리는 Agent에 맡긴다.
                 [this](port::MessageBuffer payload) { handler_->on_recv(std::move(payload)); },
                 [this](wire::frame::DecodeResult reason) {
-                    // bad_magic/too_long은 상대가 잘못 보낸 것이고, read_error는 우리 ring
-                    // 로직이 어긋난 것이라 레벨이 갈린다.
+                    // 내부 버퍼 읽기 오류와 수신 프레임 형식 오류를 구분해 기록한다.
                     if (reason == wire::frame::DecodeResult::read_error) {
                         LOG_TRANSPORT_FRAME_DECODE_CORRUPT();
                     } else {
@@ -284,20 +329,23 @@ void Connector::handle_connected(io::ChannelEvents events) {
             );
 
             if (connection_.state() != Connection::State::connected) {
-                return; // framing이 연결 종료와 재연결을 유발
+                return; // 프레임 처리 중 연결이 끊겼으면 수신을 중단한다.
             }
             if (r.code == net::ReceiveResult::Code::would_block) {
                 break;
             }
             if (r.code == net::ReceiveResult::Code::full) {
-                continue; // framing이 공간 확보 후 더 읽기
+                continue; // 프레임 처리로 확보한 공간에 이어서 수신한다.
             }
             if (r.code == net::ReceiveResult::Code::error) {
                 LOG_TRANSPORT_RECEIVE_FAIL(r.err);
                 disconnect_and_reconnect(port::DisconnectReason::io_error);
+
                 return;
             }
+
             disconnect_and_reconnect(port::DisconnectReason::peer_closed);
+
             return;
         }
     }
@@ -307,6 +355,7 @@ void Connector::handle_connected(io::ChannelEvents events) {
         if (r.code == net::TransmitResult::Code::error) {
             LOG_TRANSPORT_SEND_FAIL(r.err);
             disconnect_and_reconnect(port::DisconnectReason::io_error);
+
             return;
         }
     }
@@ -327,6 +376,7 @@ void Connector::update_interests() {
         if (auto const result = reactor_.modify(connection_.channel(), desired); !result) {
             LOG_TRANSPORT_REACTOR_MODIFY_FAIL(result.err);
             disconnect_and_reconnect(port::DisconnectReason::io_error);
+
             return;
         }
     }
@@ -336,9 +386,9 @@ void Connector::disconnect_and_reconnect(port::DisconnectReason reason) {
     if (connection_.registered()) {
         reactor_.remove(connection_.channel());
     }
-    connection_.close(); // fd close(FIN) + 버퍼 비움으로 idle화
 
-    // cancel timer
+    connection_.close(); // 소켓과 버퍼를 정리하고 idle 상태로 전환한다.
+
     for (auto& slot : app_timer_) {
         if (slot.valid()) {
             timer_scheduler_.cancel(slot);
@@ -347,15 +397,17 @@ void Connector::disconnect_and_reconnect(port::DisconnectReason reason) {
     }
 
     if (handler_ != nullptr) {
-        handler_->on_disconnected(); // app FSM을 idle로 (멱등)
+        handler_->on_disconnected(); // Agent에 연결 종료를 알린다.
     }
+
     schedule_reconnect();
-    // reason이 왜 끊겼는지의 유일한 출처다.
+
     LOG_TRANSPORT_DISCONNECT(port::to_string(reason));
 }
 
 void Connector::schedule_reconnect() {
     auto const delay = backoff_.next_delay();
+
     reconnect_timer_ = timer_scheduler_.schedule(delay, *this);
 
     LOG_TRANSPORT_RECONNECT_SCHEDULE(

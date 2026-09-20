@@ -9,12 +9,23 @@ add_library(ddcs::agent ALIAS ddcs_agent)
 
 target_sources(
     ddcs_agent
-    PRIVATE src/agent.cpp
-    PUBLIC FILE_SET HEADERS BASE_DIRS include FILES include/ddcs/agent/agent.hpp
+    PRIVATE src/agent.cpp src/agent_fleet.cpp src/bootstrap.cpp
+    PUBLIC
+        FILE_SET HEADERS
+            BASE_DIRS include
+            FILES
+                include/ddcs/agent/agent.hpp
+                include/ddcs/agent/agent_fleet.hpp
+                include/ddcs/agent/bootstrap.hpp
 )
 target_link_libraries(
     ddcs_agent
-    PRIVATE ddcs::build_options ddcs::io ddcs::agent::infra
+    PRIVATE
+        ddcs::build_options
+        ddcs::config
+        ddcs::io
+        ddcs::wire::frame
+        ddcs::agent::infra
     PUBLIC
         ddcs::cxx_standard
         ddcs::common
