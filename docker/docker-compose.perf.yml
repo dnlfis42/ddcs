@@ -1,6 +1,6 @@
 # 성능 측정용 이미지를 빌드하거나 Group별 Fleet을 수동으로 실행할 때 사용한다.
 # 각 Fleet은 기본 1,000개의 Agent를 실행한다.
-# 측정 스크립트는 perf-layout.py로 Agent 수와 Group 배치에 맞는 Compose를 따로 생성한다.
+# 측정 스크립트는 scripts/performance/workload-config.py로 Agent 수와 Group 배치에 맞는 Compose를 따로 생성한다.
 
 x-fleet: &fleet
   build:

@@ -1,38 +1,38 @@
 #!/usr/bin/env bash
-#
-# 시나리오: policy-reload
-#
-# SIGHUP으로 정책을 재시작 없이 교체하고, 형식이 깨진 편집은 거부하는지 검증한다.
 
-# shellcheck source=scripts/scenario-lib.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scenario-lib.sh"
+# SIGHUP 정책 교체와 잘못된 JSON 거부를 검증한다. 원본 설정은 변경하지 않는다.
 
-# shellcheck disable=SC2034 # scenario-lib.sh가 동적으로 읽는다.
+# shellcheck source=scripts/lib/scenario.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/scenario.sh"
+
+# shellcheck disable=SC2034 # lib/scenario.sh가 동적으로 읽는다.
 SCENARIO_NAME=policy-reload
 COMPOSE=docker-compose.yml
-CFG="$ROOT/config/controller.json" # 컨테이너가 /config로 bind-mount해 읽는 바로 그 파일
-BAK="$(mktemp)"
-cp "$CFG" "$BAK" || {
-    echo "오류: 설정 백업에 실패했습니다: $CFG" >&2
-    exit 1
-}
+COMPOSE_OVERLAY=docker-compose.policy-reload.yml
+POLICY_CONFIG_DIR="$(mktemp -d /tmp/ddcs-policy-reload.XXXXXX)" || exit 1
+export DDCS_POLICY_CONFIG_DIR="$POLICY_CONFIG_DIR"
+CFG="$POLICY_CONFIG_DIR/controller.json"
 
-# config를 원복한 뒤 공통 finalizer가 상태 기록과 stack 정리를 맡긴다.
+# 마운트된 설정 사본은 스택 정리 성공 뒤에만 제거한다.
 arm_cleanup
 policy_reload_cleanup() {
     local status=$?
     trap - EXIT INT TERM
-    cp "$BAK" "$CFG" || status=1
-    rm -f "$BAK"
+    if stack_down; then
+        rm -rf -- "$POLICY_CONFIG_DIR" || status=1
+    else
+        echo "스택 정리 실패: 임시 설정을 보존합니다: $POLICY_CONFIG_DIR" >&2
+        status=1
+    fi
     scenario_finalize_exit "$status"
 }
 trap 'policy_reload_cleanup' EXIT
+cp -RL "$ROOT/config/." "$POLICY_CONFIG_DIR/" || exit 1
 
-# wait_for와 단언에 쓸 조건 함수다.
 dispatch_total() { logcount '"event":"command.dispatch"'; }
 load_total() { logcount '"event":"policy.load"'; } # 성공만 센다. 끝의 " 때문에 policy.load.fail은 안 잡힌다
 zone_a_safe() {
-    curl -s --max-time 5 "$METRICS_URL" |
+    scenario_metrics |
         grep -F 'ddcs_group_devices{group="zone_a",mode="safe"}' | awk '{print $2}'
 }
 reload_seen() { [ "$(logcount '"trigger":"reload"')" -ge "${1:-1}" ]; }
@@ -42,7 +42,7 @@ load_total_at_least() { [ "$(load_total)" -ge "$1" ]; }
 zone_a_safe_at_least() { [ "$(zone_a_safe)" -ge "$1" ]; }
 
 show_modes() {
-    curl -s --max-time 5 "$METRICS_URL" | grep '^ddcs_group_devices' | sort |
+    scenario_metrics | grep '^ddcs_group_devices' | sort |
         sed "s/^/  ${C_D}/;s/$/${C_0}/"
 }
 
@@ -50,9 +50,7 @@ narrate "시나리오: policy-reload (SIGHUP 정책 교체와 잘못된 형식 �
 stack_up controller agent-01 agent-02 agent-03 agent-04 || exit 1
 
 wait_for "Agent 4대 연결" 40 metric_at_least ddcs_connections 4 || exit 1
-# Device들이 부팅 정책으로 한 번이라도 명령받아 명령 기억을 갖게 한다. 그래야 reload가
-# 기억을 비우고 다시 명령했는지를 단언으로 구별할 수 있다.
-# 대기 상한은 soak 노브와 분리한다(eviction과 같은 이유).
+# 첫 명령 이후 reload해야 명령 기억을 비우고 재명령했는지 구별할 수 있다.
 wait_for "Device가 정책 Mode로 수렴(첫 명령)" 40 dispatch_total_at_least 4 || exit 1
 soak 2 "명령 기억 정착"
 
@@ -62,7 +60,7 @@ info "reload 전: command.dispatch=$pre_disp, policy.load=$pre_load, zone_a.safe
 narrate "reload 전 Mode 분포:"
 show_modes
 
-# PHASE 1: 유효한 편집 후 SIGHUP. zone_a를 busy/idle 모두 safe로 강제해 결과를 결정적으로 만든다.
+# zone_a의 목표를 safe로 고정해 reload 효과를 구별한다.
 narrate "PHASE 1: zone_a를 safe로 강제하는 정책으로 편집 후 SIGHUP"
 cat >"$CFG" <<'JSON'
 {
@@ -76,12 +74,13 @@ cat >"$CFG" <<'JSON'
   }
 }
 JSON
+scenario_snapshot_config valid-reload || exit 1
 docker kill --signal=HUP "$CTRL" >/dev/null
 
 wait_for "SIGHUP 처리(trigger=reload)" 10 reload_seen 1 || true
 wait_for "새 정책 재적용(policy.load 재발생)" 10 load_total_at_least $((pre_load + 1)) || true
 wait_for "zone_a가 reload로 safe 재명령" 20 zone_a_safe_at_least 1 || true
-# 단발 safe는 우연일 수 있다. 3회 연속이면 정책이 강제한 것으로 본다.
+# 일시적 과열과 구별하기 위해 3회 연속 safe를 확인한다.
 za_persist=0
 for _ in 1 2 3; do
     [ "$(zone_a_safe)" -ge 1 ] && za_persist=$((za_persist + 1))
@@ -93,10 +92,11 @@ info "reload 후: command.dispatch=$(dispatch_total)(전 $pre_disp), policy.load
 narrate "reload 후 Mode 분포 (zone_a 전부 safe 기대):"
 show_modes
 
-# PHASE 2: 형식이 깨진 편집 후 SIGHUP을 보내 거부와 옛 정책 유지를 확인한다.
+# 잘못된 JSON은 거부하고 기존 정책을 유지해야 한다.
 narrate "PHASE 2: 깨진 JSON으로 편집 후 SIGHUP (거부 기대)"
 mid_load=$(load_total)
 printf '{ this is not valid json\n' >"$CFG"
+scenario_snapshot_config invalid-reload || exit 1
 docker kill --signal=HUP "$CTRL" >/dev/null
 
 wait_for "잘못된 형식 거부(reason=parse)" 10 parsefail_seen 1 || true
@@ -105,7 +105,7 @@ after_bad_load=$(load_total)
 after_bad_conn=$(metric_int ddcs_connections)
 info "잘못된 편집 후: policy.load(성공)=$after_bad_load, connections=$after_bad_conn"
 
-narrate "단언"
+narrate "검증"
 assert_ge "SIGHUP이 reload를 트리거(trigger=reload)" "$(logcount '"trigger":"reload"')" 1
 assert_ge "유효 reload가 새 정책을 재적용(policy.load 재발생)" "$post_load" $((pre_load + 1))
 assert_ge "재적용이 동작 중 fleet을 재명령(zone_a가 강제된 safe로 정착)" "$za_persist" 3

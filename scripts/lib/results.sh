@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
+
 # shellcheck shell=bash
-#
-# DDCS 로컬 결과 공용 헬퍼. 실행하지 말고 source 한다.
-#
-# 하나의 build 결과는 release 설정, source 상태, 두 runtime image, runtime config 전체로 식별한다.
-# 같은 build-key 디렉터리를 다시 사용할 때는 build.json의 식별값이 정확히 같은지만 확인하고,
-# 이미 기록한 profile/scenario 결과는 건드리지 않는다.
+# source 전용: build 식별 및 결과 저장. 상세: docs/PROFILE.md.
+# 동일 build-key 초기화 시 기존 profile/scenario 결과를 보존한다.
 
 result_require_jq() {
     command -v jq >/dev/null 2>&1 || {
@@ -165,8 +162,7 @@ result_initialize_build() { # repository-root source-revision source-dirty contr
     }
 }
 
-# build.json을 원자적으로 갱신한다. 호출자는 jq filter 뒤에 필요한 --arg/--argjson을 넘긴다.
-# result 경로는 모두 var/ 아래라 source identity를 계산한 뒤에만 이 함수를 호출한다.
+# 임시 파일에 쓴 뒤 교체한다. source 상태를 고정한 후 호출한다.
 result_update_build_json() { # build-directory jq-filter [jq-arguments...]
     local build_directory="$1" filter="$2" build_json temporary
     shift 2
@@ -197,10 +193,20 @@ result_update_build_json() { # build-directory jq-filter [jq-arguments...]
     }
 }
 
+result_valid_profile_condition() {
+    local condition="$1" layout count
+    [[ "$condition" =~ ^(balance|single)-[0-9]{4,5}$ ]] || return 1
+    layout="${condition%%-*}"
+    count=$((10#${condition#*-}))
+    [ "$count" -ge 1 ] && [ "$count" -le 65504 ] || return 1
+    [ "$layout" != balance ] || [ $((count % 4)) -eq 0 ] || return 1
+    [ "$condition" = "$(printf '%s-%04d' "$layout" "$count")" ]
+}
+
 result_set_profile_capture() { # build-directory condition duration-seconds verified summary-json
     local build_directory="$1" condition="$2" duration_seconds="$3" verified="$4" summary_json="$5"
 
-    [[ "$condition" =~ ^(balance|single)-[0-9]{4}$ ]] || {
+    result_valid_profile_condition "$condition" || {
         echo "오류: profile capture 조건 형식이 아닙니다: $condition" >&2
         return 1
     }
@@ -212,7 +218,7 @@ result_set_profile_capture() { # build-directory condition duration-seconds veri
         echo "오류: profile capture verified 값은 boolean이어야 합니다: $verified" >&2
         return 1
     }
-    # shellcheck disable=SC2016 # jq filter에서 $condition 등을 jq 변수로 해석한다.
+    # shellcheck disable=SC2016 # jq에서 변수 확장
     result_update_build_json "$build_directory" '
         (.profile //= {}) |
         (.profile.capture //= {}) |
@@ -231,11 +237,11 @@ result_set_profile_capture() { # build-directory condition duration-seconds veri
 result_set_profile_overhead() { # build-directory condition summary-json
     local build_directory="$1" condition="$2" summary_json="$3"
 
-    [[ "$condition" =~ ^(balance|single)-[0-9]{4}$ ]] || {
+    result_valid_profile_condition "$condition" || {
         echo "오류: profile overhead 조건 형식이 아닙니다: $condition" >&2
         return 1
     }
-    # shellcheck disable=SC2016 # jq filter에서 $condition 등을 jq 변수로 해석한다.
+    # shellcheck disable=SC2016 # jq에서 변수 확장
     result_update_build_json "$build_directory" '
         (.profile //= {}) |
         (.profile.overhead //= {}) |
@@ -262,7 +268,7 @@ result_set_scenario() { # build-directory scenario-name pass|fail
         return 1
         ;;
     esac
-    # shellcheck disable=SC2016 # jq filter에서 $scenario 등을 jq 변수로 해석한다.
+    # shellcheck disable=SC2016 # jq에서 변수 확장
     result_update_build_json "$build_directory" '
         (.scenario //= {}) |
         .scenario[$scenario] = $status

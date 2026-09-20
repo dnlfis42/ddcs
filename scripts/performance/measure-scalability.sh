@@ -1,67 +1,26 @@
 #!/usr/bin/env bash
-#
-# DDCS 성능 램프: Agent 수를 늘려가며 Controller(싱글 스레드 리액터)의 포화 지표를 캡처한다.
-#
-# 핵심 지표는 Controller tick 한 번의 소요 시간(us)이다. 한 tick은 명령 재전송, liveness 검사, 정책 평가를
-# 한 스레드에서 처리하므로, 이 시간이 tick 주기(기본 1s = 1,000,000us)에 근접하면 한 코어가 포화에 이른다.
-# pending이 쌓이거나 liveness 종료가 늘어도 Controller가 따라가지 못하고 있다고 봐야 한다.
-#
-# 사용법: scripts/perf-ramp.sh <balance|single>
-#
-#   balance                         총 Agent를 4개 zone에 균등 분배한다(각 레벨은 4의 배수).
-#   single                          전체 Agent를 zone_a 하나에 둔다.
-#   DDCS_PERF_LEVELS="100 200 400 600 800 1000"  총 Agent 수 단계
-#   DDCS_PERF_SETTLE=30                           목표 연결 뒤 안정화 시간 (초)
-#   DDCS_PERF_SOAK=120                            단계별 측정 창 (초)
-#   DDCS_PERF_SKIP_PREFLIGHT=1      전제 검사를 건너뛴다(비권장. 그렇게 잰 수치는 표에 싣지 않는다)
-#   DDCS_PERF_SKIP_BUILD=1          이미 준비한 Controller/Agent image를 재사용한다(perf-suite 내부용)
-#   DDCS_PERF_SOURCE_REVISION=...   evidence source identity를 외부 suite가 고정할 때 둘 다 함께 지정한다
-#   DDCS_PERF_SOURCE_DIRTY=true     (output 디렉터리 생성이 clean source 판정을 오염시키지 않게 한다)
-#   DDCS_PERF_OUTPUT_ROOT=...       결과 루트 override (perf-suite 내부용)
-#
-# 본 측정 예: DDCS_PERF_LEVELS="100 200 400 600 800 1000" DDCS_PERF_SETTLE=30 DDCS_PERF_SOAK=120 scripts/perf-ramp.sh balance
-# 단일 Group 측정 예: DDCS_PERF_LEVELS="1000" DDCS_PERF_SETTLE=30 DDCS_PERF_SOAK=120 scripts/perf-ramp.sh single
-#
-# 종료 상태:
-#   0   모든 레벨의 측정이 정상
-#   1   실행 실패 (전제 검사 실패, 스택 기동 실패, 측정값을 수집하지 못한 레벨 존재)
-#   2   사용법 오류 (DDCS_PERF_LEVELS, DDCS_PERF_SETTLE, DDCS_PERF_SOAK가 정수가 아님)
-#
-# 주의: Agent 프로세스도 같은 호스트 CPU를 쓰므로 cpu_pct는 호스트 경합에 오염될 수 있다.
-#       tick_avg_us는 Controller가 tick당 실제로 일한 시간이라 호스트 경합에 오염되지 않는다.
-#       Agent 1대 = 컨테이너 1개라 메모리도 대수에 비례한다. 상위 레벨(1000)은 호스트 가용 메모리를
-#       먼저 확인할 것(레벨이 점진 상승하므로 포화·실패 지점은 표에서 드러난다).
-#
-# 사후 점검:
-#       수천 컨테이너를 만들었다 부순 뒤에는 containerd-shim 고아가 남아 메모리를 잡을 수 있다.
-#       (컨테이너는 0인데 shim 프로세스 수천 개가 잔존, 개당 6MB 안팎)
-#
-#   pgrep -fc containerd-shim-runc-v2   # docker ps -q 가 0인데 이 수가 크면 전부 고아
-#   sudo pkill -f containerd-shim-runc-v2 && sudo systemctl restart docker
-#
-# 호스트 전제(500대 이상):
-#       컨테이너 수가 리눅스 ARP 이웃 테이블 상한(net.ipv4.neigh.default.gc_thresh3, 기본 1024)에
-#       접근하면 커널이 신규 연결의 SYN을 응답 없이 버린다. 기존 연결은 유지되어 Controller는
-#       멀쩡해 보이는데 메트릭 curl과 신규 등록만 실패하며, 이때 병목은 Controller가 아니라
-#       측정 하네스에  있다(커널 로그에 "neighbour: arp_cache: neighbor table overflow!"가 찍힌다).
-#       따라서 측정 전에 상한을 올려야 한다.
-#
-#   sudo sysctl -w net.ipv4.neigh.default.gc_thresh1=2048 \
-#                  net.ipv4.neigh.default.gc_thresh2=4096 \
-#                  net.ipv4.neigh.default.gc_thresh3=8192
 
-# shellcheck source=scripts/scenario-lib.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scenario-lib.sh"
-# shellcheck source=scripts/result-lib.sh
-source "$ROOT/scripts/result-lib.sh"
+# Agent 수를 늘려가며 성능을 측정한다. 각 단계는 새 Controller와 Fleet으로 실행한다.
+# 사용법: scripts/performance/measure-scalability.sh <balance|single>
+# balance: 4개 Group에 균등 배치. single: zone_a에 모두 배치
+# 측정 성공과 성능 기준 통과는 별개다. 판정은 assessment.json에서 확인한다.
 
-# scenario-lib.sh의 compose()가 source한 쪽의 COMPOSE를 읽는다.
+# shellcheck source=scripts/lib/scenario.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/scenario.sh"
+# shellcheck source=scripts/lib/results.sh
+source "$ROOT/scripts/lib/results.sh"
+# shellcheck source=scripts/lib/workload.sh
+source "$ROOT/scripts/lib/workload.sh"
+
 # shellcheck disable=SC2034
-COMPOSE=docker-compose.scale.yml
+COMPOSE=docker-compose.perf.yml
 MODE="${1:-}"
-LEVELS="${DDCS_PERF_LEVELS:-100 200 400 600 800 1000}"
+LEVELS="${DDCS_PERF_LEVELS:-4000 12000 20000}"
 SETTLE="${DDCS_PERF_SETTLE:-30}"
 SOAK="${DDCS_PERF_SOAK:-120}"
+READY_TIMEOUT="${DDCS_PERF_READY_TIMEOUT:-90}"
+SAMPLE_INTERVAL="${DDCS_PERF_SAMPLE_INTERVAL:-5}"
+EFFECTIVE_CONFIG_TMP=
 OUTPUT_ROOT_OVERRIDE="${DDCS_PERF_OUTPUT_ROOT:-}"
 SKIP_BUILD="${DDCS_PERF_SKIP_BUILD:-0}"
 SOURCE_REVISION_OVERRIDE="${DDCS_PERF_SOURCE_REVISION:-}"
@@ -81,28 +40,32 @@ balance | single)
     ;;
 esac
 
-# 환경 변수 검증. 정수가 아니면 산술 확장에서 코드 실행이나 즉사로 이어지므로 먼저 거른다.
-case "$SETTLE" in
-'' | 0 | *[!0-9]*)
-    echo "오류: DDCS_PERF_SETTLE은 양의 정수여야 합니다: $SETTLE" >&2
-    exit 2 ;;
-esac
-case "$SOAK" in
-'' | 0 | *[!0-9]*)
-    echo "오류: DDCS_PERF_SOAK는 양의 정수여야 합니다: $SOAK" >&2
-    exit 2 ;;
-esac
-for t in $LEVELS; do
-    case "$t" in
-    '' | *[!0-9]*)
-        echo "오류: DDCS_PERF_LEVELS는 정수 목록이어야 합니다: $t" >&2
-        exit 2 ;;
-    esac
-    if [ "$MODE" = balance ] && [ $((t % 4)) -ne 0 ]; then
-        echo "오류: balance 레벨은 4의 배수여야 합니다: $t" >&2
+for duration in "$SETTLE" "$SOAK" "$READY_TIMEOUT" "$SAMPLE_INTERVAL"; do
+    if ! [[ "$duration" =~ ^[1-9][0-9]{0,8}$ ]]; then
+        echo "오류: 안정화·측정·준비 대기 시간은 1..999999999 정수여야 합니다." >&2
         exit 2
     fi
 done
+read -r -a REQUESTED_LEVELS <<< "${LEVELS//$'\n'/ }"
+[ "${#REQUESTED_LEVELS[@]}" -gt 0 ] || usage
+LEVELS="${REQUESTED_LEVELS[*]}"
+declare -A seen_levels
+for t in "${REQUESTED_LEVELS[@]}"; do
+    if ! [[ "$t" =~ ^[1-9][0-9]{0,4}$ ]] || [ "$t" -gt 65504 ]; then
+        echo "오류: Agent 수는 1..65504 정수여야 합니다(Compose nofile 65536)." >&2
+        exit 2
+    fi
+    if [ "$MODE" = balance ] && [ $((t % 4)) -ne 0 ]; then
+        echo "오류: balance 배치의 Agent 수은 4의 배수여야 합니다: $t" >&2
+        exit 2
+    fi
+    [ -z "${seen_levels[$t]:-}" ] || {
+        echo "오류: 중복된 Agent 수입니다: $t" >&2
+        exit 2
+    }
+    seen_levels[$t]=1
+done
+workload_configure "$MODE" "${REQUESTED_LEVELS[@]}" || exit 2
 case "$SKIP_BUILD" in
 0 | 1)
     ;;
@@ -138,8 +101,7 @@ case "$RUN_ID" in
     exit 2 ;;
 esac
 
-# output directory를 만들기 전에 source 상태를 읽어야, 새 local 결과가 clean source를 dirty로
-# 보이게 만들지 않는다. untracked file도 재현 불가능한 입력이므로 dirty로 취급한다.
+# 결과 파일이 작업 트리 변경 여부에 영향을 주기 전에 소스 상태를 기록한다.
 if [ "$SOURCE_IDENTITY_OVERRIDDEN" = true ]; then
     SOURCE_REVISION="$SOURCE_REVISION_OVERRIDE"
     SOURCE_DIRTY="$SOURCE_DIRTY_OVERRIDE"
@@ -154,29 +116,30 @@ fi
 
 cleanup_preflight_tmp() {
     [ -z "${PREFLIGHT_TMP:-}" ] || rm -f -- "$PREFLIGHT_TMP"
+    [ -z "${EFFECTIVE_CONFIG_TMP:-}" ] || rm -rf -- "$EFFECTIVE_CONFIG_TMP"
 }
 PREFLIGHT_TMP="$(mktemp "${TMPDIR:-/tmp}/ddcs-perf-preflight.XXXXXX")" || {
-    echo "오류: preflight 임시 파일을 만들지 못했습니다." >&2
+    echo "오류: 측정 환경 검사 결과를 저장할 임시 파일을 만들지 못했습니다." >&2
     exit 1
 }
 trap cleanup_preflight_tmp EXIT
 
 preflight || exit 1
 result_require_jq || exit 1
+command -v python3 >/dev/null || { echo "오류: 측정 결과 평가에 python3이 필요합니다." >&2; exit 1; }
+python3 "$ROOT/scripts/performance/evaluate-results.py" --validate-config || exit 2
 
-# 측정 환경 게이트: 클럭 고정과 깨끗한 호스트가 아니면 시작하지 않는다. 실패한 gate 결과는
-# 실행 산출물로 만들지 않고 호출자에게만 출력한다.
 if [ "${DDCS_PERF_SKIP_PREFLIGHT:-0}" != "1" ]; then
     PREFLIGHT_SKIPPED=false
-    "$ROOT/scripts/perf-preflight.sh" >"$PREFLIGHT_TMP" 2>&1 || {
+    "$ROOT/scripts/measurement/verify-environment.sh" fleet >"$PREFLIGHT_TMP" 2>&1 || {
         sed -n '1,240p' "$PREFLIGHT_TMP"
-        echo "오류: 전제 검사에 실패했습니다. 위 출력의 수정 명령을 적용하거나 DDCS_PERF_SKIP_PREFLIGHT=1로 우회하십시오(비권장)." >&2
+        echo "오류: 측정 환경 검사에 실패했습니다. 위 검사 결과와 조치 안내를 확인하십시오. 진단 목적으로 생략하려면 DDCS_PERF_SKIP_PREFLIGHT=1을 지정하십시오." >&2
         exit 1
     }
     sed -n '1,240p' "$PREFLIGHT_TMP"
 else
     PREFLIGHT_SKIPPED=true
-    printf '%s\n' 'preflight skipped by DDCS_PERF_SKIP_PREFLIGHT=1; diagnostic result only' >"$PREFLIGHT_TMP"
+    printf '%s\n' 'DDCS_PERF_SKIP_PREFLIGHT=1로 측정 환경 검사를 생략했습니다. 진단용 결과입니다.' >"$PREFLIGHT_TMP"
 fi
 
 if [ "$MODE" = single ]; then
@@ -187,11 +150,11 @@ fi
 if [ "$SKIP_BUILD" = 1 ]; then
     narrate "이미지 재사용"
     docker image inspect ddcs-controller:dev >/dev/null 2>&1 || {
-        echo "오류: 재사용할 Controller image를 찾지 못했습니다: ddcs-controller:dev" >&2
+        echo "오류: 재사용할 Controller 이미지를 찾지 못했습니다: ddcs-controller:dev" >&2
         exit 1
     }
-    docker image inspect ddcs-agent:dev >/dev/null 2>&1 || {
-        echo "오류: 재사용할 Agent image를 찾지 못했습니다: ddcs-agent:dev" >&2
+    docker image inspect ddcs-agent-fleet:dev >/dev/null 2>&1 || {
+        echo "오류: 재사용할 Fleet 이미지를 찾지 못했습니다: ddcs-agent-fleet:dev" >&2
         exit 1
     }
     IMAGE_BUILD_SKIPPED=true
@@ -201,15 +164,18 @@ else
 fi
 CONTROLLER_IMAGE_ID="$(docker image inspect --format '{{.Id}}' ddcs-controller:dev 2>/dev/null || true)"
 [ -n "$CONTROLLER_IMAGE_ID" ] || {
-    echo "오류: Controller image ID를 읽지 못했습니다." >&2
+    echo "오류: Controller 이미지 ID를 읽지 못했습니다." >&2
     exit 1
 }
-AGENT_IMAGE_ID="$(docker image inspect --format '{{.Id}}' ddcs-agent:dev 2>/dev/null || true)"
+AGENT_IMAGE_ID="$(docker image inspect --format '{{.Id}}' ddcs-agent-fleet:dev 2>/dev/null || true)"
 [ -n "$AGENT_IMAGE_ID" ] || {
-    echo "오류: Agent image ID를 읽지 못했습니다." >&2
+    echo "오류: Fleet 이미지 ID를 읽지 못했습니다." >&2
     exit 1
 }
-RUNTIME_CONFIG_SHA256="$(result_directory_sha256 "$ROOT/config")" || exit 1
+EFFECTIVE_CONFIG_TMP="$(mktemp -d "${TMPDIR:-/tmp}/ddcs-perf-config.XXXXXX")" || exit 1
+python3 "$ROOT/scripts/performance/workload-config.py" prepare "${DDCS_PERF_CONFIG_SOURCE:-$ROOT/config}" "$EFFECTIVE_CONFIG_TMP" "${policy_args[@]}" || exit 1
+RUNTIME_CONFIG_SHA256="$(result_directory_sha256 "$EFFECTIVE_CONFIG_TMP")" || exit 1
+POLICY_SHA256="$(python3 "$ROOT/scripts/performance/workload-config.py" policy-hash "$EFFECTIVE_CONFIG_TMP")" || exit 1
 result_initialize_build \
     "$ROOT" "$SOURCE_REVISION" "$SOURCE_DIRTY" \
     "$CONTROLLER_IMAGE_ID" "$AGENT_IMAGE_ID" "$RUNTIME_CONFIG_SHA256" || exit 1
@@ -220,22 +186,25 @@ else
     OUTPUT_ROOT="$DDCS_RESULT_BUILD_DIR/performance"
 fi
 mkdir -p "$OUTPUT_ROOT" || {
-    echo "오류: 성능 결과 루트를 만들지 못했습니다: $OUTPUT_ROOT" >&2
+    echo "오류: 성능 측정 결과의 상위 디렉터리를 만들지 못했습니다: $OUTPUT_ROOT" >&2
     exit 1
 }
 RUN_DIR="$OUTPUT_ROOT/$RUN_ID"
 [ ! -e "$RUN_DIR" ] || {
-    echo "오류: 기존 성능 run을 덮어쓰지 않습니다: $RUN_DIR" >&2
+    echo "오류: 같은 실행 ID의 성능 측정 결과가 이미 있습니다: $RUN_DIR" >&2
     exit 1
 }
 mkdir "$RUN_DIR" || {
-    echo "오류: 성능 run 디렉터리를 만들지 못했습니다: $RUN_DIR" >&2
+    echo "오류: 성능 측정 실행 디렉터리를 만들지 못했습니다: $RUN_DIR" >&2
     exit 1
 }
 RUN_DIR="$(cd "$RUN_DIR" && pwd -P)"
+cp -R "$EFFECTIVE_CONFIG_TMP" "$RUN_DIR/config" || exit 1
+rm -rf -- "$EFFECTIVE_CONFIG_TMP"
+EFFECTIVE_CONFIG_TMP=
 PREFLIGHT_ARTIFACT="$RUN_DIR/preflight.txt"
 cp "$PREFLIGHT_TMP" "$PREFLIGHT_ARTIFACT" || {
-    echo "오류: preflight 결과를 보관하지 못했습니다: $PREFLIGHT_ARTIFACT" >&2
+    echo "오류: 측정 환경 검사 결과를 보관하지 못했습니다: $PREFLIGHT_ARTIFACT" >&2
     exit 1
 }
 chmod 644 "$PREFLIGHT_ARTIFACT"
@@ -244,9 +213,6 @@ PREFLIGHT_TMP=
 RUN_STARTED_UTC="$(date -u '+%Y-%m-%dT%H:%M:%S.%NZ')"
 arm_cleanup
 
-# 메트릭 스냅샷을 한 번 뜬다. 실패하면 빈 문자열이다.
-# 측정 창 양끝을 각각 한 번의 응답에서 파싱해야 값들 사이에 시차가 없고,
-# 수집 실패가 0으로 위장해 델타 표를 오염시키는 일도 없다.
 snapshot() { curl -sf --max-time 5 "$METRICS_URL"; }
 
 is_unsigned_integer() {
@@ -258,12 +224,10 @@ is_positive_integer() {
 }
 
 capture_stamp() {
-    # GNU date 한 호출에서 UTC와 epoch ns를 함께 가져온다. 두 snapshot의 실제 간격과
-    # Controller CPU jiffies delta의 분모를 같은 artifact에 남긴다.
     date -u '+%Y-%m-%dT%H:%M:%S.%NZ %s%N'
 }
 
-set_stamp() { # ISO 변수명, epoch-ns 변수명
+set_stamp() {
     local stamp
     stamp="$(capture_stamp)"
     printf -v "$1" '%s' "${stamp%% *}"
@@ -281,7 +245,7 @@ controller_cpu_snapshot() {
     printf '%s %s\n' "$pid" "$jiffies"
 }
 
-set_controller_cpu_snapshot() { # PID 변수명, jiffies 변수명
+set_controller_cpu_snapshot() {
     local pid_variable="$1" jiffies_variable="$2" snapshot pid jiffies
     if snapshot="$(controller_cpu_snapshot)"; then
         read -r pid jiffies <<<"$snapshot"
@@ -293,14 +257,11 @@ set_controller_cpu_snapshot() { # PID 변수명, jiffies 변수명
     fi
 }
 
-# 스냅샷 텍스트에서 라벨 없는 정수 메트릭 하나의 값. 이름 전체 일치라 접두어가 같은 메트릭과 섞이지 않는다.
-snap_int() { # text name
+snap_int() {
     printf '%s\n' "$1" | awk -v m="$2" '$1 == m {print $2; exit}'
 }
 
-# seconds 계열 Prometheus 값을 정수 µs로 환산한다. exporter가 고정 소수점 최대 6자리로 정확히 내므로,
-# 측정 창 delta를 계산하는 이 경계에서만 쉘 표의 단위(us)로 되돌린다.
-snap_seconds_us() { # text name
+snap_seconds_us() {
     printf '%s\n' "$1" | awk -v m="$2" '
         function to_us(value, parts, fraction) {
             if (value !~ /^[0-9]+(\.[0-9]+)?$/) {
@@ -317,8 +278,7 @@ snap_seconds_us() { # text name
     '
 }
 
-# reason 라벨 counter 하나의 정수값. exporter의 reason label 출력 순서는 고정이다.
-snap_reason_int() { # text name reason
+snap_reason_int() {
     printf '%s\n' "$1" |
         awk -v m="$2" -v r="$3" '$1 == m "{reason=\"" r "\"}" {print $2; exit}'
 }
@@ -331,7 +291,7 @@ format_ns_as_seconds() {
     awk -v ns="$1" 'BEGIN { printf "%.6f", ns / 1000000000 }'
 }
 
-format_per_second() { # count elapsed ns
+format_per_second() {
     awk -v count="$1" -v elapsed_ns="$2" 'BEGIN {
         if (elapsed_ns <= 0) {
             exit 1
@@ -340,7 +300,7 @@ format_per_second() { # count elapsed ns
     }'
 }
 
-controller_cpu_percent() { # start PID, jiffies, timestamp; end PID, jiffies, timestamp; CLK_TCK
+controller_cpu_percent() {
     local start_pid="$1" start_jiffies="$2" start_ns="$3"
     local end_pid="$4" end_jiffies="$5" end_ns="$6" clock_ticks="$7"
     local delta_jiffies elapsed_ns
@@ -362,7 +322,7 @@ controller_cpu_percent() { # start PID, jiffies, timestamp; end PID, jiffies, ti
     }'
 }
 
-write_level_measurement() { # output path, captured snapshot 여부는 전역 snap0/snap1과 경계 변수를 사용한다.
+write_level_measurement() {
     local output="$1" start_captured=false end_captured=false
     [ -n "$snap0" ] && start_captured=true
     [ -n "$snap1" ] && end_captured=true
@@ -395,7 +355,9 @@ write_manifest() {
         printf '%s\n' \
             '{' \
             '  "schema_name": "ddcs.perf_ramp_evidence",' \
-            '  "schema_version": 5,' \
+            '  "schema_version": 6,' \
+            '  "load_generator": "agent-fleet",' \
+            '  "level_lifecycle": "fresh_stack",' \
             "  \"run_id\": \"${RUN_ID}\", " \
             "  \"build_key\": \"${DDCS_RESULT_BUILD_KEY}\", " \
             "  \"started_utc\": \"${RUN_STARTED_UTC}\", " \
@@ -408,6 +370,7 @@ write_manifest() {
             "  \"runtime_config_sha256\": \"${RUNTIME_CONFIG_SHA256}\", " \
             "  \"layout\": \"${MODE}\", " \
             "  \"requested_levels\": \"${LEVELS}\", " \
+            "  \"readiness_timeout_seconds\": ${READY_TIMEOUT}," \
             "  \"settle_seconds_per_level\": ${SETTLE}," \
             "  \"measurement_seconds_per_level\": ${SOAK}," \
             "  \"preflight_skipped\": ${PREFLIGHT_SKIPPED}," \
@@ -425,79 +388,97 @@ write_manifest() {
         done
         printf '%s\n' '  ]' '}'
     } >"$RUN_DIR/manifest.json" || return 1
+    jq --argjson fixed_fleet_size "${FIXED_FLEET_SIZE:-null}" \
+        --argjson uniform_policy "$UNIFORM_POLICY" --arg policy_sha256 "$POLICY_SHA256" \
+        --slurpfile workloads <(cat "$RUN_DIR"/*/workload.json) \
+        '. + {fixed_agents_per_fleet:$fixed_fleet_size,uniform_policy:($uniform_policy == 1),
+              policy_sha256:$policy_sha256,effective_config:"config",workloads:($workloads | sort_by(.requested_agents))}' \
+        "$RUN_DIR/manifest.json" >"$RUN_DIR/manifest.enriched.json" || return 1
+    mv "$RUN_DIR/manifest.enriched.json" "$RUN_DIR/manifest.json" || return 1
     chmod 644 "$RUN_DIR/manifest.json"
 }
 
-# 누적치(sum/count류)는 전부 측정 창 양끝의 델타로 계산해 레벨별 값을 낸다.
-# 예외는 tick_max_cum 하나: 시작 후 누적 최대라 리셋이 없어 이전 레벨과 레벨 전환(접속 폭풍)을
-# 포함한다. 과대 방향(보수적)이라 그대로 싣되 열 이름에 cum을 박아 오독을 막는다.
-printf '\n%-8s %-7s %-10s %-13s %-14s %-9s %-10s %-8s %-8s %-8s\n' \
-    agents conns window_s tick_avg_us tick_max_cum_us cpu_pct in_msgs_s pending rtt_ms liveness_closed
-printf -- '---------------------------------------------------------------------------------------------------------\n'
+level_fail() {
+    printf '%s\n' "$*" >&2
+    printf '%s\n' "$*" >>"$LEVEL_DIR/failure.txt"
+}
 
-bad_levels=0
-for total in $LEVELS; do
-    if [ "$MODE" = single ]; then
-        want=$total
-        up_services="controller agent-zone-a"
-        up_flags="--scale agent-zone-a=$total"
-    else
-        pz=$((total / 4))
-        want=$total
-        up_services="controller agent-zone-a agent-zone-b agent-zone-c agent-zone-d"
-        up_flags="--scale agent-zone-a=$pz --scale agent-zone-b=$pz --scale agent-zone-c=$pz --scale agent-zone-d=$pz"
-    fi
-    printf -v LEVEL_NAME '%04d' "$want"
-    LEVEL_DIR="$RUN_DIR/$LEVEL_NAME"
-    [ ! -e "$LEVEL_DIR" ] || {
-        echo "오류: 같은 실제 Agent 수의 level artifact가 이미 있습니다: $want" >&2
-        exit 2
-    }
-    mkdir "$LEVEL_DIR" || {
-        echo "오류: level artifact 디렉터리를 만들지 못했습니다: $LEVEL_DIR" >&2
-        exit 1
-    }
-    # stdout(생성 로그)만 버리고 stderr는 남긴다. 기동 실패 뒤의 레벨은 전부 오염이므로 즉시 끝낸다.
-    # shellcheck disable=SC2086  # up_flags는 이 스크립트가 만든 옵션 나열이라 단어 분할이 의도다
-    if ! compose up -d $up_flags $up_services >/dev/null; then
-        echo "레벨 $total: 스택 기동 실패. 측정을 중단합니다." >&2
-        exit 1
-    fi
-
-    # 목표 연결 수 도달 대기(최대 90s) 뒤 접속 폭풍이 측정 창에 새지 않게 명시적으로 안정화한다.
-    i=0
-    while [ "$i" -lt 90 ]; do
-        [ "$(metric_int ddcs_connections)" -ge "$want" ] && break
-        sleep 1; i=$((i + 1))
+wait_for_workload() {
+    local current deadline=$((SECONDS + READY_TIMEOUT))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        current="$(snapshot)" || current=
+        if [ -n "$current" ]; then
+            printf '%s\n' "$current" >"$LEVEL_DIR/readiness.prom"
+            if workload_ready "$current" "$want" "$MODE"; then return 0; fi
+        fi
+        sleep 1
     done
+    level_fail "Agent ${want}대: 등록·Status 보고 목표 미달 또는 메트릭 수집 실패 (제한 ${READY_TIMEOUT}s)."
+    return 1
+}
+
+measure_level() {
+    if ! compose up -d "${up_services[@]}" >/dev/null; then
+        level_fail "Agent ${want}대: 스택 기동 실패."
+        return 1
+    fi
+    CTRL="$(compose ps -q controller)" || return 1
+    [ -n "$CTRL" ] || { level_fail "Controller ID를 찾지 못했습니다."; return 1; }
+    wait_for_workload || return 1
     sleep "$SETTLE"
 
     set_stamp SNAP0_STARTED_UTC SNAP0_STARTED_UNIX_NS
     set_controller_cpu_snapshot SNAP0_CONTROLLER_PID SNAP0_CPU_JIFFIES
-    snap0=$(snapshot)
+    snap0="$(snapshot)" || snap0=
     set_stamp SNAP0_ENDED_UTC SNAP0_ENDED_UNIX_NS
-    if [ -n "$snap0" ]; then
-        printf '%s\n' "$snap0" >"$LEVEL_DIR/metrics-start.prom"
-        chmod 644 "$LEVEL_DIR/metrics-start.prom"
+    printf '%s\n' "$snap0" >"$LEVEL_DIR/metrics-start.prom"
+    if ! workload_ready "$snap0" "$want" "$MODE"; then
+        level_fail "Agent ${want}대: 안정화 후 등록·Status 보고 수가 목표와 다릅니다. 측정하지 않습니다."
+        return 1
     fi
-    sleep "$SOAK"
+
+    # 수집에 걸린 시간도 측정 시간에 포함한다.
+    local remaining="$SOAK" deadline=$((SECONDS + SOAK)) sample_index=0 delay sample_name sample_started sample_ended ids
+    local -a sample_containers
+    mkdir "$LEVEL_DIR/samples" || return 1
+    ids="$(compose ps -q)" || return 1
+    [ -n "$ids" ] || return 1
+    mapfile -t sample_containers <<<"$ids"
+    while [ "$remaining" -gt 0 ]; do
+        delay="$SAMPLE_INTERVAL"
+        [ "$remaining" -ge "$delay" ] || delay="$remaining"
+        sleep "$delay"
+        remaining=$((deadline - SECONDS))
+        [ "$remaining" -gt 0 ] || break
+        sample_index=$((sample_index + 1))
+        printf -v sample_name '%06d' "$sample_index"
+        sample_started="$(date -u '+%Y-%m-%dT%H:%M:%S.%NZ')"
+        if ! snapshot >"$LEVEL_DIR/samples/$sample_name.prom" ||
+            ! docker stats --no-stream --format '{{json .}}' "${sample_containers[@]}" >"$LEVEL_DIR/samples/$sample_name.docker-stats.jsonl"; then
+            level_fail "Agent ${want}대: 측정 구간 내 메트릭 또는 자원 관측 실패."
+            return 1
+        fi
+        sample_ended="$(date -u '+%Y-%m-%dT%H:%M:%S.%NZ')"
+        printf '{"started_utc":"%s","ended_utc":"%s"}\n' "$sample_started" "$sample_ended" >"$LEVEL_DIR/samples/$sample_name.json"
+        remaining=$((deadline - SECONDS))
+    done
     set_stamp SNAP1_STARTED_UTC SNAP1_STARTED_UNIX_NS
     set_controller_cpu_snapshot SNAP1_CONTROLLER_PID SNAP1_CPU_JIFFIES
-    snap1=$(snapshot)
+    snap1="$(snapshot)" || snap1=
     set_stamp SNAP1_ENDED_UTC SNAP1_ENDED_UNIX_NS
-    if [ -n "$snap1" ]; then
-        printf '%s\n' "$snap1" >"$LEVEL_DIR/metrics-end.prom"
-        chmod 644 "$LEVEL_DIR/metrics-end.prom"
-    fi
+    printf '%s\n' "$snap1" >"$LEVEL_DIR/metrics-end.prom"
     write_level_measurement "$LEVEL_DIR/measurement.json" || {
-        echo "레벨 $total: 측정 경계 metadata를 쓰지 못했습니다. 이 레벨의 행을 건너뜁니다." >&2
-        bad_levels=$((bad_levels + 1))
-        continue
+        level_fail "Agent ${want}대: 측정 메타데이터 기록 실패."
+        return 1
     }
-    if [ -z "$snap0" ] || [ -z "$snap1" ]; then
-        echo "레벨 $total: 메트릭 수집 실패(스냅샷 누락). 이 레벨의 행을 건너뜁니다." >&2
-        bad_levels=$((bad_levels + 1))
-        continue
+    if ! workload_ready "$snap1" "$want" "$MODE"; then
+        level_fail "Agent ${want}대: 측정 종료 시 등록·Status 보고 수가 목표와 다릅니다."
+        return 1
+    fi
+    if [ "$SNAP0_CONTROLLER_PID" != null ] && [ "$SNAP1_CONTROLLER_PID" != null ] &&
+        [ "$SNAP0_CONTROLLER_PID" != "$SNAP1_CONTROLLER_PID" ]; then
+        level_fail "Agent ${want}대: 측정 중 Controller 프로세스가 바뀌었습니다."
+        return 1
     fi
 
     sum0=$(snap_seconds_us "$snap0" ddcs_tick_duration_seconds_total)
@@ -517,26 +498,22 @@ for total in $LEVELS; do
     pending=$(snap_int "$snap1" ddcs_commands_pending)
 
     if ! [[ "$sum0 $tk0 $rsum0 $rcnt0 $recv0 $liveness0 $sum1 $tk1 $rsum1 $rcnt1 $recv1 $liveness1 $smax $conns $pending" =~ ^[0-9]+(\ [0-9]+)*$ ]]; then
-        echo "레벨 $total: 새 metric contract 값을 파싱하지 못했습니다. 이미지와 endpoint를 확인하십시오." >&2
-        bad_levels=$((bad_levels + 1))
-        continue
+        level_fail "Agent ${total}대: 필수 메트릭 값을 읽지 못했습니다. 실행 이미지와 메트릭 엔드포인트를 확인하십시오."
+        return 1
     fi
 
-    # 카운터가 역행했거나(Controller 재시작) tick이 하나도 없으면 측정 창이 오염된 것으로 보고 행에 싣지 않는다.
     dtk=$((tk1 - tk0))
     if [ "$dtk" -le 0 ] || [ $((sum1 - sum0)) -lt 0 ] || [ $((rsum1 - rsum0)) -lt 0 ] ||
         [ $((rcnt1 - rcnt0)) -lt 0 ] || [ $((recv1 - recv0)) -lt 0 ] ||
         [ $((liveness1 - liveness0)) -lt 0 ]; then
-        echo "레벨 $total: 측정 창 오염(카운터 역행 또는 tick 없음). 이 레벨의 행을 건너뜁니다." >&2
-        bad_levels=$((bad_levels + 1))
-        continue
+        level_fail "Agent ${total}대: 측정 구간에 카운터 감소 또는 tick 미발생이 확인되어 이 단계의 요약 행을 출력하지 않습니다."
+        return 1
     fi
 
     elapsed_ns=$((SNAP1_STARTED_UNIX_NS - SNAP0_STARTED_UNIX_NS))
     if [ "$elapsed_ns" -le 0 ]; then
-        echo "레벨 $total: 측정 창 시간이 역행했습니다. 이 레벨의 행을 건너뜁니다." >&2
-        bad_levels=$((bad_levels + 1))
-        continue
+        level_fail "Agent ${total}대: 측정 종료 시간이 시작 시간보다 이르므로 이 단계의 요약 행을 출력하지 않습니다."
+        return 1
     fi
     avg=$(((sum1 - sum0) / dtk))
     drc=$((rcnt1 - rcnt0))
@@ -549,41 +526,70 @@ for total in $LEVELS; do
         "$SNAP1_CONTROLLER_PID" "$SNAP1_CPU_JIFFIES" "$SNAP1_STARTED_UNIX_NS" \
         "$CONTROLLER_CLOCK_TICKS_PER_SECOND")
 
+    python3 "$ROOT/scripts/performance/evaluate-results.py" "$LEVEL_DIR" --layout "$MODE" || {
+        level_fail "Agent ${want}대: 측정 데이터 또는 부하 검증 실패. assessment.json과 오류 출력을 확인하십시오."
+        return 1
+    }
     printf '%-8s %-7s %-10s %-13s %-14s %-9s %-10s %-8s %-8s %-8s\n' \
         "$want" "$conns" "$window_seconds" "$avg" "$smax" "$cpu" "$inps" "$pending" "$rtt" "$((liveness1 - liveness0))"
 
-    if [ "$conns" -lt "$want" ]; then
-        echo "레벨 $total: 목표 연결 미달($conns/$want). 이 레벨의 값은 신뢰할 수 없습니다." >&2
-        bad_levels=$((bad_levels + 1))
+}
+
+capture_level_runtime() {
+    local ids controller_id status=0
+    local -a containers
+    ids="$(compose ps -q)" || return 1
+    [ -n "$ids" ] || return 1
+    mapfile -t containers <<<"$ids"
+    docker stats --no-stream --format '{{json .}}' "${containers[@]}" >"$LEVEL_DIR/docker-stats.jsonl" || status=1
+    controller_id="$(compose ps -q controller)" || return 1
+    [ -n "$controller_id" ] || return 1
+    docker logs "$controller_id" >"$LEVEL_DIR/controller.jsonl" 2>&1 || status=1
+    return "$status"
+}
+
+printf '\n%-8s %-7s %-10s %-13s %-14s %-9s %-10s %-8s %-8s %-8s\n' \
+    agents conns window_s tick_avg_us tick_max_cum_us cpu_pct in_msgs_s pending rtt_ms liveness_closed
+
+bad_levels=0
+for total in "${REQUESTED_LEVELS[@]}"; do
+    want=$total
+    printf -v LEVEL_NAME '%04d' "$want"
+    LEVEL_DIR="$RUN_DIR/$LEVEL_NAME"
+    mkdir "$LEVEL_DIR" || exit 1
+    python3 "$ROOT/scripts/performance/workload-config.py" generate "$RUN_DIR/config" "$LEVEL_DIR" \
+        --total "$want" --layout "$MODE" "${layout_args[@]}" "${policy_args[@]}" || exit 1
+    COMPOSE="$(realpath --relative-to="$ROOT/docker" "$LEVEL_DIR/compose.json")" || exit 1
+    mapfile -t up_services < <(jq -r '.services | keys[]' "$LEVEL_DIR/compose.json")
+    DDCS_PERF_AGENTS_PER_FLEET="$(jq -r '.agents_per_fleet' "$LEVEL_DIR/workload.json")" || exit 1
+    export DDCS_PERF_AGENTS_PER_FLEET
+    printf '{"schema_name":"ddcs.perf_assessment","schema_version":1,"measurement":{"status":"not_completed"},"configured_slo":{"status":"unassessed"}}\n' >"$LEVEL_DIR/assessment.json"
+    level_status=passed
+    if ! measure_level; then level_status=failed; fi
+    if ! capture_level_runtime; then
+        level_fail "Agent ${want}대: Controller 로그 또는 컨테이너 자원 관측 실패."
+        level_status=failed
     fi
+    if ! stack_down; then
+        level_fail "Agent ${want}대: 스택 정리 실패. 다음 단계을 실행하지 않습니다."
+        level_status=failed
+        bad_levels=$((bad_levels + 1))
+        printf '{"status":"failed"}\n' >"$LEVEL_DIR/result.json"
+        write_manifest || true
+        exit 1
+    fi
+    printf '{"status":"%s"}\n' "$level_status" >"$LEVEL_DIR/result.json"
+    if [ "$level_status" = failed ]; then bad_levels=$((bad_levels + 1)); fi
 done
 
-# rtt 표의 열은 평균이라 burst 꼬리를 가린다. 분포와 전환(=burst 발생) 횟수를 함께 남긴다.
-narrate "rtt 분포 (누적 히스토그램, 마지막 레벨까지 합산; seconds)"
-curl -s --max-time 5 "$METRICS_URL" | grep '^ddcs_command_rtt_seconds_bucket' | sed 's/^/  /'
-info "Regime 전환(Group 전체 재명령 burst) 횟수: $(logcount '"event":"policy.regime.update"')"
-
 narrate "해석"
-info "표의 누적 지표(tick_avg_us, in_msgs_s, rtt_ms, liveness_closed)는 양끝 snapshot의 실제 측정 창에서 늘어난 양으로 계산한다."
-info "tick_max_cum_us만 시작부터의 최댓값이라, 레벨을 올릴 때 수백 대가 한꺼번에 접속하는 구간까지 포함한다."
-info "tick_avg_us가 tick 주기(1초)에 근접하면 코어 하나로는 더 감당하지 못하며, pending이나 liveness_closed가 0이 아닌 행도 같은 신호로 본다."
-info "in_msgs_s가 기대 유입(약 3 x Agent 수: heartbeat 2/s + status 1/s + 명령 응답)에 못 미치면 병목이 Controller가 아니라 부하 생성 쪽이므로, 같은 행의 다른 값도 재해석해야 한다."
-info "자세한 기준과 본 측정 결과는 README의 성능 절에서 다룬다."
-
-if docker logs "$CTRL" >"$RUN_DIR/controller.jsonl" 2>&1; then
-    chmod 644 "$RUN_DIR/controller.jsonl"
-else
-    echo "경고: Controller JSONL을 수집하지 못했습니다." >&2
-    bad_levels=$((bad_levels + 1))
-fi
-chmod 644 "$PREFLIGHT_ARTIFACT"
-write_manifest || {
-    echo "오류: 성능 evidence manifest를 쓰지 못했습니다: $RUN_DIR" >&2
-    exit 1
-}
+info "tick_avg_us, in_msgs_s, rtt_ms, liveness_closed는 측정 시작·종료 시점의 누적 메트릭 차이로 계산합니다."
+info "각 단계은 새 Controller와 Fleet으로 실행합니다. tick_max_cum_us에는 해당 단계의 등록 구간이 포함됩니다."
+info "Fleet CPU 포화와 메모리 사용은 단계별 docker-stats.jsonl에서 확인하십시오."
+write_manifest || { echo "오류: 성능 측정 기록(manifest.json)을 저장하지 못했습니다." >&2; exit 1; }
 info "성능 결과: $RUN_DIR"
-
+info "측정 완료는 성능 기준 통과를 뜻하지 않습니다. 단계별 assessment.json의 configured_slo를 확인하십시오."
 [ "$bad_levels" -eq 0 ] || {
-    echo "측정 실패 레벨 $bad_levels개. 표를 그대로 쓰지 마십시오." >&2
+    echo "측정에 실패한 단계: ${bad_levels}개. 실패 이유는 단계별 failure.txt를 확인하십시오." >&2
     exit 1
 }

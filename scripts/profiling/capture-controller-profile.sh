@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
-#
-# Controller tick profile을 한 조건에서 수집하고 검증한다.
-#
-# 사용법: scripts/profile-capture.sh <balance|single> <총 Agent 수> <측정 초>
-#
-# raw profile과 metrics 원문은 /tmp의 단일 실행 디렉터리에서만 쓰고, 검증·요약 뒤 제거한다.
-# 영구 결과는 var/result/<build-key>/build.json의 profile.capture에 대표값 하나만 남긴다.
+
+# Controller의 tick 프로파일을 수집하고 검증한다.
+# 사용법: scripts/profiling/capture-controller-profile.sh <balance|single> <총 Agent 수> <측정 초>
+# 환경 검사를 생략하거나 경고가 있으면 대표 결과로 저장하지 않는다.
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=scripts/result-lib.sh
-source "$ROOT/scripts/result-lib.sh"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=scripts/lib/scenario.sh
+source "$ROOT/scripts/lib/scenario.sh"
+# shellcheck source=scripts/lib/workload.sh
+source "$ROOT/scripts/lib/workload.sh"
+COMPOSE=docker-compose.perf.yml
+COMPOSE_OVERLAY=docker-compose.profile.yml
 
 MODE="${1:-}"
 AGENT_COUNT="${2:-}"
 DURATION_SECONDS="${3:-}"
-WARMUP_SECONDS="${DDCS_PROFILE_WARMUP_SECONDS:-10}"
+WARMUP_SECONDS="${DDCS_PROFILE_WARMUP_SECONDS:-30}"
 CAPACITY="${DDCS_PROFILE_CAPACITY:-16384}"
 STOP_TIMEOUT="${DDCS_PROFILE_STOP_TIMEOUT:-15}"
+READY_TIMEOUT="${DDCS_PROFILE_READY_TIMEOUT:-90}"
 METRICS_URL="${DDCS_PROFILE_METRICS_URL:-${DDCS_METRICS_URL:-http://localhost:9000/metrics}}"
 PROFILE_ENABLED="${DDCS_PROFILE_ENABLED:-true}"
 RECORD_CAPTURE="${DDCS_PROFILE_RECORD_CAPTURE:-true}"
@@ -41,8 +43,8 @@ usage() {
 }
 
 is_unsigned_integer() { [[ "$1" =~ ^[0-9]+$ ]]; }
-is_positive_integer() { is_unsigned_integer "$1" && [ "$1" -gt 0 ]; }
-is_nonnegative_integer() { is_unsigned_integer "$1"; }
+is_positive_integer() { [[ "$1" =~ ^[1-9][0-9]{0,8}$ ]]; }
+is_nonnegative_integer() { [[ "$1" =~ ^(0|[1-9][0-9]{0,8})$ ]]; }
 
 normalize_boolean() {
     case "$1" in
@@ -56,44 +58,32 @@ capture_stamp() {
     date -u '+%Y-%m-%dT%H:%M:%S.%NZ %s%N'
 }
 
-set_stamp() { # ISO 변수명, epoch-ns 변수명
+set_stamp() {
     local stamp
     stamp="$(capture_stamp)"
     printf -v "$1" '%s' "${stamp%% *}"
     printf -v "$2" '%s' "${stamp##* }"
 }
 
-capture_metrics_snapshot() { # output path
+capture_metrics_snapshot() {
     curl -fsS --max-time 5 "$METRICS_URL" >"$1" ||
         fail "metrics snapshot을 읽지 못했습니다: $METRICS_URL"
     [ -s "$1" ] || fail "metrics snapshot이 비어 있습니다: $1"
 }
 
-metric_connections() {
-    curl -fsS --max-time 5 "$METRICS_URL" 2>/dev/null |
-        awk '$1 == "ddcs_connections" {printf "%d", $2; exit}' || true
-}
-
-wait_for_connections() { # expected agents
-    local expected="$1" elapsed=0 actual
-    printf '  대기: Agent %s대 연결 ' "$expected"
-    while [ "$elapsed" -lt 90 ]; do
-        actual="$(metric_connections)"
-        if [ "${actual:-0}" -ge "$expected" ]; then
-            printf 'ok\n'
-            return 0
-        fi
+wait_for_connections() {
+    local current deadline=$((SECONDS + READY_TIMEOUT))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        current="$(curl -fsS --max-time 5 "$METRICS_URL" 2>/dev/null)" || current=
+        if workload_ready "$current" "$AGENT_COUNT" "$MODE"; then return 0; fi
         sleep 1
-        elapsed=$((elapsed + 1))
-        printf '.'
     done
-    printf 'timeout\n' >&2
     return 1
 }
 
 controller_cpu_snapshot() {
     local pid jiffies
-    pid="$(docker inspect --format '{{.State.Pid}}' ddcs-controller 2>/dev/null || true)"
+    pid="$(docker inspect --format '{{.State.Pid}}' "$CTRL" 2>/dev/null || true)"
     if ! is_positive_integer "$pid" || [ ! -r "/proc/$pid/stat" ]; then
         return 1
     fi
@@ -102,7 +92,7 @@ controller_cpu_snapshot() {
     printf '%s %s\n' "$pid" "$jiffies"
 }
 
-set_controller_cpu_snapshot() { # pid 변수명, jiffies 변수명
+set_controller_cpu_snapshot() {
     local pid_variable="$1" jiffies_variable="$2" snapshot pid jiffies
     if snapshot="$(controller_cpu_snapshot)"; then
         read -r pid jiffies <<<"$snapshot"
@@ -114,12 +104,11 @@ set_controller_cpu_snapshot() { # pid 변수명, jiffies 변수명
     fi
 }
 
-# 라벨 없는 정수 / seconds 계열 값을 snapshot 하나에서 읽는다.
-snap_int() { # text metric-name
+snap_int() {
     printf '%s\n' "$1" | awk -v m="$2" '$1 == m {print $2; exit}'
 }
 
-snap_seconds_us() { # text metric-name
+snap_seconds_us() {
     printf '%s\n' "$1" | awk -v m="$2" '
         function to_us(value, parts, fraction) {
             if (value !~ /^[0-9]+(\.[0-9]+)?$/) exit 2
@@ -132,7 +121,7 @@ snap_seconds_us() { # text metric-name
     '
 }
 
-controller_cpu_percent() { # start PID,jiffies,time end PID,jiffies,time CLK_TCK
+controller_cpu_percent() {
     local start_pid="$1" start_jiffies="$2" start_ns="$3"
     local end_pid="$4" end_jiffies="$5" end_ns="$6" clock_ticks="$7"
     local delta_jiffies elapsed_ns
@@ -154,7 +143,7 @@ controller_cpu_percent() { # start PID,jiffies,time end PID,jiffies,time CLK_TCK
     }'
 }
 
-profile_summary_from_report() { # raw profile start unix-ns end unix-ns
+profile_summary_from_report() {
     local raw_profile="$1" from_unix_ns="$2" to_unix_ns="$3" csv line
     csv="$("$PROFILE_REPORT_BIN" "$raw_profile" \
         --from-unix-ns "$from_unix_ns" --to-unix-ns "$to_unix_ns")" || return 1
@@ -215,7 +204,7 @@ profile_summary_from_report() { # raw profile start unix-ns end unix-ns
     '
 }
 
-metrics_summary_json() { # metrics-start metrics-end start cpu end cpu, timestamps, clock ticks
+metrics_summary_json() {
     local metrics_start="$1" metrics_end="$2"
     local start_pid="$3" start_jiffies="$4" start_ns="$5"
     local end_pid="$6" end_jiffies="$7" end_ns="$8" clock_ticks="$9"
@@ -270,8 +259,9 @@ case "$MODE" in
 balance | single) ;;
 *) usage ;;
 esac
-is_positive_integer "$AGENT_COUNT" || usage
+if ! [[ "$AGENT_COUNT" =~ ^[1-9][0-9]{0,4}$ ]] || [ "$AGENT_COUNT" -gt 65504 ]; then usage; fi
 is_positive_integer "$DURATION_SECONDS" || usage
+workload_configure "$MODE" "$AGENT_COUNT" || exit 2
 if [ "$MODE" = balance ] && [ $((AGENT_COUNT % 4)) -ne 0 ]; then
     fail "balance의 총 Agent 수는 4의 배수여야 합니다: $AGENT_COUNT"
 fi
@@ -279,6 +269,7 @@ is_nonnegative_integer "$WARMUP_SECONDS" ||
     fail "DDCS_PROFILE_WARMUP_SECONDS는 0 이상의 정수여야 합니다."
 is_positive_integer "$CAPACITY" || fail "DDCS_PROFILE_CAPACITY는 양의 정수여야 합니다."
 is_positive_integer "$STOP_TIMEOUT" || fail "DDCS_PROFILE_STOP_TIMEOUT은 양의 정수여야 합니다."
+is_positive_integer "$READY_TIMEOUT" || fail "DDCS_PROFILE_READY_TIMEOUT은 양의 정수여야 합니다."
 PROFILE_ENABLED="$(normalize_boolean "$PROFILE_ENABLED")" ||
     fail "DDCS_PROFILE_ENABLED는 true, false, 1, 0 중 하나여야 합니다."
 RECORD_CAPTURE="$(normalize_boolean "$RECORD_CAPTURE")" ||
@@ -297,7 +288,7 @@ if [ -n "$SOURCE_REVISION_OVERRIDE" ] || [ -n "$SOURCE_DIRTY_OVERRIDE" ]; then
     SOURCE_REVISION="$SOURCE_REVISION_OVERRIDE"
     SOURCE_DIRTY="$SOURCE_DIRTY_OVERRIDE"
 else
-    # var/ 출력물을 만들기 전 source 상태를 확정한다.
+    # 결과 파일이 작업 트리 변경 여부에 영향을 주기 전에 소스 상태를 기록한다.
     SOURCE_REVISION="$(git -C "$ROOT" rev-parse --verify HEAD 2>/dev/null || printf 'unknown')"
     if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal)" ]; then
         SOURCE_DIRTY=true
@@ -317,94 +308,82 @@ if [ "$PROFILE_ENABLED" = true ]; then
         fail "profile-verify를 찾지 못했습니다: $PROFILE_VERIFY_BIN (release target을 build하거나 DDCS_PROFILE_VERIFY_BIN을 지정하십시오.)"
 fi
 
+PREFLIGHT_SKIPPED=true
+PREFLIGHT_WARNING_COUNT=0
 if [ "$SKIP_PREFLIGHT" = 0 ]; then
-    "$ROOT/scripts/perf-preflight.sh"
+    if ! PREFLIGHT_OUTPUT="$("$ROOT/scripts/measurement/verify-environment.sh" fleet)"; then
+        printf '%s\n' "$PREFLIGHT_OUTPUT"
+        fail "성능 사전 검사에 실패했습니다."
+    fi
+    printf '%s\n' "$PREFLIGHT_OUTPUT"
+    PREFLIGHT_SKIPPED=false
+    PREFLIGHT_WARNING_COUNT="$(printf '%s\n' "$PREFLIGHT_OUTPUT" | grep -c '^\[WARN\]' || true)"
+fi
+REPRESENTATIVE_ELIGIBLE=false
+if [ "$PREFLIGHT_SKIPPED" = false ] && [ "$PREFLIGHT_WARNING_COUNT" -eq 0 ]; then
+    REPRESENTATIVE_ELIGIBLE=true
 fi
 
-if ! running_names="$(docker ps --format '{{.Names}}')"; then
-    fail "docker daemon에 접근할 수 없습니다."
-fi
-if printf '%s\n' "$running_names" | grep -Fxq 'ddcs-controller'; then
-    fail "ddcs-controller가 이미 실행 중입니다. 기존 DDCS 스택을 먼저 종료한 뒤 다시 시도하십시오."
-fi
-
-BASE_COMPOSE=docker-compose.scale.yml
-if [ "$MODE" = balance ]; then
-    PER_ZONE=$((AGENT_COUNT / 4))
-    SERVICES=(controller agent-zone-a agent-zone-b agent-zone-c agent-zone-d)
-    SCALE_ARGS=(
-        --scale "agent-zone-a=${PER_ZONE}"
-        --scale "agent-zone-b=${PER_ZONE}"
-        --scale "agent-zone-c=${PER_ZONE}"
-        --scale "agent-zone-d=${PER_ZONE}"
-    )
-else
-    SERVICES=(controller agent-zone-a)
-    SCALE_ARGS=(--scale "agent-zone-a=${AGENT_COUNT}")
-fi
 CONDITION="$(printf '%s-%04d' "$MODE" "$AGENT_COUNT")"
 RUN_ID="profile-${CONDITION}-$$"
-
-compose() {
-    docker compose \
-        -f "$ROOT/docker/$BASE_COMPOSE" \
-        -f "$ROOT/docker/docker-compose.profile.yml" \
-        "$@"
-}
 
 if [ "$SKIP_BUILD" = 1 ]; then
     echo "이미지 재사용"
     docker image inspect ddcs-controller:dev >/dev/null 2>&1 ||
         fail "재사용할 Controller image를 찾지 못했습니다: ddcs-controller:dev"
-    docker image inspect ddcs-agent:dev >/dev/null 2>&1 ||
-        fail "재사용할 Agent image를 찾지 못했습니다: ddcs-agent:dev"
+    docker image inspect ddcs-agent-fleet:dev >/dev/null 2>&1 ||
+        fail "재사용할 Agent image를 찾지 못했습니다: ddcs-agent-fleet:dev"
 else
     echo "이미지 빌드"
-    docker compose -f "$ROOT/docker/$BASE_COMPOSE" build
+    docker compose -f "$ROOT/docker/$COMPOSE" build controller fleet-zone-a
 fi
 CONTROLLER_IMAGE_ID="$(docker image inspect --format '{{.Id}}' ddcs-controller:dev 2>/dev/null || true)"
-AGENT_IMAGE_ID="$(docker image inspect --format '{{.Id}}' ddcs-agent:dev 2>/dev/null || true)"
+AGENT_IMAGE_ID="$(docker image inspect --format '{{.Id}}' ddcs-agent-fleet:dev 2>/dev/null || true)"
 [ -n "$CONTROLLER_IMAGE_ID" ] || fail "Controller image ID를 읽지 못했습니다."
 [ -n "$AGENT_IMAGE_ID" ] || fail "Agent image ID를 읽지 못했습니다."
-RUNTIME_CONFIG_SHA256="$(result_directory_sha256 "$ROOT/config")" || exit 1
-result_initialize_build \
-    "$ROOT" "$SOURCE_REVISION" "$SOURCE_DIRTY" \
-    "$CONTROLLER_IMAGE_ID" "$AGENT_IMAGE_ID" "$RUNTIME_CONFIG_SHA256" || exit 1
-
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ddcs-profile-capture.XXXXXX")" ||
     fail "profile 임시 디렉터리를 만들지 못했습니다."
-PROFILE_OUTPUT_DIR="$TEMP_DIR/profile-output"
-mkdir "$PROFILE_OUTPUT_DIR"
-RAW_PROFILE="$PROFILE_OUTPUT_DIR/tick-profile.json"
-METRICS_START="$TEMP_DIR/metrics-start.prom"
-METRICS_END="$TEMP_DIR/metrics-end.prom"
-
-export DDCS_PROFILE_OUTPUT_DIR="$PROFILE_OUTPUT_DIR"
-export DDCS_PROFILE_ENABLED="$PROFILE_ENABLED"
-export DDCS_PROFILE_RUN_ID="$RUN_ID"
-export DDCS_PROFILE_CAPACITY="$CAPACITY"
-
-stack_started=0
-controller_stopped=0
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
-    if [ "$stack_started" -eq 1 ]; then
-        if [ "$controller_stopped" -eq 0 ]; then
-            compose stop -t "$STOP_TIMEOUT" controller >/dev/null 2>&1 || true
-        fi
-        compose down --remove-orphans >/dev/null 2>&1 || true
+    if stack_down; then
+        rm -rf -- "$TEMP_DIR" || status=1
+    else
+        echo "스택 정리 실패: 임시 산출물을 보존합니다: $TEMP_DIR" >&2
+        [ "$status" -ne 0 ] || status=1
     fi
-    rm -rf -- "$TEMP_DIR"
     exit "$status"
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-echo "스택 기동: ${MODE}, Agent ${AGENT_COUNT}대"
-stack_started=1
-compose up -d "${SCALE_ARGS[@]}" "${SERVICES[@]}"
-wait_for_connections "$AGENT_COUNT" || fail "목표 연결 수에 도달하지 못했습니다."
+# 측정에는 설정 복사본을 사용해 원본을 보존한다.
+python3 "$ROOT/scripts/performance/workload-config.py" prepare "${DDCS_PERF_CONFIG_SOURCE:-$ROOT/config}" "$TEMP_DIR/config" "${policy_args[@]}"
+RUNTIME_CONFIG_SHA256="$(result_directory_sha256 "$TEMP_DIR/config")" || exit 1
+result_initialize_build \
+    "$ROOT" "$SOURCE_REVISION" "$SOURCE_DIRTY" \
+    "$CONTROLLER_IMAGE_ID" "$AGENT_IMAGE_ID" "$RUNTIME_CONFIG_SHA256" || exit 1
+python3 "$ROOT/scripts/performance/workload-config.py" generate "$TEMP_DIR/config" "$TEMP_DIR" \
+    --total "$AGENT_COUNT" --layout "$MODE" "${layout_args[@]}" "${policy_args[@]}"
+COMPOSE="$(realpath --relative-to="$ROOT/docker" "$TEMP_DIR/compose.json")"
+mapfile -t SERVICES < <(jq -r '.services | keys[]' "$TEMP_DIR/compose.json")
+
+PROFILE_OUTPUT_DIR="$TEMP_DIR/profile-output"
+mkdir "$PROFILE_OUTPUT_DIR"
+RAW_PROFILE="$PROFILE_OUTPUT_DIR/tick-profile.json"
+METRICS_START="$TEMP_DIR/metrics-start.prom"
+METRICS_END="$TEMP_DIR/metrics-end.prom"
+export DDCS_PROFILE_OUTPUT_DIR="$PROFILE_OUTPUT_DIR"
+export DDCS_PROFILE_ENABLED="$PROFILE_ENABLED"
+export DDCS_PROFILE_RUN_ID="$RUN_ID"
+export DDCS_PROFILE_CAPACITY="$CAPACITY"
+
+preflight || fail "스택 사전 검사에 실패했습니다."
+echo "스택 기동: ${MODE}, Agent ${AGENT_COUNT}대 (Fleet)"
+compose up -d "${SERVICES[@]}"
+CTRL="$(compose ps -q controller)"
+[ -n "$CTRL" ] || fail "Controller ID를 찾지 못했습니다."
+wait_for_connections || fail "목표 연결·Status 보고 수에 도달하지 못했습니다."
 
 echo "예열: ${WARMUP_SECONDS}s"
 sleep "$WARMUP_SECONDS"
@@ -412,6 +391,7 @@ set_stamp MEASUREMENT_STARTED_UTC MEASUREMENT_STARTED_UNIX_NS
 set_controller_cpu_snapshot START_CONTROLLER_PID START_CPU_JIFFIES
 set_stamp START_CPU_SAMPLED_UTC START_CPU_SAMPLED_UNIX_NS
 capture_metrics_snapshot "$METRICS_START"
+workload_ready "$(<"$METRICS_START")" "$AGENT_COUNT" "$MODE" || fail "측정 시작 시 연결·Status 보고 수가 목표와 다릅니다."
 set_stamp METRICS_START_ENDED_UTC METRICS_START_ENDED_UNIX_NS
 echo "측정: ${DURATION_SECONDS}s"
 sleep "$DURATION_SECONDS"
@@ -419,11 +399,15 @@ set_stamp MEASUREMENT_ENDED_UTC MEASUREMENT_ENDED_UNIX_NS
 set_controller_cpu_snapshot END_CONTROLLER_PID END_CPU_JIFFIES
 set_stamp END_CPU_SAMPLED_UTC END_CPU_SAMPLED_UNIX_NS
 capture_metrics_snapshot "$METRICS_END"
+workload_ready "$(<"$METRICS_END")" "$AGENT_COUNT" "$MODE" || fail "측정 종료 시 연결·Status 보고 수가 목표와 다릅니다."
+if [ "$START_CONTROLLER_PID" != null ] && [ "$END_CONTROLLER_PID" != null ] &&
+    [ "$START_CONTROLLER_PID" != "$END_CONTROLLER_PID" ]; then
+    fail "측정 중 Controller 프로세스가 바뀌었습니다."
+fi
 set_stamp METRICS_END_ENDED_UTC METRICS_END_ENDED_UNIX_NS
 
 echo "Controller 정상 종료 및 profile dump 대기"
 compose stop -t "$STOP_TIMEOUT" controller
-controller_stopped=1
 if [ "$PROFILE_ENABLED" = true ]; then
     [ -s "$RAW_PROFILE" ] || fail "Controller 종료 뒤 profile 결과를 찾지 못했습니다."
     "$PROFILE_VERIFY_BIN" "$RAW_PROFILE" "$METRICS_END" >/dev/null ||
@@ -450,12 +434,22 @@ METRICS_SUMMARY="$(metrics_summary_json \
 RUN_RESULT="$(jq -n \
     --arg build_key "$DDCS_RESULT_BUILD_KEY" \
     --arg condition "$CONDITION" \
+    --argjson preflight_skipped "$PREFLIGHT_SKIPPED" \
+    --argjson preflight_warning_count "$PREFLIGHT_WARNING_COUNT" \
+    --argjson representative_eligible "$REPRESENTATIVE_ELIGIBLE" \
     --argjson duration_seconds "$DURATION_SECONDS" \
     --argjson profile_enabled "$PROFILE_ENABLED" \
     --argjson verified "$PROFILE_VERIFIED" \
     --argjson summary "$PROFILE_SUMMARY" \
-    --argjson metrics "$METRICS_SUMMARY" '
+    --argjson metrics "$METRICS_SUMMARY" \
+    --slurpfile workload "$TEMP_DIR/workload.json" '
         {
+            preflight_skipped: $preflight_skipped,
+            preflight_warning_count: $preflight_warning_count,
+            representative_eligible: $representative_eligible,
+            load_generator: "agent-fleet",
+            level_lifecycle: "fresh_stack",
+            workload_configuration: $workload[0],
             build_key: $build_key,
             condition: $condition,
             duration_seconds: $duration_seconds,
@@ -466,9 +460,12 @@ RUN_RESULT="$(jq -n \
         }
     ')" || fail "profile 실행 요약을 만들지 못했습니다."
 
-if [ "$RECORD_CAPTURE" = true ]; then
+# 컨테이너 정리까지 성공해야 대표 결과로 저장한다.
+stack_down || fail "스택 정리에 실패해 결과를 기록하지 않습니다."
+
+if [ "$RECORD_CAPTURE" = true ] && [ "$REPRESENTATIVE_ELIGIBLE" = true ]; then
     result_set_profile_capture \
-        "$DDCS_RESULT_BUILD_DIR" "$CONDITION" "$DURATION_SECONDS" true "$PROFILE_SUMMARY" ||
+        "$DDCS_RESULT_BUILD_DIR" "$CONDITION" "$DURATION_SECONDS" true "$(jq --slurpfile workload "$TEMP_DIR/workload.json" ' . + {workload_configuration:$workload[0]}' <<<"$PROFILE_SUMMARY")" ||
         fail "build.json에 profile capture 결과를 기록하지 못했습니다."
 fi
 if [ -n "$RESULT_JSON" ]; then
@@ -479,7 +476,14 @@ if [ -n "$RESULT_JSON" ]; then
 fi
 
 echo
-echo "완료: $DDCS_RESULT_BUILD_DIR/build.json"
+if [ "$REPRESENTATIVE_ELIGIBLE" != true ]; then
+    echo "진단 실행: 사전 검사 생략 또는 경고가 있어 대표 결과는 저장하지 않습니다."
+    printf '%s\n' "$RUN_RESULT"
+elif [ "$RECORD_CAPTURE" = true ]; then
+    echo "완료: $DDCS_RESULT_BUILD_DIR/build.json"
+else
+    echo "측정 완료 (대표 결과 기록 안 함)"
+fi
 echo "  조건: $CONDITION"
 if [ "$PROFILE_ENABLED" = true ]; then
     echo "  raw profile과 metrics 원문은 검증 후 제거했습니다."

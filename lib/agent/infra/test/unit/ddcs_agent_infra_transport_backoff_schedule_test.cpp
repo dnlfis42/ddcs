@@ -10,7 +10,7 @@ namespace {
 using ddcs::agent::infra::transport::BackoffSchedule;
 using namespace std::chrono_literals;
 
-// 고정 seed: 어떤 값이든 수열이 재현되면 충분하다 (단언은 +/-25% 범위라 값 자체와 무관)
+// 고정 seed: 어떤 값이든 수열이 재현되면 충분하다 (검증은 +/-25% 범위라 값 자체와 무관)
 constexpr std::uint32_t test_seed = 0xdeadbeefu;
 
 // jitter가 있으니 +/-25% 범위 확인

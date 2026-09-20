@@ -2,7 +2,7 @@
 # 실행: docker compose -f docker/docker-compose.scale.yml up -d
 # docker-compose.yml과 컨테이너 이름 및 호스트 포트를 공유하므로 동시에 실행할 수 없다.
 # Agent는 시작 시 Device ID를 생성한다. Group별 부하 임계값은 config/controller.json을 따른다.
-# Fleet을 사용하는 성능 측정은 scripts/perf-ramp.sh로 실행한다.
+# Fleet을 사용하는 성능 측정은 scripts/performance/measure-scalability.sh로 실행한다.
 
 services:
   controller:

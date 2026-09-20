@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-#
-# 시나리오: liveness-eviction
-#
-# heartbeat가 끊긴 Agent를 Controller가 liveness로 축출하고, 재개하면 다시 접속하는지 검증한다.
 
-# shellcheck source=scripts/scenario-lib.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scenario-lib.sh"
+# Heartbeat 중단 시 축출되고 Agent 재개 후 재접속하는지 검증한다.
 
-# shellcheck disable=SC2034 # scenario-lib.sh가 동적으로 읽는다.
+# shellcheck source=scripts/lib/scenario.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/scenario.sh"
+
+# shellcheck disable=SC2034 # lib/scenario.sh가 동적으로 읽는다.
 SCENARIO_NAME=liveness-eviction
 COMPOSE=docker-compose.yml
 DEV=11111111-1111-1111-1111-111111111111 # agent-01
@@ -37,7 +35,7 @@ post_conn=$(metric_int ddcs_connections)
 post_reg=$(register_count "$DEV")
 info "재개 후: connections=$post_conn, register(${DEV:0:8})=$post_reg"
 
-narrate "단언"
+narrate "검증"
 assert_ge "정지 중 liveness 축출 발생" "$mid_liveness_closed" $((pre_liveness_closed + 1))
 assert_eq "정지 중 연결 수 감소" "$mid_conn" "3"
 assert_ge "재개 후 연결 복구" "$post_conn" 4

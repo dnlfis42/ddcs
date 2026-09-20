@@ -4,7 +4,7 @@
 #     DDCS_PROFILE_ENABLED=true DDCS_PROFILE_CAPACITY=16384 \
 #     docker compose -f docker/docker-compose.yml -f docker/docker-compose.profile.yml up
 #
-# profile-capture.sh는 실행마다 출력 디렉터리를 만들고,
+# capture-controller-profile.sh는 실행마다 출력 디렉터리를 만들고,
 # Controller에 SIGTERM을 보낸 뒤 저장된 프로파일을 검증한다.
 
 services:
