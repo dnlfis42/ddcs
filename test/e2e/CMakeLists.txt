@@ -10,8 +10,19 @@ ddcs_add_unit_test(
         ddcs::ctrl
 )
 
-# main의 profile 수명주기는 library-only 테스트로는 검증할 수 없다. 실제 ctrl을 자식
-# 프로세스로 실행해 SIGTERM, boot 실패, dump 실패의 종료 순서를 고정한다.
+ddcs_add_unit_test(
+    ddcs_agent_fleet_e2e_test
+    SOURCES ddcs_agent_fleet_e2e_test.cpp
+    LIBRARIES ddcs::agent ddcs::ctrl
+)
+target_compile_definitions(
+    ddcs_agent_fleet_e2e_test
+    PRIVATE
+        DDCS_TEST_CONTROLLER_POLICY_PATH="${PROJECT_SOURCE_DIR}/config/controller.json"
+)
+
+# ctrl을 자식 프로세스로 실행한다.
+# SIGTERM 수신, 초기화 실패, 프로파일 저장 실패 시 프로파일 처리와 프로세스 종료 순서를 검증한다.
 ddcs_add_unit_test(
     ddcs_ctrl_profile_lifecycle_e2e_test
     SOURCES ddcs_ctrl_profile_lifecycle_e2e_test.cpp
