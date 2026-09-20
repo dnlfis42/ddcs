@@ -7,13 +7,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     cmake \
-    python3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 COPY . /src
 ARG DDCS_BUILD_JOBS=4
-RUN cmake --preset release \
+RUN cmake --preset release -DDDCS_ENABLE_SCRIPT_TEST=OFF \
     && cmake --build build/release --target ctrl agent agent-fleet --parallel ${DDCS_BUILD_JOBS}
 
 # 세 실행 이미지에서 공통으로 사용하는 라이브러리를 설치한다.
