@@ -50,6 +50,7 @@ itimerspec make_timerfd_spec(std::chrono::nanoseconds delay) noexcept {
     itimerspec spec{};
     spec.it_value.tv_sec = static_cast<time_t>(seconds.count());
     spec.it_value.tv_nsec = static_cast<long>(nsec);
+
     return spec;
 }
 
@@ -85,7 +86,9 @@ public:
             throw_errno(errno, "timerfd_create");
         }
 
-        channel_.init(std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this);
+        channel_.init(
+            std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this
+        );
 
         if (auto const result = reactor_.add(channel_); !result) {
             channel_.close();
@@ -114,7 +117,11 @@ public:
     }
 
     [[nodiscard]] TimerToken schedule(std::chrono::nanoseconds delay, TimerHandler& handler) {
-        auto const deadline = clock_.now() + delay;
+        return schedule_at(clock_.now() + delay, handler);
+    }
+
+    [[nodiscard]] TimerToken
+    schedule_at(common::Clock::time_point deadline, TimerHandler& handler) {
         auto const previous_deadline = next_deadline();
 
         TimerToken const id = timer_registrations_.insert(handler);
@@ -123,6 +130,7 @@ public:
         if (!previous_deadline || deadline < *previous_deadline) {
             update_timerfd();
         }
+
         return id;
     }
 
@@ -157,6 +165,7 @@ public:
             if (handler != nullptr) {
                 handler->on_expired(timer->id);
             }
+
             // 콜백이 stop을 호출하면 channel이 해제되므로 즉시 멈춘다.
             if (!channel_.registered()) {
                 return;
@@ -174,6 +183,7 @@ private:
         if (!next_timer) {
             return std::nullopt;
         }
+
         return next_timer->deadline;
     }
 
@@ -183,6 +193,7 @@ private:
             if (timer_registrations_.contains(next_timer->id)) {
                 return;
             }
+
             timer_queue_.pop();
         }
     }
@@ -192,9 +203,11 @@ private:
 
         for (;;) {
             std::uint64_t expirations{};
+
             ssize_t const n = ::read(channel_.fd(), &expirations, sizeof(expirations));
             if (n == static_cast<ssize_t>(sizeof(expirations))) {
                 has_expiration = true;
+
                 continue;
             }
             if (n < 0) {
@@ -207,6 +220,7 @@ private:
                 }
                 throw_errno(err, "read timerfd");
             }
+
             return has_expiration;
         }
     }
@@ -261,6 +275,11 @@ bool TimerScheduler::active() const noexcept {
 
 TimerToken TimerScheduler::schedule(std::chrono::nanoseconds delay, TimerHandler& handler) {
     return impl_->schedule(delay, handler);
+}
+
+TimerToken
+TimerScheduler::schedule_at(std::chrono::steady_clock::time_point deadline, TimerHandler& handler) {
+    return impl_->schedule_at(deadline, handler);
 }
 
 void TimerScheduler::cancel(TimerToken id) {

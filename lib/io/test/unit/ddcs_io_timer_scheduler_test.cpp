@@ -118,4 +118,69 @@ TEST(TimerSchedulerTest, StopsSafelyFromCallback) {
     EXPECT_EQ(handler.count, 1);
 }
 
+TEST(TimerSchedulerTest, AbsoluteDeadlineDoesNotAddTheCurrentTimeAgain) {
+    ddcs::common::ManualClock clock;
+    Reactor reactor;
+    TimerScheduler timers{reactor, clock};
+    RecordingTimer handler;
+
+    auto const deadline = clock.now() + 10ms;
+
+    clock.advance(4ms);
+
+    auto const id = timers.schedule_at(deadline, handler);
+
+    clock.advance(5ms);
+
+    timers.dispatch_expired();
+
+    EXPECT_TRUE(handler.fired_.empty());
+
+    clock.advance(1ms);
+
+    timers.dispatch_expired();
+
+    ASSERT_EQ(handler.fired_.size(), 1u);
+    EXPECT_EQ(handler.fired_[0], id);
+}
+
+TEST(TimerSchedulerTest, PastAbsoluteDeadlineIsDispatchedOnlyOnce) {
+    ddcs::common::ManualClock clock;
+    Reactor reactor;
+    TimerScheduler timers{reactor, clock};
+    RecordingTimer handler;
+    auto const deadline = clock.now();
+
+    clock.advance(1s);
+
+    auto const id = timers.schedule_at(deadline, handler);
+
+    timers.dispatch_expired();
+    timers.dispatch_expired();
+
+    ASSERT_EQ(handler.fired_.size(), 1u);
+    EXPECT_EQ(handler.fired_[0], id);
+}
+
+TEST(TimerSchedulerTest, CancelsAbsoluteTimerWithoutChangingRelativeTimer) {
+    ddcs::common::ManualClock clock;
+    Reactor reactor;
+    TimerScheduler timers{reactor, clock};
+    RecordingTimer handler;
+
+    timers.start();
+
+    auto const cancelled = timers.schedule_at(clock.now() + 5ms, handler);
+    auto const relative = timers.schedule(10ms, handler);
+
+    timers.cancel(cancelled);
+
+    clock.advance(10ms);
+
+    timers.dispatch_expired();
+
+    ASSERT_EQ(handler.fired_.size(), 1u);
+    EXPECT_EQ(handler.fired_[0], relative);
+}
+
 } // namespace
