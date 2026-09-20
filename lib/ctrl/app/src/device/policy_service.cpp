@@ -48,8 +48,7 @@ std::optional<domain::GroupPolicy> parse_policy(json::Value const& root) {
             return;
         }
 
-        // 온도 override (선택): hot_temp/cool_temp/hot_mode 셋 다 있으면 활성, 일부면
-        // malformed
+        // 온도 정책은 선택 사항이다. hot_temp, cool_temp, hot_mode를 모두 지정해야 한다.
         std::optional<domain::ThermalRule> thermal;
         auto const* hot_temp = g.find("hot_temp");
         auto const* cool_temp = g.find("cool_temp");
@@ -77,7 +76,7 @@ std::optional<domain::GroupPolicy> parse_policy(json::Value const& root) {
             thermal = domain::ThermalRule{.hot_temp = *ht, .cool_temp = *ct, .hot_mode = *hm};
         }
 
-        // 밴드 불변식(load + thermal)은 도메인이 강제한다
+        // 부하와 온도 임계값의 유효성은 도메인 객체에서 검사한다.
         auto rule = domain::GroupRule::create(*bl, *il, *bm, *im, thermal);
         if (!rule) {
             ok = false;
@@ -93,10 +92,21 @@ std::optional<domain::GroupPolicy> parse_policy(json::Value const& root) {
     return policy;
 }
 
+PolicyService::~PolicyService() {
+    commands_.detach_failure_sink(*this);
+}
+
+void PolicyService::on_command_failed(domain::DeviceId device, port::CommandId command) noexcept {
+    auto const it = commanded_.find(device);
+    if (it != commanded_.end() && it->second.command == command) {
+        it->second.failed = true;
+    }
+}
+
 void PolicyService::set_policy(domain::GroupPolicy policy) {
     policy_ = std::move(policy);
-    // regime/thermal은 히스테리시스 latch라 보존한다: 비우면 과열 latch가 cool_temp 전에 조기
-    // 해제되고, 데드밴드(low<avg<high) group이 새 룰의 mode를 재적용하지 못한다.
+    // 부하와 과열 상태는 유지한다. 과열의 조기 해제를 막고,
+    // 부하가 두 임계값 사이에 있어도 기존 상태를 기준으로 새 정책을 적용한다.
     commanded_.clear();
 }
 
@@ -110,12 +120,10 @@ void PolicyService::evaluate(common::Clock::time_point now) {
         return;
     }
 
-    // 1. Group별 평균 load 집계 (load 정책은 Group 단위; 끊긴 Device의 stale Shadow 제외).
-    //    집계 규칙은 aggregate_groups가 소유하고 메트릭 노출과 공유한다.
+    // 상태를 보고한 활성 Device의 부하를 Group별로 집계한다. 메트릭도 같은 함수를 사용한다.
     auto const agg = aggregate_groups(active_devices_, devices_, policy_);
 
-    // 2. group별 load regime. 전이는 GroupRule::next_regime이 판정하고, 전환 로그만 여기서
-    //    group 단위로 남긴다(1회).
+    // GroupRule로 Group별 부하 상태를 결정하고, 상태가 바뀌면 기록한다.
     struct GroupState {
         domain::GroupRule const* rule;
         domain::GroupLoadRegime regime;
@@ -124,7 +132,7 @@ void PolicyService::evaluate(common::Clock::time_point now) {
     policy_.for_each([&](std::string const& group, domain::GroupRule const& rule) {
         auto const it = agg.find(group);
         if (it == agg.end() || it->second.device_count == 0) {
-            return; // active device 없는 group은 건너뛴다
+            return; // 활성 Device가 없는 Group은 건너뛴다.
         }
         double const avg = it->second.load_sum / static_cast<double>(it->second.device_count);
         domain::GroupLoadRegime& regime = regime_[group];
@@ -136,17 +144,17 @@ void PolicyService::evaluate(common::Clock::time_point now) {
         gstate.emplace(group, GroupState{&rule, regime});
     });
 
-    // 3. device별 thermal 전이와 effective 합성은 GroupRule이 판정한다. 바뀐 device만 명령.
-    //    (dispatch가 순회 중 disconnect를 부를 수 있어 대상을 모은 뒤 순회 밖에서 발송)
+    // Device별 과열 상태와 목표 모드를 결정하고, 목표가 바뀌거나 명령이 실패한 대상을 모은다.
+    // 전송 중 연결 종료로 목록이 바뀔 수 있으므로 순회를 마친 뒤 전송한다.
     pending_.clear();
     active_devices_.for_each_active([&](domain::DeviceId id) {
         auto const* shadow = devices_.find(id);
         if (shadow == nullptr || !shadow->status) {
-            return; // Shadow 없음 또는 미관측. 관측 없이는 판단도 명령도 하지 않는다.
+            return; // 상태를 보고하지 않은 Device는 평가와 명령 대상에서 제외한다.
         }
         auto const git = gstate.find(shadow->group);
         if (git == gstate.end()) {
-            return; // 정책 없는/비활성 group
+            return; // 적용할 Group 정책이 없으면 건너뛴다.
         }
         domain::GroupRule const& rule = *git->second.rule;
 
@@ -154,22 +162,26 @@ void PolicyService::evaluate(common::Clock::time_point now) {
         domain::DeviceThermalRegime const previous = thermal;
         thermal = rule.next_thermal(thermal, shadow->status->temp);
         if (thermal != previous) {
-            // latch에 들어갈 때와 풀릴 때를 같이 남긴다. 들어간 기록만 있으면 언제 정상으로
-            // 돌아왔는지 알 길이 없다.
+            // 과열 진입과 해제를 모두 기록한다.
             LOG_POLICY_THERMAL_UPDATE(
                 id.to_string(), domain::to_string(thermal), shadow->status->temp
             );
         }
 
-        auto const effective = rule.effective_mode(git->second.regime, thermal, commanded_[id]);
-        if (!effective) {
-            return; // regime 미확정 + thermal latch 없음: 아직 결정 없음
-        }
         auto& commanded = commanded_[id];
-        if (commanded == effective) {
-            return; // effective 안 바뀜 -> 무명령 (스팸 없음)
+        auto effective = rule.effective_mode(git->second.regime, thermal, commanded.mode);
+        if (!effective && commanded.failed) {
+            // 과열 해제 후 부하 상태가 미정이어도 실패한 복귀 명령의 목표를 다시 사용한다.
+            effective = commanded.mode;
         }
-        commanded = effective;
+        if (!effective) {
+            return; // 아직 목표 모드를 결정할 수 없다.
+        }
+        if (commanded.mode == effective && !commanded.failed) {
+            return; // 목표가 같고 실패하지 않은 명령은 다시 발행하지 않는다.
+        }
+        commanded.mode = effective;
+        commanded.failed = false;
         pending_.emplace_back(id, *effective);
     });
 
@@ -181,11 +193,16 @@ void PolicyService::evaluate(common::Clock::time_point now) {
 void PolicyService::command_one(
     domain::DeviceId device, ddcs::device::Mode mode, common::Clock::time_point now
 ) {
-    // 미연결 등 송신 실패는 dispatch가 invalid 반환 + WARN. 다음 평가가 자연 보상.
-    // Mode -> wire byte 매핑은 커널(encode_mode) 경유가 계약이다(캐스팅 금지).
-    commands_.dispatch(
-        device, wire::command::SetMode{.mode = ddcs::device::encode_mode(mode)}, now
+    // 첫 전송에 실패하면 다음 정책 평가에서 다시 발행할 수 있도록 기록한다.
+    // 모드를 전송할 바이트 값으로 변환할 때는 encode_mode()를 사용한다.
+    auto const command = commands_.dispatch(
+        device, wire::command::SetMode{.mode = ddcs::device::encode_mode(mode)}, now, this
     );
+    // 전송 중 연결이 종료되어 명령 기록이 삭제되었다면 다시 만들지 않는다.
+    if (auto const it = commanded_.find(device); it != commanded_.end()) {
+        it->second.command = command;
+        it->second.failed = !command.valid();
+    }
 }
 
 } // namespace ddcs::ctrl::app::device

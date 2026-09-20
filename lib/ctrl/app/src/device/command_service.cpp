@@ -36,10 +36,11 @@ std::size_t CommandService::pending_count() const noexcept {
 }
 
 port::CommandId CommandService::dispatch(
-    domain::DeviceId device, wire::command::Command command, common::Clock::time_point now
+    domain::DeviceId device, wire::command::Command command, common::Clock::time_point now,
+    port::CommandFailureSink* failure_sink
 ) {
     auto& device_commands = pending_[device];
-    // supersede: 의도 교체는 송신 성패와 무관하게 dispatch 순간 일어난다.
+    // 새 명령의 전송 결과와 관계없이 기존의 같은 종류 명령을 교체한다.
     auto const family = command.index();
     auto const old_slot = std::find_if(
         device_commands.slots.begin(), device_commands.slots.end(),
@@ -60,14 +61,17 @@ port::CommandId CommandService::dispatch(
         }
         return {};
     }
-    device_commands.slots.push_back(Slot{
-        .id = command_id,
-        .command = std::move(command),
-        .dispatched_at = now,
-        .next_at = after(now, command_timeout_),
-        .attempts = 1,
-        .state = State::in_flight,
-    });
+    device_commands.slots.push_back(
+        Slot{
+            .id = command_id,
+            .command = std::move(command),
+            .dispatched_at = now,
+            .next_at = after(now, command_timeout_),
+            .failure_sink = failure_sink,
+            .attempts = 1,
+            .state = State::in_flight,
+        }
+    );
     ++metrics_.dispatched_total;
 
     LOG_COMMAND_DISPATCH(device.to_string(), command_id.get());
@@ -85,7 +89,7 @@ void CommandService::acknowledge(
     }
 
     slot->state = State::in_flight;
-    slot->next_at = after(now, command_timeout_); // 작동 확인 후 outcome까지 연장
+    slot->next_at = after(now, command_timeout_); // 수신 확인 시 결과 응답 기한을 연장한다.
     LOG_COMMAND_ACK(device.to_string(), command_id.get(), slot->attempts);
 }
 
@@ -112,21 +116,21 @@ void CommandService::settle(
     );
     metrics_.rtt_us_sum += rtt_us;
     ++metrics_.succeeded_total;
-    // 히스토그램: rtt_us 이상인 첫 경계 버킷에 1, 모든 경계 초과면 +Inf 오버플로 슬롯에 1
+    // RTT 이상인 첫 경계의 버킷에 기록한다. 모든 경계를 초과하면 마지막 버킷에 기록한다.
     std::size_t bucket = 0;
     while (bucket < Metrics::rtt_bucket_bounds_us.size() &&
            rtt_us > Metrics::rtt_bucket_bounds_us[bucket]) {
         ++bucket;
     }
     ++metrics_.rtt_buckets[bucket];
-    // JSON log key rtt_ms는 별도 schema 결정 전까지 유지한다. metric은 us 누산 후 seconds 노출.
+    // 로그는 기존 rtt_ms 형식을 유지한다. 메트릭은 마이크로초로 누적해 초 단위로 출력한다.
     LOG_COMMAND_COMPLETE(device.to_string(), command_id.get(), rtt_us / 1'000);
-    close_slot(device, command_id); // 성공 확정 시 미결 종료
+    close_slot(device, command_id); // 성공한 명령의 추적을 종료한다.
 }
 
 void CommandService::sweep(common::Clock::time_point now) {
     std::vector<std::pair<domain::DeviceId, port::CommandId>>
-        due; // 순회 중 변경 금지라 만기 슬롯 먼저 수집
+        due; // 순회 중 목록을 변경하지 않도록 처리할 명령을 먼저 모은다.
     for (auto const& [device, commands] : pending_) {
         for (auto const& slot : commands.slots) {
             if (slot.next_at < now) {
@@ -137,14 +141,14 @@ void CommandService::sweep(common::Clock::time_point now) {
     for (auto const& [device, command_id] : due) {
         Slot const* const slot = find_slot(device, command_id);
         if (slot == nullptr) {
-            continue; // 방어. 이미 처리
+            continue; // 이미 제거된 명령은 건너뛴다.
         }
 
         if (slot->state == State::in_flight) {
             LOG_COMMAND_TIMEOUT(device.to_string(), command_id.get(), slot->attempts);
             fail_attempt(device, command_id, now, AttemptFailureReason::timeout);
         } else {
-            resend(device, command_id, now); // backoff 경과 시 동일 id 재전송
+            resend(device, command_id, now); // 대기 시간이 지나면 같은 ID로 재전송한다.
         }
     }
 }
@@ -170,11 +174,11 @@ void CommandService::fail_attempt(
     if (slot->attempts >= max_attempts_) {
         ++metrics_.failed_exhausted_total;
         LOG_COMMAND_FAIL(device.to_string(), command_id.get(), slot->attempts, "exhausted");
-        close_slot(device, command_id);
+        close_failed_slot(device, command_id);
         return;
     }
 
-    slot->state = State::backoff; // 지수 backoff 후 재전송 대기
+    slot->state = State::backoff; // 시도 횟수에 따라 늘어나는 대기 시간을 적용한다.
     slot->next_at = after(now, backoff_for(slot->attempts));
 }
 
@@ -192,7 +196,7 @@ void CommandService::resend(
         LOG_COMMAND_FAIL(
             device.to_string(), command_id.get(), slot->attempts, port::to_string(sent)
         );
-        close_slot(device, command_id);
+        close_failed_slot(device, command_id);
         return;
     }
 
@@ -231,7 +235,7 @@ void CommandService::record_final_send_failure(port::SendResult result) noexcept
 
 std::chrono::nanoseconds CommandService::backoff_for(int attempt) const noexcept {
     auto d = backoff_base_;
-    for (int i = 1; i < attempt && i < 16; ++i) { // base * 2^(attempt-1), 16회 cap
+    for (int i = 1; i < attempt && i < 16; ++i) { // 기준 대기 시간을 최대 15번 두 배로 늘린다.
         d *= 2;
     }
     return d;
@@ -249,6 +253,25 @@ CommandService::find_slot(domain::DeviceId device, port::CommandId command_id) {
         }
     }
     return nullptr;
+}
+
+void CommandService::detach_failure_sink(port::CommandFailureSink& sink) noexcept {
+    for (auto& [device, commands] : pending_) {
+        for (auto& slot : commands.slots) {
+            if (slot.failure_sink == &sink) {
+                slot.failure_sink = nullptr;
+            }
+        }
+    }
+}
+
+void CommandService::close_failed_slot(domain::DeviceId device, port::CommandId command_id) {
+    auto const* slot = find_slot(device, command_id);
+    auto* sink = slot ? slot->failure_sink : nullptr;
+    close_slot(device, command_id); // 콜백이 명령 목록을 변경할 수 있으므로 먼저 제거하고 이후에는 슬롯을 참조하지 않는다.
+    if (sink) {
+        sink->on_command_failed(device, command_id);
+    }
 }
 
 void CommandService::close_slot(domain::DeviceId device, port::CommandId command_id) {

@@ -53,7 +53,7 @@ DeviceId make_device_id(std::uint8_t seed) {
     return DeviceId{bytes};
 }
 
-// 고정된 active 집합을 내주는 대역.
+// 미리 지정한 활성 Device 목록을 제공한다.
 class FakeActiveDevices final : public ActiveDevices {
 public:
     std::vector<DeviceId> active;
@@ -65,7 +65,7 @@ public:
     }
 };
 
-// 송신 의뢰를 기록하는 대역.
+// 요청받은 명령 전송을 기록한다.
 class FakeCommandSender final : public CommandSender {
 public:
     struct Sent {
@@ -75,6 +75,8 @@ public:
     };
 
     std::vector<Sent> sent;
+    SendResult result = SendResult::ok;
+    std::function<void()> on_send;
 
     SendResult send(DeviceId device, CommandId command_id, Command const& command) override {
         sent.push_back(
@@ -85,12 +87,15 @@ public:
                     ddcs::device::decode_mode(std::get<SetMode>(command).mode).value_or(Mode::safe),
             }
         );
-        return SendResult::ok;
+        if (on_send) {
+            on_send();
+        }
+        return result;
     }
 };
 
-// 재진입 회귀용 대역. for_each_active의 순회 창(iterating)을 노출한다.
-// 대역 자체는 UB를 피하려 스냅샷을 순회하되, 창이 열린 동안 송신이 일어났는지는 sender가 관측한다.
+// 활성 Device 순회 중인지 표시해 전송 콜백의 재진입을 검증한다.
+// 목록 복사본을 순회해 변경으로 인한 무효 참조를 피하고, 전송 대역에서 순회 중 송신 여부를 확인한다.
 class WindowedActiveDevices final : public ActiveDevices {
 public:
     std::vector<DeviceId> active;
@@ -106,8 +111,8 @@ public:
     }
 };
 
-// 송신 시점에 active 집합을 순회 중이었는지 기록하는 대역
-// dispatch가 순회 밖이면 iterating은 항상 false다.
+// 전송 시점에 활성 Device 목록을 순회 중이었는지 기록한다.
+// 순회가 끝난 뒤 전송한다면 iterating은 false다.
 class IterationProbeCommandSender final : public CommandSender {
 public:
     explicit IterationProbeCommandSender(WindowedActiveDevices& active_devices) noexcept
@@ -133,7 +138,10 @@ struct PolicyFixture {
     FakeActiveDevices active_devices;
     DeviceRegistry devices;
     FakeCommandSender sender;
-    CommandService commands{sender, 5s, 1, 500ms};
+    CommandService commands;
+
+    explicit PolicyFixture(int max_attempts = 1)
+        : commands(sender, 5s, max_attempts, 500ms) {}
     PolicyService policy{active_devices, devices, commands};
 
     DeviceId enroll(std::uint8_t seed, std::string group, double load, bool active = true) {
@@ -160,7 +168,7 @@ struct PolicyFixture {
         return p;
     }
 
-    // load: busy=safe / idle=normal | thermal: hot -> performance (hot 90 / cool 70)
+    // 부하가 높으면 safe, 낮으면 normal을 사용한다. 온도 90에서 performance로 전환하고 70에서 해제한다.
     static GroupPolicy hot_policy() {
         GroupPolicy p;
         p.set(
@@ -195,15 +203,15 @@ TEST(PolicyServiceTest, TransitionsToBusyAboveHighLoad) {
 
     ASSERT_EQ(f.sender.sent.size(), 2u); // sensors 멤버 전원, pumps 제외
     for (auto const& s : f.sender.sent) {
-        EXPECT_EQ(s.mode, Mode::safe); // 계열이 SetMode인 것은 typed 명령이 보장
+        EXPECT_EQ(s.mode, Mode::safe); // SetMode 명령의 모드 값을 확인한다.
     }
-    EXPECT_EQ(f.commands.pending_count(), 2u); // 전달 추적은 CommandService로 넘어갔다.
+    EXPECT_EQ(f.commands.pending_count(), 2u); // CommandService에서 명령을 추적한다.
 }
 
 TEST(PolicyServiceTest, DefersUnobservedDeviceUntilFirstStatus) {
     PolicyFixture f;
     f.enroll(0x01, "sensors", 95.0);
-    // 등록만 되고 보고 전인 device: 평균을 희석하지도, 명령을 받지도 않는다
+    // 등록 후 아직 상태를 보고하지 않은 Device는 평균 집계와 명령 대상에서 제외한다.
     DeviceId const fresh = make_device_id(0x02);
     f.devices.enroll(fresh, "sensors");
     f.active_devices.active.push_back(fresh);
@@ -211,7 +219,7 @@ TEST(PolicyServiceTest, DefersUnobservedDeviceUntilFirstStatus) {
 
     f.policy.evaluate(f.clock.now());
 
-    ASSERT_EQ(f.sender.sent.size(), 1u); // avg는 95(관측분만) -> busy. 미관측이 섞이면 47.5였다.
+    ASSERT_EQ(f.sender.sent.size(), 1u); // 보고된 부하 95만 집계해 busy로 판단한다.
     EXPECT_EQ(f.sender.sent[0].device, make_device_id(0x01));
     EXPECT_EQ(f.sender.sent[0].mode, Mode::safe);
 
@@ -230,9 +238,167 @@ TEST(PolicyServiceTest, DoesNotRespamWhileRegimeUnchanged) {
     f.policy.set_policy(PolicyFixture::sensors_policy());
 
     f.policy.evaluate(f.clock.now());
-    f.policy.evaluate(f.clock.now()); // 같은 regime 재평가
+    f.policy.evaluate(f.clock.now()); // 같은 부하 상태에서 다시 평가한다.
 
     EXPECT_EQ(f.sender.sent.size(), 1u); // 전환마다 1회
+}
+
+TEST(PolicyServiceTest, ReissuesUnchangedTargetAfterInitialDispatchFailure) {
+    PolicyFixture f;
+    f.enroll(0x01, "sensors", 90.0);
+    f.policy.set_policy(PolicyFixture::sensors_policy());
+    f.sender.result = SendResult::offline;
+    f.policy.evaluate(f.clock.now());
+    ASSERT_EQ(f.commands.pending_count(), 0u);
+    ASSERT_EQ(f.commands.metrics().dispatch_failures_offline_total, 1u);
+
+    f.sender.result = SendResult::ok;
+    f.policy.evaluate(f.clock.now());
+
+    ASSERT_EQ(f.sender.sent.size(), 2u);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::safe);
+    EXPECT_EQ(f.commands.pending_count(), 1u);
+}
+
+TEST(PolicyServiceTest, ReissuesUnchangedTargetAfterRetryBudgetExhausted) {
+    PolicyFixture f;
+    auto const device = f.enroll(0x01, "sensors", 90.0);
+    f.policy.set_policy(PolicyFixture::sensors_policy());
+    f.policy.evaluate(f.clock.now());
+    ASSERT_EQ(f.sender.sent.size(), 1u);
+    auto const first = f.sender.sent.front().command_id;
+    f.clock.advance(6s);
+    f.commands.sweep(f.clock.now());
+    ASSERT_EQ(f.commands.pending_count(), 0u);
+    ASSERT_EQ(f.commands.metrics().failed_exhausted_total, 1u);
+
+    f.policy.evaluate(f.clock.now());
+
+    ASSERT_EQ(f.sender.sent.size(), 2u);
+    EXPECT_EQ(f.sender.sent.back().device, device);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::safe);
+    EXPECT_NE(f.sender.sent.back().command_id, first);
+    EXPECT_EQ(f.commands.pending_count(), 1u);
+}
+
+TEST(PolicyServiceTest, DoesNotReissuePendingRetryOrSuccessfulCommand) {
+    PolicyFixture f{2};
+    auto const device = f.enroll(0x01, "sensors", 90.0);
+    f.policy.set_policy(PolicyFixture::sensors_policy());
+    f.policy.evaluate(f.clock.now());
+    auto const first = f.sender.sent.front().command_id;
+    f.clock.advance(6s);
+    f.commands.sweep(f.clock.now()); // 기존 명령의 재전송을 기다리는 중이다.
+    f.policy.evaluate(f.clock.now());
+    ASSERT_EQ(f.sender.sent.size(), 1u);
+    f.clock.advance(1s);
+    f.commands.sweep(f.clock.now());
+    ASSERT_EQ(f.sender.sent.size(), 2u);
+    EXPECT_EQ(f.sender.sent.back().command_id, first);
+    f.commands.settle(device, first, true, 0, f.clock.now());
+    f.policy.evaluate(f.clock.now()); // 이전 상태 보고의 모드만으로 명령 실패를 판단하지 않는다.
+    EXPECT_EQ(f.sender.sent.size(), 2u);
+}
+
+TEST(PolicyServiceTest, ReissuesAfterAgentFailureExhaustsBudget) {
+    PolicyFixture f;
+    auto const device = f.enroll(0x01, "sensors", 90.0);
+    f.policy.set_policy(PolicyFixture::sensors_policy());
+    f.policy.evaluate(f.clock.now());
+    auto const first = f.sender.sent.front().command_id;
+    f.commands.settle(device, first, false, 1, f.clock.now());
+    EXPECT_EQ(f.sender.sent.size(), 1u); // 실패 콜백에서는 즉시 전송하지 않는다.
+    f.policy.evaluate(f.clock.now());
+    ASSERT_EQ(f.sender.sent.size(), 2u);
+    EXPECT_NE(f.sender.sent.back().command_id, first);
+}
+
+TEST(PolicyServiceTest, ReissuesAfterRetrySendFailure) {
+    PolicyFixture f{2};
+    f.enroll(0x01, "sensors", 90.0);
+    f.policy.set_policy(PolicyFixture::sensors_policy());
+    f.policy.evaluate(f.clock.now());
+    f.clock.advance(6s);
+    f.commands.sweep(f.clock.now());
+    f.sender.result = SendResult::encode_fail;
+    f.clock.advance(1s);
+    f.commands.sweep(f.clock.now());
+    ASSERT_EQ(f.commands.metrics().failed_encode_fail_total, 1u);
+    ASSERT_EQ(f.commands.pending_count(), 0u);
+    f.sender.result = SendResult::ok;
+    f.policy.evaluate(f.clock.now());
+    ASSERT_EQ(f.sender.sent.size(), 3u);
+    EXPECT_EQ(f.commands.pending_count(), 1u);
+}
+
+TEST(PolicyServiceTest, OldFailureDoesNotInvalidateNewTarget) {
+    PolicyFixture f;
+    auto const device = f.enroll(0x01, "sensors", 90.0);
+    f.policy.set_policy(PolicyFixture::sensors_policy());
+    f.policy.evaluate(f.clock.now());
+    auto const old = f.sender.sent.front().command_id;
+    f.set_load(device, 10.0);
+    f.policy.evaluate(f.clock.now());
+    ASSERT_EQ(f.sender.sent.size(), 2u);
+    f.commands.settle(device, old, false, 1, f.clock.now());
+    f.policy.evaluate(f.clock.now());
+    EXPECT_EQ(f.sender.sent.size(), 2u);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::normal);
+}
+
+TEST(PolicyServiceTest, ReissuesFailedThermalRecoveryWhenGroupRegimeUnknown) {
+    PolicyFixture f;
+    auto const device = f.enroll(0x01, "sensors", 50.0);
+    f.policy.set_policy(PolicyFixture::hot_policy());
+    ASSERT_TRUE(
+        f.devices.update_status(device, Status{.mode = Mode::normal, .load = 50.0, .temp = 95.0})
+    );
+    f.policy.evaluate(f.clock.now()); // 과열 상태이며 부하는 두 임계값 사이에 있다.
+    auto const hot = f.sender.sent.back().command_id;
+    f.commands.settle(device, hot, true, 0, f.clock.now());
+    f.set_load(device, 50.0); // 온도를 낮춘다. 부하 상태는 여전히 미정이다.
+    f.policy.evaluate(f.clock.now());
+    ASSERT_EQ(f.sender.sent.size(), 2u);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::normal);
+    f.clock.advance(6s);
+    f.commands.sweep(f.clock.now());
+    f.policy.evaluate(f.clock.now());
+    ASSERT_EQ(f.sender.sent.size(), 3u);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::normal);
+}
+
+TEST(PolicyServiceTest, ReleaseDuringDispatchDoesNotRestoreOldBelief) {
+    PolicyFixture f;
+    auto const device = f.enroll(0x01, "sensors", 90.0);
+    f.policy.set_policy(PolicyFixture::sensors_policy());
+    f.sender.on_send = [&] { f.policy.on_device_released(device); };
+    f.policy.evaluate(f.clock.now());
+    f.sender.on_send = {};
+    f.policy.evaluate(f.clock.now()); // 같은 Device가 다시 연결된 상황을 평가한다.
+    EXPECT_EQ(f.sender.sent.size(), 2u);
+}
+
+TEST(PolicyServiceTest, DestroyedPolicyDoesNotReceivePendingCommandFailure) {
+    ManualClock clock;
+    FakeActiveDevices active;
+    DeviceRegistry devices;
+    FakeCommandSender sender;
+    CommandService commands{sender, 5s, 1, 500ms};
+    auto const device = make_device_id(1);
+    devices.enroll(device, "sensors");
+    ASSERT_TRUE(
+        devices.update_status(device, Status{.mode = Mode::normal, .load = 90.0, .temp = 40.0})
+    );
+    active.active.push_back(device);
+    {
+        PolicyService policy{active, devices, commands};
+        policy.set_policy(PolicyFixture::sensors_policy());
+        policy.evaluate(clock.now());
+    }
+    clock.advance(6s);
+    commands.sweep(clock.now());
+    EXPECT_EQ(commands.metrics().failed_exhausted_total, 1u);
+    EXPECT_EQ(commands.pending_count(), 0u);
 }
 
 TEST(PolicyServiceTest, StaysWithinHysteresisBand) {
@@ -266,21 +432,21 @@ TEST(PolicyServiceTest, SetPolicyResetsRegime) {
     f.policy.set_policy(PolicyFixture::sensors_policy());
     f.policy.evaluate(f.clock.now()); // busy 전환
 
-    f.policy.set_policy(PolicyFixture::sensors_policy()); // 핫리로드 등가. regime 리셋
+    f.policy.set_policy(PolicyFixture::sensors_policy()); // 정책을 다시 적용해 명령 기록을 비운다. 부하 상태는 유지한다.
     f.policy.evaluate(f.clock.now());
 
-    EXPECT_EQ(f.sender.sent.size(), 2u); // 같은 조건이라도 재전환 발신
+    EXPECT_EQ(f.sender.sent.size(), 2u); // 같은 상태에서도 새 정책에 따라 명령을 다시 발행한다.
 }
 
 TEST(PolicyServiceTest, ExcludesInactiveDevicesFromAggregationAndCommands) {
     PolicyFixture f;
     f.enroll(0x01, "sensors", 10.0);
-    f.enroll(0x02, "sensors", 100.0, /*active=*/false); // 끊긴 device의 stale Shadow
+    f.enroll(0x02, "sensors", 100.0, /*active=*/false); // 연결이 끊긴 Device의 마지막 상태
     f.policy.set_policy(PolicyFixture::sensors_policy());
 
     f.policy.evaluate(f.clock.now());
 
-    ASSERT_EQ(f.sender.sent.size(), 1u); // 평균은 active만(10)이라 idle 전환. 명령도 active에게만
+    ASSERT_EQ(f.sender.sent.size(), 1u); // 활성 Device의 부하 10만 집계하고 해당 Device에만 명령한다.
     EXPECT_EQ(f.sender.sent[0].device, make_device_id(0x01));
     EXPECT_EQ(f.sender.sent[0].mode, Mode::normal);
 }
@@ -303,12 +469,10 @@ TEST(PolicyServiceTest, DeviceLeftClearsBeliefSoReconnectRecommands) {
     ASSERT_EQ(f.sender.sent.size(), 1u);
     EXPECT_EQ(f.sender.sent[0].mode, Mode::safe);
 
-    // device가 세션을 잃었다(재시작 등). 컨트롤러의 per-device 명령 belief를 폐기한다.
+    // Device 연결이 종료되면 해당 Device의 명령 기록을 제거한다.
     f.policy.on_device_released(id);
 
-    // 같은 id로 재접속(agent는 normal로 리부트). regime/effective는 그대로 safe지만,
-    // belief가 비었으니 재명령해야 한다. (안 비웠다면 commanded==effective라 suppress돼 1로
-    // 남는다.)
+    // 같은 ID로 다시 연결하면 목표가 이전과 같아도 명령을 다시 발행한다.
     f.policy.evaluate(f.clock.now());
 
     ASSERT_EQ(f.sender.sent.size(), 2u);
@@ -316,7 +480,7 @@ TEST(PolicyServiceTest, DeviceLeftClearsBeliefSoReconnectRecommands) {
     EXPECT_EQ(f.sender.sent[1].mode, Mode::safe);
 }
 
-// 핫리로드(set_policy 재적용)가 과열 latch를 보존: 데드밴드에서 식는 중 리로드해도 조기 해제 X.
+// 정책을 다시 적용해도 과열 상태는 해제 온도에 도달할 때까지 유지한다.
 TEST(PolicyServiceTest, ReloadPreservesThermalLatchInDeadband) {
     PolicyFixture f;
     DeviceId const id = f.enroll(0x01, "sensors", 90.0); // load busy(>80)
@@ -324,7 +488,7 @@ TEST(PolicyServiceTest, ReloadPreservesThermalLatchInDeadband) {
         PolicyFixture::hot_policy()
     ); // busy=safe / thermal hot->performance(high90/resume70)
 
-    // 과열 트립(temp 95 > hot_temp 90) -> hot_mode(performance)
+    // 온도 95가 과열 기준 90을 넘어 performance 모드로 전환한다.
     EXPECT_TRUE(
         f.devices.update_status(id, Status{.mode = Mode::performance, .load = 90.0, .temp = 95.0})
     );
@@ -332,7 +496,7 @@ TEST(PolicyServiceTest, ReloadPreservesThermalLatchInDeadband) {
     ASSERT_FALSE(f.sender.sent.empty());
     EXPECT_EQ(f.sender.sent.back().mode, Mode::performance);
 
-    // 데드밴드로 식힘(resume70 < temp80 < high90), load는 busy 유지
+    // 온도를 80으로 낮춘다. 해제 기준 70보다 높으므로 과열 상태를 유지한다.
     EXPECT_TRUE(
         f.devices.update_status(id, Status{.mode = Mode::performance, .load = 90.0, .temp = 80.0})
     );
@@ -341,11 +505,11 @@ TEST(PolicyServiceTest, ReloadPreservesThermalLatchInDeadband) {
     f.policy.set_policy(PolicyFixture::hot_policy()); // 핫리로드(같은 정책)
     f.policy.evaluate(f.clock.now());
 
-    ASSERT_GT(f.sender.sent.size(), before);                 // commanded clear로 재명령은 나감
-    EXPECT_EQ(f.sender.sent.back().mode, Mode::performance); // latch 보존 -> 여전히 hot_mode
+    ASSERT_GT(f.sender.sent.size(), before);                 // 명령 기록이 초기화되어 다시 발행한다.
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::performance); // 과열 상태가 유지되어 hot_mode를 적용한다.
 }
 
-// 핫리로드가 regime latch를 보존: 부하가 데드밴드인 group의 mode 변경도 즉시 적용된다.
+// 정책을 다시 적용하면 기존 부하 상태를 기준으로 새 모드를 선택한다.
 TEST(PolicyServiceTest, ReloadAppliesNewModeToDeadbandGroup) {
     PolicyFixture f;
     DeviceId const id = f.enroll(0x01, "sensors", 90.0); // busy(>80) -> safe
@@ -354,7 +518,7 @@ TEST(PolicyServiceTest, ReloadAppliesNewModeToDeadbandGroup) {
     ASSERT_FALSE(f.sender.sent.empty());
     EXPECT_EQ(f.sender.sent.back().mode, Mode::safe);
 
-    f.set_load(id, 50.0); // 데드밴드(20<50<80) -- regime은 busy로 latch 유지
+    f.set_load(id, 50.0); // 부하가 20과 80 사이이므로 기존 busy 상태를 유지한다.
 
     // busy mode를 safe -> normal로 바꾼 정책으로 reload
     GroupPolicy changed;
@@ -363,7 +527,7 @@ TEST(PolicyServiceTest, ReloadAppliesNewModeToDeadbandGroup) {
     f.policy.set_policy(std::move(changed));
     f.policy.evaluate(f.clock.now());
 
-    ASSERT_GT(f.sender.sent.size(), before);            // regime 보존이라 데드밴드에서도 재명령
+    ASSERT_GT(f.sender.sent.size(), before);            // 기존 부하 상태를 유지하면서 새 모드로 명령한다.
     EXPECT_EQ(f.sender.sent.back().mode, Mode::normal); // 새 busy_mode 적용
 }
 
@@ -392,19 +556,19 @@ TEST(PolicyServiceTest, ParsePolicyRejectsInvalidInput) {
     // 필드 누락
     EXPECT_FALSE(parse_policy(*json::parse(R"({"groups":{"s":{"busy_load":80}}})")).has_value());
 
-    // 미지 mode
+    // 지원하지 않는 모드
     EXPECT_FALSE(parse_policy(*json::parse(
                                   R"({"groups":{"s":{"busy_load":80,"idle_load":20,)"
                                   R"("busy_mode":"warp","idle_mode":"normal"}}})"
                               ))
                      .has_value());
-    // 임계 역전 시 발진
+    // 상한이 하한보다 작은 잘못된 임계값
     EXPECT_FALSE(parse_policy(*json::parse(
                                   R"({"groups":{"s":{"busy_load":20,"idle_load":80,)"
                                   R"("busy_mode":"safe","idle_mode":"normal"}}})"
                               ))
                      .has_value());
-    // 밴드 없음
+    // 상한과 하한이 같은 잘못된 임계값
     EXPECT_FALSE(parse_policy(*json::parse(
                                   R"({"groups":{"s":{"busy_load":50,"idle_load":50,)"
                                   R"("busy_mode":"safe","idle_mode":"normal"}}})"
@@ -423,10 +587,10 @@ TEST(PolicyServiceTest, ThermalOverrideWinsOverLoadRegime) {
     f.policy.evaluate(f.clock.now());
 
     ASSERT_EQ(f.sender.sent.size(), 1u);
-    EXPECT_EQ(f.sender.sent[0].mode, Mode::performance); // hot이 busy(safe)를 이김
+    EXPECT_EQ(f.sender.sent[0].mode, Mode::performance); // 과열 모드를 부하에 따른 safe 모드보다 우선한다.
 }
 
-// per-device thermal: 한 device만 과열하면 그 device만 hot_mode, 나머지는 group load mode.
+// 과열된 Device에만 hot_mode를 적용하고, 나머지는 Group 부하에 따른 모드를 사용한다.
 TEST(PolicyServiceTest, ThermalIsPerDevice) {
     PolicyFixture f;
     DeviceId const cool = f.enroll(0x01, "sensors", 10.0); // temp 40, idle load
@@ -471,16 +635,15 @@ TEST(PolicyServiceTest, ThermalReleasesToLoadModeBelowResume) {
     EXPECT_EQ(f.sender.sent[1].mode, Mode::safe);        // 해제 후 busy load_mode
 }
 
-// 회귀: load가 밴드 안(regime 미확정)에서 과열 트립 후 식으면, hot_mode가 latch된 채
-//       남지 않고 baseline(idle_mode)으로 해제돼야 한다.
+// 부하 상태가 미정이어도 과열이 해제되면 기본 모드(idle_mode)로 복귀해야 한다.
 TEST(PolicyServiceTest, ThermalReleasesToBaselineWhenLoadInBand) {
     PolicyFixture f;
-    DeviceId const id = f.enroll(0x01, "sensors", 50.0); // 20 < 50 < 80: 밴드 안 -> regime unknown
+    DeviceId const id = f.enroll(0x01, "sensors", 50.0); // 부하가 두 임계값 사이에 있어 초기 부하 상태가 미정이다.
     f.policy.set_policy(PolicyFixture::hot_policy());
     EXPECT_TRUE(
         f.devices.update_status(id, Status{.mode = Mode::normal, .load = 50.0, .temp = 95.0})
     );
-    f.policy.evaluate(f.clock.now()); // 과열 -> hot_mode(performance) latch
+    f.policy.evaluate(f.clock.now()); // 과열 상태로 전환해 performance 모드를 적용한다.
 
     EXPECT_TRUE(
         f.devices.update_status(id, Status{.mode = Mode::normal, .load = 50.0, .temp = 60.0})
@@ -489,14 +652,14 @@ TEST(PolicyServiceTest, ThermalReleasesToBaselineWhenLoadInBand) {
 
     ASSERT_EQ(f.sender.sent.size(), 2u);
     EXPECT_EQ(f.sender.sent[0].mode, Mode::performance); // hot
-    EXPECT_EQ(f.sender.sent[1].mode, Mode::normal);      // idle_mode 복귀 (비상모드 latch 해제)
+    EXPECT_EQ(f.sender.sent[1].mode, Mode::normal);      // 과열 상태가 해제되어 idle_mode로 복귀한다.
 
     f.policy.evaluate(f.clock.now());
     EXPECT_EQ(f.sender.sent.size(), 2u); // 해제 후 재발신 없음
 }
 
-// 회귀: dispatch는 송신 실패 시 동기 disconnect로 active 집합을 순회 중 변형할 수 있다.
-//       command_group은 대상을 모은 뒤 순회 밖에서 발송해야 한다.
+// 전송 실패로 연결이 종료되면 활성 Device 목록이 바뀔 수 있다.
+// 명령은 대상을 모으는 순회가 끝난 뒤 전송해야 한다.
 TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
     WindowedActiveDevices active_devices;
     DeviceRegistry devices;
@@ -507,7 +670,7 @@ TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
     DeviceId const id1 = make_device_id(0x01);
     DeviceId const id2 = make_device_id(0x02);
     for (DeviceId const id :
-         {id1, id2}) { // sensors Group active 2개, 평균 load > high라서 busy 전환
+         {id1, id2}) { // sensors의 활성 Device 2개의 평균 부하가 상한을 넘어 busy로 전환한다.
         devices.enroll(id, "sensors");
         EXPECT_TRUE(
             devices.update_status(id, Status{.mode = Mode::normal, .load = 95.0, .temp = 40.0})
@@ -519,7 +682,7 @@ TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
     ManualClock clock;
     policy.evaluate(clock.now());
 
-    ASSERT_EQ(sender.sent_count, 2); // busy 전환에서 Group 전원에 발신됐다(경로가 실제로 탔다).
+    ASSERT_EQ(sender.sent_count, 2); // busy 전환 시 Group의 두 Device에 명령을 보냈다.
     EXPECT_FALSE(sender.dispatched_during_iteration); // 발송은 순회 밖에서만
 }
 
