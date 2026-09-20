@@ -1,4 +1,5 @@
-# /var/lib/grafana/dashboards 의 JSON 대시보드를 부팅 시 자동 적재한다.
+# Grafana 시작 시 /var/lib/grafana/dashboards의 JSON 대시보드를 불러온다.
+
 apiVersion: 1
 
 providers:

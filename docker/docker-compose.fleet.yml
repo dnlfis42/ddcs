@@ -1,0 +1,40 @@
+# Controller 1개와 AgentFleet 1개로 단일 Group 연결을 점검한다.
+# Fleet은 기본 1,000개의 Agent를 실행한다. 개수와 Group은 환경변수로 지정할 수 있다.
+# 실행: DDCS_FLEET_COUNT=1000 DDCS_FLEET_GROUP=zone_a \
+#   docker compose -f docker/docker-compose.fleet.yml up --build
+
+services:
+  controller:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: controller
+    ports:
+      - "8080:8080"
+      - "9000:9000"
+    environment:
+      DDCS_LOG_LEVEL: warn
+    volumes:
+      - ../config:/config:ro
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  agent-fleet:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: agent-fleet
+    command: ["${DDCS_FLEET_COUNT:-1000}", "${DDCS_FLEET_GROUP:-zone_a}"]
+    depends_on:
+      - controller
+    environment:
+      DDCS_TRANSPORT_HOST: controller
+      DDCS_LOG_LEVEL: warn
+    volumes:
+      - ../config:/config:ro
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536

@@ -1,15 +1,16 @@
-# Controller tick profile capture용 compose overlay.
-#
-# 반드시 base compose와 함께 쓴다:
+# 기본 Compose에 Controller 프로파일 기록 설정과 출력 디렉터리를 추가한다.
+# 수동 실행 예:
 #   DDCS_PROFILE_OUTPUT_DIR=/absolute/output DDCS_PROFILE_RUN_ID=run-001 \
-#     DDCS_PROFILE_CAPACITY=16384 \
+#     DDCS_PROFILE_ENABLED=true DDCS_PROFILE_CAPACITY=16384 \
 #     docker compose -f docker/docker-compose.yml -f docker/docker-compose.profile.yml up
 #
-# profile-capture.sh가 run별 빈 host directory와 값을 만들고 정상 SIGTERM 뒤 파일을 검증한다.
+# profile-capture.sh는 실행마다 출력 디렉터리를 만들고,
+# Controller에 SIGTERM을 보낸 뒤 저장된 프로파일을 검증한다.
+
 services:
   controller:
     environment:
-      # runtime image의 config는 /config에 있고, 기본 cwd에서는 상대 config 경로가 없다.
+      # 작업 디렉터리와 관계없이 마운트된 설정 파일을 읽는다.
       DDCS_CONFIG_PATH: /config/controller.json
       DDCS_PROFILE_ENABLED: "${DDCS_PROFILE_ENABLED:?DDCS_PROFILE_ENABLED is required}"
       DDCS_PROFILE_CAPACITY: "${DDCS_PROFILE_CAPACITY:?DDCS_PROFILE_CAPACITY is required}"

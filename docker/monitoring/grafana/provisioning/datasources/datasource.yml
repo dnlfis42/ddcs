@@ -1,4 +1,5 @@
-# Prometheus 를 기본 데이터소스로 자동 등록한다. uid 는 대시보드가 참조하는 고정값.
+# Prometheus를 기본 데이터 소스로 등록한다. 대시보드는 uid로 이 데이터 소스를 참조한다.
+
 apiVersion: 1
 
 datasources:
@@ -10,5 +11,5 @@ datasources:
     isDefault: true
     editable: true
     jsonData:
-      # prometheus.yml 의 scrape_interval 과 일치시켜 $__rate_interval 을 정확히 계산.
+      # Prometheus 수집 주기와 맞춰 Grafana의 $__rate_interval 계산에 사용한다.
       timeInterval: "1s"

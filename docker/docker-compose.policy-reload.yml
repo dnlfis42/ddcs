@@ -1,0 +1,9 @@
+# 정책 재로딩 시나리오에서 Controller가 실행별 설정 복사본을 읽도록 한다.
+# DDCS_POLICY_CONFIG_DIR에 복사본 디렉터리를 지정하고 기본 Compose와 함께 사용한다.
+
+services:
+  controller:
+    environment:
+      DDCS_CONFIG_PATH: /config/controller.json
+    volumes:
+      - "${DDCS_POLICY_CONFIG_DIR:?DDCS_POLICY_CONFIG_DIR is required}:/config:ro"

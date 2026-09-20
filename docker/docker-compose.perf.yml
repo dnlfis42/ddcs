@@ -1,0 +1,46 @@
+# 성능 측정용 이미지를 빌드하거나 Group별 Fleet을 수동으로 실행할 때 사용한다.
+# 각 Fleet은 기본 1,000개의 Agent를 실행한다.
+# 측정 스크립트는 perf-layout.py로 Agent 수와 Group 배치에 맞는 Compose를 따로 생성한다.
+
+x-fleet: &fleet
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+    target: agent-fleet
+  image: ddcs-agent-fleet:dev
+  depends_on:
+    - controller
+  environment:
+    DDCS_TRANSPORT_HOST: controller
+    DDCS_LOG_LEVEL: warn
+  volumes:
+    - ../config:/config:ro
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 65536
+
+services:
+  controller:
+    extends:
+      file: docker-compose.fleet.yml
+      service: controller
+    image: ddcs-controller:dev
+    environment:
+      DDCS_LOG_LEVEL: info
+
+  fleet-zone-a:
+    <<: *fleet
+    command: ["${DDCS_PERF_AGENTS_PER_FLEET:-1000}", "zone_a"]
+
+  fleet-zone-b:
+    <<: *fleet
+    command: ["${DDCS_PERF_AGENTS_PER_FLEET:-1000}", "zone_b"]
+
+  fleet-zone-c:
+    <<: *fleet
+    command: ["${DDCS_PERF_AGENTS_PER_FLEET:-1000}", "zone_c"]
+
+  fleet-zone-d:
+    <<: *fleet
+    command: ["${DDCS_PERF_AGENTS_PER_FLEET:-1000}", "zone_d"]

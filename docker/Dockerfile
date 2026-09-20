@@ -1,36 +1,43 @@
 # syntax=docker/dockerfile:1
-# Multi-stage, multi-target build
-# - builder: controller + agent 두 binary를 한 번에 빌드 (apt/cmake/source 캐시 공유)
-# - controller/agent: 각 binary만 골라서 runtime 이미지 생성
+# builder에서 ctrl, agent, agent-fleet을 함께 빌드한다.
+# 실행 이미지는 공통 runtime에 필요한 실행 파일을 복사해 만든다.
 
 FROM debian:bookworm-slim AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     cmake \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 COPY . /src
+ARG DDCS_BUILD_JOBS=4
 RUN cmake --preset release \
-    && cmake --build build/release --target ctrl agent --parallel
+    && cmake --build build/release --target ctrl agent agent-fleet --parallel ${DDCS_BUILD_JOBS}
 
-# 공통 runtime base (두 target이 공유)
+# 세 실행 이미지에서 공통으로 사용하는 라이브러리를 설치한다.
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
-# controller 이미지
+# Controller 실행 이미지
 FROM runtime AS controller
 COPY --from=builder /src/build/release/bin/ctrl /usr/local/bin/ctrl
-# 기본 설정 번들 (ctrl은 cwd=/ 기준 config/controller.json으로 읽음; 정책 인라인)
+# Controller 설정과 정책이 담긴 config/controller.json을 함께 배포한다.
 COPY --from=builder /src/config /config
 EXPOSE 8080 9000
 ENTRYPOINT ["/usr/local/bin/ctrl"]
 
-# agent 이미지
+# 단일 Agent 실행 이미지
 FROM runtime AS agent
 COPY --from=builder /src/build/release/bin/agent /usr/local/bin/agent
 ENTRYPOINT ["/usr/local/bin/agent"]
+
+# 다중 Agent 실행 이미지
+FROM runtime AS agent-fleet
+COPY --from=builder /src/build/release/bin/agent-fleet /usr/local/bin/agent-fleet
+COPY --from=builder /src/config /config
+ENTRYPOINT ["/usr/local/bin/agent-fleet"]

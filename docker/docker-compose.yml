@@ -1,11 +1,16 @@
-# docker compose -f docker/docker-compose.yml up --build
-# controller 1 + agent 4 (zone당 1대) --- agent들은 DDCS_DEVICE_ID로 고정 식별 (kick-old 검증용)
-# 관측 스택: prometheus가 controller:9000(컨테이너 내부)을 scrape, grafana가 시각화
-# - 컨트롤 서버   : localhost:8080 (wire)
-# - 원시 메트릭   : http://localhost:9000/metrics
-# - Prometheus UI : http://localhost:9090
-# - Grafana UI    : http://localhost:3000 (anonymous Viewer)
-# config/ 를 컨테이너에 마운트해 이미지 재빌드 없이 런타임 설정을 갱신한다.
+# Controller 1개와 Agent 4개를 실행한다. 각 Group에 Agent를 하나씩 배치한다.
+# 고정된 Device ID로 재접속 시 기존 연결이 교체되는 동작을 확인할 수 있다.
+# 실행: docker compose -f docker/docker-compose.yml up --build
+#
+# Controller TCP: localhost:8080
+# 메트릭: http://localhost:9000/metrics
+# Prometheus: http://localhost:9090
+# Grafana: http://localhost:3000 (로그인 없이 조회 가능)
+#
+# Prometheus가 Controller 메트릭을 수집하고 Grafana가 대시보드로 표시한다.
+# config/를 마운트하므로 설정 변경에 이미지 재빌드는 필요하지 않다.
+# 정책은 SIGHUP으로 다시 읽고, 나머지 설정은 프로세스를 재시작해 적용한다.
+
 services:
   controller:
     build:
