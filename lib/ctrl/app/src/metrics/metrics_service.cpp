@@ -27,7 +27,7 @@ void append_metric_header(std::string& out, char const* name, char const* help, 
     out += '\n';
 }
 
-// 정수 microseconds를 locale/부동소수 오차 없이 Prometheus base unit seconds로 쓴다.
+// 정수 마이크로초를 초 단위 문자열로 변환한다. 로케일과 부동소수점 오차의 영향을 받지 않는다.
 void append_microseconds_as_seconds(std::string& out, std::uint64_t microseconds) {
     constexpr std::uint64_t microseconds_per_second = 1'000'000;
     auto const whole = microseconds / microseconds_per_second;
@@ -50,7 +50,7 @@ void append_microseconds_as_seconds(std::string& out, std::uint64_t microseconds
     out.append(digits.data(), last);
 }
 
-// 단일 metric을 Prometheus text(HELP/TYPE/value)로 append한다.
+// 메트릭의 설명, 타입, 값을 Prometheus 텍스트 형식으로 추가한다.
 void append_metric(
     std::string& out, char const* name, char const* help, char const* type, std::uint64_t value
 ) {
@@ -71,7 +71,7 @@ void append_seconds_metric(
     out += '\n';
 }
 
-// Prometheus label value escaping (backslash, double-quote, newline).
+// 라벨 값의 역슬래시, 큰따옴표, 줄바꿈을 이스케이프한다.
 void append_label_value(std::string& out, std::string_view value) {
     for (char const c : value) {
         switch (c) {
@@ -102,7 +102,7 @@ void append_reason_counter(
     out += '\n';
 }
 
-// pool 라벨 gauge 한 줄. 라벨값은 코드 상수라 이스케이프 불필요.
+// 풀별 현재값을 출력한다. 라벨은 코드에 정의된 상수다.
 void append_pool_gauge(std::string& out, char const* name, char const* pool, std::uint64_t value) {
     out += name;
     out += "{pool=\"";
@@ -112,7 +112,7 @@ void append_pool_gauge(std::string& out, char const* name, char const* pool, std
     out += '\n';
 }
 
-// group 라벨 gauge 한 줄 (locale-독립 double 포맷, json writer와 같은 규약).
+// Group별 현재값을 로케일에 영향받지 않는 숫자 형식으로 출력한다.
 void append_group_gauge(
     std::string& out, char const* name, std::string const& group, double value
 ) {
@@ -126,7 +126,7 @@ void append_group_gauge(
     out += '\n';
 }
 
-// command RTT를 Prometheus histogram으로 append한다. 내부 us를 seconds bucket/sum으로 바꾼다.
+// 명령 RTT를 히스토그램으로 출력한다. 버킷 경계와 합계는 마이크로초에서 초로 변환한다.
 void append_rtt_histogram(
     std::string& out, std::span<std::uint64_t const> bounds_us,
     std::span<std::uint64_t const> buckets, std::uint64_t sum_us
@@ -143,7 +143,7 @@ void append_rtt_histogram(
         out += std::to_string(cumulative);
         out += '\n';
     }
-    cumulative += buckets[bounds_us.size()]; // +Inf 오버플로 -> 전체 관측 수(= count)
+    cumulative += buckets[bounds_us.size()]; // 마지막 버킷까지 더하면 전체 관측 횟수가 된다.
     out += name;
     out += "_bucket{le=\"+Inf\"} ";
     out += std::to_string(cumulative);
@@ -163,8 +163,8 @@ void append_rtt_histogram(
 std::string MetricsService::scrape() {
     std::string out;
 
-    // session gauges. connections는 handshaking/confirming/active를 모두 포함하고,
-    // devices는 DeviceRegistry가 Controller 수명 동안 관리하는 Device 수다.
+    // connections는 등록 중인 연결과 활성 연결을 모두 포함한다.
+    // devices는 DeviceRegistry에서 관리하는 Device 수다.
     append_metric(
         out, "ddcs_connections", "Current session connections across all protocol phases.", "gauge",
         sessions_.size()
@@ -174,7 +174,7 @@ std::string MetricsService::scrape() {
         devices_.size()
     );
 
-    // command lifecycle. pending은 현재 gauge, 나머지는 logical command/attempt counter다.
+    // pending은 처리 중인 명령 수다. 나머지는 명령 또는 전송 시도별 누적 횟수다.
     append_metric(
         out, "ddcs_commands_pending", "Logical commands awaiting a terminal outcome.", "gauge",
         commands_.pending_count()
@@ -251,22 +251,39 @@ std::string MetricsService::scrape() {
         commands_.metrics().rtt_us_sum
     );
 
-    // tick duration. DurationStats의 정수 us 누산을 Prometheus base unit seconds로 노출한다.
+    // tick 작업 시간과 시작 지연은 초 단위로, 완료 및 건너뛴 횟수는 누적값으로 제공한다.
     append_seconds_metric(
         out, "ddcs_tick_duration_seconds", "Work time of the latest Controller tick in seconds.",
-        "gauge", sweep_.last_us
+        "gauge", sweep_.work.last_us
     );
     append_seconds_metric(
         out, "ddcs_tick_duration_seconds_max",
-        "Maximum Controller tick work time since process start in seconds.", "gauge", sweep_.max_us
+        "Maximum Controller tick work time since process start in seconds.", "gauge",
+        sweep_.work.max_us
     );
     append_seconds_metric(
         out, "ddcs_tick_duration_seconds_total", "Cumulative Controller tick work time in seconds.",
-        "counter", sweep_.sum_us
+        "counter", sweep_.work.sum_us
     );
-    append_metric(out, "ddcs_ticks_total", "Completed Controller ticks.", "counter", sweep_.count);
+    append_metric(
+        out, "ddcs_ticks_total", "Completed Controller ticks.", "counter", sweep_.work.count
+    );
+    append_seconds_metric(
+        out, "ddcs_tick_start_lateness_seconds",
+        "Start lateness of the latest Controller tick in seconds.", "gauge",
+        sweep_.start_lateness.last_us
+    );
+    append_seconds_metric(
+        out, "ddcs_tick_start_lateness_seconds_max",
+        "Maximum Controller tick start lateness in seconds.", "gauge", sweep_.start_lateness.max_us
+    );
+    append_metric(
+        out, "ddcs_tick_skipped_total",
+        "Scheduled Controller ticks skipped without catch-up execution.", "counter",
+        sweep_.skipped_total
+    );
 
-    // session counter. 실제 Session이 registry에서 지워질 때 한 번만 센다.
+    // 연결 종료는 Session이 레지스트리에서 제거될 때 한 번만 집계한다.
     append_metric(
         out, "ddcs_messages_received_total",
         "Messages arriving at the Controller session layer from agents.", "counter",
@@ -283,7 +300,7 @@ std::string MetricsService::scrape() {
         );
     }
 
-    // 전송 자원 gauges. scrape 시점의 snapshot이며 connection 수에 비례하는 순회는 scrape에만 있다.
+    // 조회 시점의 전송 자원 사용량을 집계한다. 연결별 순회는 메트릭 조회 시 수행한다.
     auto const transport = transport_stats_.transport_stats();
     append_metric(
         out, "ddcs_send_queue_messages",
@@ -304,7 +321,7 @@ std::string MetricsService::scrape() {
     );
     append_pool_gauge(out, "ddcs_pool_slots_acquired", "message", transport.message_pool_acquired);
 
-    // per-group gauges. aggregate_groups is the single implementation of policy/metric membership.
+    // 정책 평가와 동일한 aggregate_groups 함수로 Group별 상태를 집계한다.
     auto const groups = device::aggregate_groups(active_devices_, devices_, policy_);
     append_metric_header(
         out, "ddcs_group_load_ratio",

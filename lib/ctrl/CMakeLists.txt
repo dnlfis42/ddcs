@@ -3,7 +3,7 @@ add_subdirectory(domain)
 add_subdirectory(app)
 add_subdirectory(infra)
 
-# 공개 facade 타깃
+# Controller 공개 인터페이스
 add_library(ddcs_ctrl STATIC)
 add_library(ddcs::ctrl ALIAS ddcs_ctrl)
 
@@ -15,6 +15,7 @@ target_sources(
             BASE_DIRS include
             FILES
                 include/ddcs/ctrl/controller.hpp
+                include/ddcs/ctrl/detail/fixed_rate_schedule.hpp
                 include/ddcs/ctrl/detail/tick_execution.hpp
 )
 target_link_libraries(
@@ -22,8 +23,8 @@ target_link_libraries(
     PRIVATE
         ddcs::build_options
         ddcs::json
-        ddcs::io
         ddcs::profile
+        ddcs::io
         ddcs::ctrl::domain
         ddcs::ctrl::app
         ddcs::ctrl::infra

@@ -27,6 +27,7 @@ target_sources(
                 include/ddcs/ctrl/app/device/status_service.hpp
                 include/ddcs/ctrl/app/metrics/port/prometheus_source.hpp
                 include/ddcs/ctrl/app/metrics/duration_stats.hpp
+                include/ddcs/ctrl/app/metrics/tick_stats.hpp
                 include/ddcs/ctrl/app/metrics/metrics_service.hpp
                 include/ddcs/ctrl/app/session/command_sender.hpp
                 include/ddcs/ctrl/app/session/session.hpp
