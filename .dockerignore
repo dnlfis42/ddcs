@@ -2,8 +2,10 @@
 
 assets/
 build/
+docker/
 docs/
 scripts/
+test/scripts/
 var/
 
 *.md
