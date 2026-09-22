@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 
-# source 전용: 시나리오 실행·검증·결과 기록. 상세: docs/SCENARIO.md
+# source 전용: 시나리오 실행·검증·결과 기록. 상세: docs/scenario.md
 # 호출자는 COMPOSE, SCENARIO_NAME을 지정하고 arm_cleanup으로 EXIT 처리를 등록한다.
 # 최종 결과는 스택 정리 후 build.json에 기록한다.
 

@@ -1,360 +1,312 @@
-# Distributed Device Control System (DDCS)
-
-여러 가상 Device의 Mode를 자동으로 조정하는 **정책 기반 분산 장치 제어 시스템 시뮬레이터**
+<div align="center">
+<h1>DDCS</h1>
+<p><b>C++20 기반 정책 중심 분산 장치 제어 시스템</b></p>
+</div>
 
 ## 목차
 
-- [개요](#개요)
-- [주요 기능](#주요-기능)
-- [실행](#실행)
-  - [요구 사항](#요구-사항)
-  - [빠른 시작](#빠른-시작)
-  - [빌드](#빌드)
-  - [테스트](#테스트)
-  - [검증 시나리오](#검증-시나리오)
-  - [Docker 배포](#docker-배포)
-  - [문제 해결](#문제-해결)
-- [성능](#성능)
-  - [측정 환경](#측정-환경)
-  - [측정 방법](#측정-방법)
-  - [측정 결과](#측정-결과)
-    - [Agent 수에 따른 변화](#agent-수에-따른-변화)
-    - [지연 시간](#지연-시간)
-    - [유실과 복구](#유실과-복구)
-- [라이선스](#라이선스)
+- **[개요](#개요)**
+- **[동작 방식](#동작-방식)**
+- **[문서 안내](#문서-안내)**
+- **[빠른 시작](#빠른-시작)**
+- **[빌드와 테스트](#빌드와-테스트)**
+- **[문제 해결](#문제-해결)**
+- **[라이선스](#라이선스)**
 
 ## 개요
 
-네트워크 너머의 Device를 제어할 때 Controller는 Device의 상태를 직접 소유할 수 없고, 연결은 언제든 끊길 수 있습니다.
-DDCS는 이런 조건에서 정책 기반 제어 루프가 성립하는지 검증하는 시뮬레이터입니다.
+작업 구역의 상황은 수시로 달라집니다.
+부하가 늘면 장치의 처리 성능을 높여야 하고, 과열된 장치는 보호해야 합니다.</br>
+관리자가 상태를 확인하고 조치할 수 있지만, 장치가 늘어날수록 모든 변화에 일일이 대응하기는 어렵습니다.
 
-각 Agent는 하나의 Device를 맡아 신원과 상태를 Controller에 보고하고, Controller는 보고받은 상태를 DeviceShadow로 유지하며, 정책 엔진이 DeviceShadow를 Group 단위로 평가해 Mode 변경이 필요한 Device에게만 명령을 보냅니다.
-연결이 끊기면 Agent가 지수 백오프 간격으로 다시 접속해 루프에 합류하고, Controller는 같은 Device의 새 연결이 들어오면 기존 연결을 끊어(kick-old) Device당 Session을 하나만 유지합니다.
+**DDCS**는 이러한 판단과 제어를 자동화하기 위해 만든 **C++20/Linux 기반 분산 장치 제어 시스템**입니다.</br>
+장치가 보고한 상태와 구역별 정책으로 동작 모드를 결정하고, 통신이 끊겼을 때 다시 제어를 이어가도록 구현했습니다.
 
-![정책 제어 루프](assets/architecture-control-loop.svg)
+현재 실행 예제와 검증에는 부하·온도 변화를 모사하는 장치를 사용합니다.
 
-_그림 1. 상태 보고에서 명령까지의 제어 루프_
+## 동작 방식
 
-Controller와 Agent는 각각 싱글 스레드 epoll 리액터로 동작하고, Controller는 Device 상태를 메모리 위의 DeviceShadow로만 저장하며, HTTP로는 읽기 전용 Prometheus 메트릭(`:9000`)만 노출합니다.
-각 결정의 배경은 [설계 결정](docs/ARCHITECTURE.md#9-설계-결정)에서, 현재 구조를 택하며 감수한 제약은 [한계점](docs/ARCHITECTURE.md#102-제약과-개선-방향)에서 다룹니다.
+각 Agent는 장치 하나를 맡아 Controller에 상태를 주기적으로 보고합니다.</br>
+Controller는 구역별 평균 부하율로 기본 동작 모드를 결정하되, 과열된 장치에는 보호 모드를 우선적으로 적용합니다.</br>
+결정한 사항은 각 Agent에 명령으로 전달되고, 적용 이후 상태는 다음 보고에 반영되도록 설계했습니다.
 
-![구성 요소와 통신 경로](assets/architecture-services.svg)
+그림 1은 상태 보고와 명령 전달이 이어지는 제어 흐름을 보여줍니다.
 
-_그림 2. 구성 요소와 통신 경로_
+![상태 보고 → 정책 판단 → 명령 전달 → 장치 적용으로 이어지는 DDCS 제어 흐름](assets/architecture-control-loop.svg)
 
-Controller는 wire TCP(`:8080`)로 Agent를 제어하고, Prometheus가 Controller의 메트릭(`:9000`)을 주기적으로 수집하며, Grafana(`:3000`)가 그 데이터를 시각화합니다.
+*그림 1. 장치 상태 보고와 정책에 따른 제어 흐름*
 
-## 주요 기능
+장치 상태에 맞춰 명령을 보내는 것만으로 제어가 끝나지는 않습니다.</br>
+작은 부하 변화에도 모드가 계속 바뀔 수 있으므로, DDCS는 모드 전환과 복귀의 기준을 나눠 잦은 전환을 억제합니다.
 
-- [싱글 스레드 edge-triggered (ET) epoll 리액터](docs/ARCHITECTURE.md#3-런타임-모델):
-  락 없이 모든 상태를 한 스레드가 처리
-- [3계층 wire 프로토콜](docs/PROTOCOL.md):
-  `frame`(프레이밍) / `message`(메시지) / `command`(명령)
-- [Agent 등록과 Session 관리](docs/ARCHITECTURE.md#5-session-생명주기):
-  3-way 핸드셰이크, Device당 연결 하나만 유지 (kick-old)
-- [Agent 자동 재접속](docs/ARCHITECTURE.md#8-agent-재접속):
-  지수 백오프 + jitter, 등록 성공 시 리셋
-- [명령 전달 보장](docs/ARCHITECTURE.md#7-명령-rpc):
-  명령마다 ID로 응답을 짝짓고, 유실 시 재전송하며, 중복은 한 번만 적용
-- [정책 기반 Mode 자동 제어](docs/ARCHITECTURE.md#6-정책-엔진):
-  Group 부하에 따라 Mode 전환(히스테리시스로 잦은 전환 억제), 과열 Device는 개별 보호, SIGHUP으로 정책 리로드
-- [관측성](docs/METRICS.md):
-  Prometheus 메트릭 + Grafana 대시보드 + JSON Lines (JSONL) 로그
-- [역할별 단일 JSON 런타임 설정](docs/CONFIG.md):
-  환경변수, 파일, 코드 기본값 순으로 우선
+명령을 전달하는 도중 연결이 끊기거나 응답이 돌아오지 않을 수도 있습니다.</br>
+Agent는 연결이 끊기면 재접속하고, Controller는 연결이 복구되면 현재 정책에 맞는 명령을 다시 보냅니다.</br>
+응답이 지연되면 같은 명령을 재전송하며, Agent는 직전에 처리한 명령을 다시 받으면 재적용하는 대신 저장한 결과를 반환합니다.
 
-## 실행
+이러한 통신과 제어는 직접 구현한 싱글 스레드 epoll 리액터에서 처리하며, Controller와 Agent는 자체 TCP 프로토콜로 상태와 명령을 주고받습니다.
+
+장치가 정책에 맞게 동작하고 장애 후에도 제어가 이어지는지 확인하기 위해 메트릭과 로그로 상태 변화를 추적합니다. 실행 화면은 [대시보드](docs/metrics.md#대시보드)에 정리했습니다.
+
+부하 전환과 과열 보호, 연결 복구는 자동화 시나리오로 검증해 코드 변경으로 기존 동작이 깨지는 문제를 발견할 수 있도록 했습니다.
+
+## 문서 안내
+
+|문서|내용|
+|---|---|
+|[아키텍처](docs/architecture.md)|시스템 구성, 내부 처리와 설계 이유|
+|[프로토콜](docs/protocol.md)|통신 메시지 형식과 교환 규칙|
+|[정책 엔진](docs/policy.md)|부하·온도 판단과 동작 모드 제어|
+|[설정](docs/config.md)|실행 설정과 정책 변경 방법|
+|[로그](docs/log.md)|로그 형식, 이벤트와 조회 방법|
+|[메트릭](docs/metrics.md)|수집 지표, 조회식과 해석|
+|[성능 측정](docs/performance.md)|AgentFleet 부하 생성과 성능 측정·판정|
+|[프로파일링](docs/profiling.md)|Controller 내부 처리 시간과 계측 비용 분석|
+|[검증 시나리오](docs/scenario.md)|제어 동작과 장애 복구 검증|
+
+## 빠른 시작
 
 ### 요구 사항
 
-빌드에는 Ubuntu 24.04+ (x86_64), GCC 13+, CMake 3.25+, C++20이 필요합니다.
-실행에는 docker와 docker compose v2, curl이 필요합니다.
+**Docker로 실행**하기 위해서는 다음 환경과 도구가 필요합니다.
 
-### 빠른 시작
+|항목|요구 사항|
+|---|---|
+|컨테이너 실행|Linux 컨테이너를 실행할 수 있는 Docker, Docker Compose v2|
+|연결 수 확인|curl, grep|
+|대시보드 접속|웹 브라우저|
+|사용 가능한 호스트 포트|8080(장치 통신), 9000(메트릭), 9090(Prometheus), 3000(Grafana)|
+
+**로컬 빌드와 검증**에는 수행할 작업에 따라 다음 도구가 필요합니다.
+
+|항목|요구 사항|
+|---|---|
+|로컬 빌드 환경|Linux|
+|C++ 도구 모음|C++20 지원 컴파일러와 표준 라이브러리|
+|빌드 도구|CMake 3.25 이상, Make 등 선택한 CMake 생성기에 맞는 도구|
+|스크립트 회귀 테스트|로컬 빌드 환경·도구 + Bash, Python 3, jq|
+|ASan·UBSan 검사|로컬 빌드·테스트 환경 + ASan·UBSan 지원 컴파일러와 런타임|
+|커버리지 측정|로컬 빌드·테스트 환경 + GCC, 버전이 맞는 gcov, gcovr|
+|기능 시나리오 검증|Docker 실행 환경 + Linux, Bash, Git, jq, 기본 명령 도구|
+|성능 측정|기능 시나리오 검증 환경 + Python 3|
+|프로파일 수집|성능 측정 환경 + 로컬 빌드 도구, Release로 빌드한 `profile-report`·`profile-verify`|
+
+스크립트 회귀 테스트는 기본 구성에 포함되며, `DDCS_ENABLE_SCRIPT_TEST=OFF`로 제외할 수 있습니다.
+
+`gcovr`와 `gcov`는 커버리지 측정에 필요하며, 일반 Docker 실행에는 필요하지 않습니다.</br>
+Sanitizer와 커버리지 실행 방법은 [빌드와 테스트](#빌드와-테스트)에 정리했습니다.
+
+측정 시 호스트 조건은 [성능 측정](docs/performance.md)에 정리했습니다.
+
+### 빠른 실행
+
+아래 명령을 저장소 루트에서 실행하면 Controller 1대, Agent 4대와 Prometheus·Grafana가 함께 기동됩니다.
 
 ```sh
-# configure + build + test 한 번에
-cmake --workflow --preset debug
+docker compose -f docker/docker-compose.yml up --build -d
 ```
 
-실행은 `scripts/run.sh`가 맡습니다. Controller와 Agent, 관측 스택을 컨테이너로 한 번에 띄우고 로그를 따라가며, `Ctrl+C`를 받으면 스택을 정리합니다.
+Agent 4대가 Controller에 접속했는지 연결 수를 확인합니다. 등록 중인 연결도 포함되므로, 이 값만으로 상태 보고 완료까지 확인할 수는 없습니다.
 
 ```sh
-scripts/run.sh      # Agent 4대 (zone당 1대, 고정 DeviceId)
-scripts/run.sh 100  # zone 4개에 25대씩 (4의 배수)
+curl -fsS http://localhost:9000/metrics | grep '^ddcs_connections '
 ```
 
-- Controller 메트릭: `http://localhost:9000/metrics`
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000` (로그인 없이 열람)
-
-Controller가 Agent를 받아들였는지는 메트릭으로 확인합니다.
-
-```sh
-curl -s localhost:9000/metrics | grep '^ddcs_connections'
-```
-
-```output
-# 4면 Agent 네 대가 등록을 마친 것입니다.
+```text
 ddcs_connections 4
 ```
 
-compose 명령을 직접 쓰거나 백그라운드로 띄우는 방법은 [Docker 배포](#docker-배포)에서 다룹니다.
+기동 직후 조회가 실패하거나 연결 수가 작으면 잠시 기다린 뒤 다시 확인합니다.</br>
+[Grafana](http://localhost:3000)에서는 로그인 없이 상태를 볼 수 있고, [Prometheus](http://localhost:9090)에서는 메트릭을 직접 조회할 수 있습니다.
 
-### 빌드
+<details>
+<summary>로그 확인과 실행 중 정책 변경</summary>
 
-`--workflow`는 configure + build + test를 한 번에 실행하며, `cmake --preset debug`, `cmake --build build/debug`, `ctest --test-dir build/debug --output-on-failure`로 나눠 실행할 수도 있습니다.
-
-|Preset|용도|명령|
-|---|---|---|
-|`debug`|개발 (디버그 심볼)|`cmake --workflow --preset debug`|
-|`asan`|ASan + UBSan 검사 (`RelWithDebInfo`)|`cmake --workflow --preset asan`|
-|`coverage`|커버리지 측정 (gcov 계측)|`./scripts/coverage-report.sh`|
-|`release`|배포 (`-O3`, `-Werror`)|`cmake --workflow --preset release`|
-
-`coverage`는 계측 빌드 후 gcovr로 HTML 리포트까지 생성하므로 스크립트로 실행하며(gcovr 필요), 리포트는 `build/coverage/html/index.html`에 생성됩니다.
-
-### 테스트
-
-테스트는 두 종류입니다:
-
-- 모듈별 단위 테스트 (`lib/**/test/unit`): 각 모듈이 지키는 계약을 검증합니다.
-- Controller와 Agent 간 왕복 E2E (`test/e2e`): 두 리액터를 한 스레드에서 번갈아 구동해, 등록부터 응답까지의 왕복과 재접속이 실제 소켓 위에서 동작함을 검증합니다.
+다음 명령으로 서비스 로그를 확인합니다.
 
 ```sh
-# 테스트 이름으로 필터 (예: wire 코덱만)
-ctest --test-dir build/debug -R wire --output-on-failure
+docker compose -f docker/docker-compose.yml logs -f
 ```
 
-### 검증 시나리오
+`Ctrl+C`는 로그 보기만 종료하며 스택은 계속 실행됩니다.
 
-`scripts/scenario.sh`는 다섯 가지 핵심 동작을 각각 격리해 검증합니다.
-시나리오마다 독립된 docker 스택을 기동하고, Controller의 실제 출력(메트릭 `:9000` + 이벤트 로그)만 보고 PASS/FAIL을 판정하며, 어떤 경로로 끝나든 종료 시 스택을 정리합니다.
-각 시나리오의 검증 대상과 판정 기준은 [docs/SCENARIO.md](docs/SCENARIO.md)에 정리했습니다.
+`config/controller.json`의 `policy.groups`에서 임계값이나 목표 모드를 수정한 뒤, SIGHUP으로 새 정책을 적용할 수 있습니다.
 
 ```sh
-scripts/scenario.sh thermal            # 같은 zone에서 과열된 Device만 보호 Mode로 진입하고, 식으면 복귀
-scripts/scenario.sh agent-reconnect    # 재시작한 Device가 현재 Mode를 다시 전달받음
-scripts/scenario.sh regime-transition  # Group 부하가 오르내리면 busy/idle 전환 (임계 근처에서 잦은 전환 없음)
-scripts/scenario.sh liveness-eviction  # docker pause로 장애 주입: 끊김을 감지해 Session을 정리하고, 해제하면 재접속
-scripts/scenario.sh policy-reload      # SIGHUP으로 정책 교체: 잘못된 정책은 거부하고 기존 정책 유지
-scripts/scenario.sh all                # 다섯 시나리오 순차 실행
+docker compose -f docker/docker-compose.yml kill -s SIGHUP controller
 ```
 
-시나리오는 원시 artifact를 남기지 않습니다. 각 실행은 해당 build의
-`var/result/<build-key>/build.json`에서 scenario별 `pass`/`fail` 상태만 갱신합니다.
-성능·프로파일 측정 결과의 경로와 보존 규칙은 [docs/PROFILE.md](docs/PROFILE.md)에 정리했습니다.
+정책 외 설정을 바꾸려면 해당 프로세스를 재시작해야 합니다.</br>
+각 설정의 의미는 [설정 가이드](docs/config.md#정책)를 참고하시기 바랍니다.
 
-### Docker 배포
+</details>
 
-Controller 1대 + Agent 4대(zone당 1대) + 관측 스택(Prometheus/Grafana)을 한 번에 기동합니다.
-compose가 각 Agent에 고정 `DDCS_DEVICE_ID`(= DeviceId)를 부여하므로, 컨테이너를 재시작해도 같은 Device로 다시 등록됩니다.
+실행을 마치고 모든 서비스를 종료하려면 다음 명령을 사용합니다.
 
 ```sh
-docker compose -f docker/docker-compose.yml up --build -d # 기동
-docker compose -f docker/docker-compose.yml logs -f       # 로그 따라가기
-docker compose -f docker/docker-compose.yml down          # 정리
+docker compose -f docker/docker-compose.yml down
 ```
 
-- Controller 메트릭: `http://localhost:9000/metrics`
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000` (로그인 없이 열람)
+### Docker 구성
 
-다중 zone 구성(zone 4개 × Device 25대, 총 100대)은 별도 compose 파일로 실행합니다:
+기본 시연 외에도 여러 구역의 제어를 확인하거나, 한 구역에 많은 Agent를 연결하는 구성을 선택할 수 있습니다.</br>
+모든 구성은 Controller 1대를 사용합니다.
+
+그룹별 대수를 직접 지정하려면 실행 스크립트를 사용하면 됩니다.</br>
+`-m`은 Prometheus·Grafana를 함께 실행하며, 그룹마다 Fleet 컨테이너 하나를 만듭니다.
 
 ```sh
-docker compose -f docker/docker-compose.scale.yml up -d
+# 그룹별 직접 지정
+scripts/run/stack.sh up -m -g zone_a,2000 -g zone_b,3000
+
+# 네 그룹에 2,500대씩 균등 배치
+scripts/run/stack.sh up -m --group-count 4 --agents-per-group 2500
+
+# 종료
+scripts/run/stack.sh down
 ```
 
-실행 중인 스택에는 `scripts/fault.sh`로 장애를 주입합니다.
-`docker pause`로 Agent 하나를 멈춰 축출을 확인하고, 해제해 복구까지 본 뒤, 그 구간의 Grafana 시간 범위를 출력합니다.
+자동 배치는 `zone_a`부터 이름을 부여하며, 정책이 없는 그룹은 경고를 출력합니다.
 
-```sh
-scripts/fault.sh                  # agent-01에 한 사이클
-scripts/fault.sh pause agent-02   # 멈춰만 두기
-scripts/fault.sh resume agent-02  # 해제
-```
+실행 구성은 `var/run/stack/compose.json`에 저장합니다. 기존 Compose 스택과 포트가 겹치므로 먼저 종료해야 합니다.
 
-![장애 주입과 자동 복구](assets/grafana-fault.png)
-
-_그림 3. pause 구간의 축출과 복구_
-
-Agent 4대 구성에서 `agent-01`을 멈춘 구간입니다.
-`liveness_expired` 종료가 한 번 오르고 연결 수가 4에서 3으로 줄었다가, 해제 후 4로 복구됩니다.
-고정 DeviceId를 쓰므로 `ddcs_devices`는 4에서 움직이지 않습니다.
-
-Device 동작(`DDCS_SIM_NOISE`/`DDCS_SIM_JITTER`)은 compose 파일의 agent `environment`에 적어야 컨테이너로 전달됩니다(셸 export는 전달되지 않습니다).
-`docker/Dockerfile`은 멀티스테이지 빌드로, `builder` 스테이지가 release 설정으로 두 바이너리를 빌드하고 `controller`/`agent` 타깃(`docker build --target <이름>`)이 각 바이너리만 담은 런타임 이미지를 만듭니다.
-
-### 문제 해결
-
-|증상|원인|시스템 반응|조치|
+|구성|Agent 배치|관측 도구|Compose 파일|
 |---|---|---|---|
-|stderr에 `transport listen port 8080: Address already in use`|listen/메트릭 포트 점유|`exit 1` (`main`이 예외를 잡으므로 SIGABRT 없이 종료)|`lsof -i :8080`, `:9000`으로 점유 프로세스 확인|
-|stderr에 `config: malformed JSON in <경로>`|설정 JSON 문법 오류|로드 중 throw를 `main`이 잡아 `exit 1`|`jq . config/controller.json`으로 검증|
-|`device.group.unknown` 경고|Agent가 정책에 없는 Group으로 등록|등록은 허용되나 정책 명령 대상에서 제외|`policy.groups`에 해당 Group 추가 후 SIGHUP|
-|`device.id.not_persisted` 경고|`DDCS_DEVICE_ID_FILE`을 지정했으나 그 경로에 기록하지 못함|동작하나 재시작 시 새 DeviceId로 등록|해당 경로의 쓰기 권한 확인, 또는 `DDCS_DEVICE_ID`로 고정|
-|Agent 연결 반복 실패|Controller가 실행 중이 아님|지수 백오프로 재시도(코드 기본 1~30초, `config/agent.json`은 0.2~5초), 등록 성공 시 리셋|Controller 기동 여부와 `transport.host`/`port` 확인|
-|Agent 연결이 끊김|Controller가 liveness 제한 시간 초과로 축출|Agent가 연결 종료를 감지해 재접속|heartbeat 주기와 `session.liveness_timeout_ms` 비율 확인|
+|기본 시연|4개 구역 × 1대, 고정 DeviceId|Prometheus·Grafana|[docker-compose.yml](docker/docker-compose.yml)|
+|다중 구역 검증|4개 구역 × 25대, 총 100대|Prometheus·Grafana|[docker-compose.scale.yml](docker/docker-compose.scale.yml)|
+|단일 구역 대규모 부하|Fleet 1개에서 N대 실행, 기본 1,000대|Controller 메트릭|[docker-compose.fleet.yml](docker/docker-compose.fleet.yml)|
+|단일 구역 대규모 부하 관찰|Fleet 1개에서 N대 실행, 기본 1,000대|Prometheus·Grafana|[docker-compose.fleet-monitoring.yml](docker/docker-compose.fleet-monitoring.yml)|
 
-문제를 추적할 때는 메트릭(`ddcs_connections_closed_total{reason="liveness_expired"}`, `ddcs_commands_failed_total`, `ddcs_group_*` 등)과 로그 각 줄의 `event` 키(예: `session.connection.register.accept`)를 함께 봅니다.
-전체 메트릭 목록은 [METRICS.md](docs/METRICS.md), 이벤트 이름은 [LOG.md](docs/LOG.md)에 있습니다.
+<details>
+<summary>구성별 실행과 종료</summary>
 
-## 성능
+저장소 루트에서 실행하며, `-f` 뒤에 선택한 Compose 파일을 지정합니다.</br>
+구성 간 호스트 포트가 겹치므로 기존 스택을 종료한 뒤 다른 구성을 실행합니다.
 
-Agent 1,000대가 접속한 상태에서 Controller tick은 한 번에 평균 3.7ms를 사용했습니다.
+예를 들어 다중 구역 검증 구성은 다음과 같이 실행합니다.
 
-> [!IMPORTANT]
-> 아래 수치는 현재 metric contract와 profiler가 확정되기 전 capture입니다. 제출용 포트폴리오의 정본으로 쓰지 않고, 통제된 재측정 단계에서 같은 입력·안정화·측정 시간 조건으로 교체합니다.
+```sh
+docker compose -f docker/docker-compose.scale.yml up --build -d
+docker compose -f docker/docker-compose.scale.yml ps
+docker compose -f docker/docker-compose.scale.yml logs -f
+```
 
-### 측정 환경
+`Ctrl+C`는 로그 보기만 종료합니다. 서비스를 종료할 때는 실행 시 선택한 파일과 같은 파일을 지정합니다.
 
-|항목|값|
+```sh
+docker compose -f docker/docker-compose.scale.yml down
+```
+
+기본 시연 구성은 DeviceId가 고정되어 컨테이너를 재시작해도 같은 Device로 등록됩니다.</br>
+장애 주입 절차는 [수동 장애 주입](docs/scenario.md#수동-장애-주입), Fleet의 대수·구역 설정은 [AgentFleet](docs/performance.md#부하-생성기-agentfleet)에 정리했습니다.
+
+</details>
+
+<details>
+<summary>이미지 빌드와 환경변수 설정</summary>
+
+`docker/Dockerfile`은 멀티스테이지 빌드로 `ctrl`, `agent`, `agent-fleet`을 Release 설정으로 빌드합니다.</br>
+`controller`·`agent`·`agent-fleet` 타깃은 각각 해당 바이너리를 담은 런타임 이미지를 만듭니다.
+
+Device 동작을 바꾸는 `DDCS_SIM_NOISE`·`DDCS_SIM_JITTER`는 Compose 파일의 Agent `environment`에 지정합니다.</br>
+셸에서 `export`하는 것만으로는 컨테이너에 전달되지 않습니다.
+
+</details>
+
+## 빌드와 테스트
+
+[요구 사항](#요구-사항)의 로컬 빌드·테스트 도구를 준비한 뒤 저장소 루트에서 다음 명령을 실행합니다.
+설정 생성, 컴파일, 테스트를 차례로 수행합니다.
+
+```sh
+cmake --workflow --preset debug
+```
+
+결과는 `build/debug/`에 생성됩니다.
+
+테스트에는 모듈별 단위 테스트, 실제 TCP 소켓을 사용하는 E2E, Docker 명령을 모의 실행하는 스크립트 회귀 테스트가 포함됩니다.
+
+<details>
+<summary>단계별 실행과 테스트 범위 선택</summary>
+
+각 단계를 따로 실행하려면 다음 명령을 사용합니다.
+
+```sh
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug
+```
+
+코드를 수정한 경우 테스트 전에 다시 빌드해야 합니다.
+`ctest`는 빌드를 수행하지 않습니다.
+
+|확인할 범위|명령|
 |---|---|
-|CPU|Intel i7-9750H (6코어 12스레드)|
-|RAM|16GB|
-|OS|Ubuntu 24.04 (x86_64)|
-|컴파일러|GCC 13 (C++20)|
-|빌드|release preset (`-O3`)|
-|CPU 클럭 정책|performance governor + turbo 비활성 (전 코어 2.6GHz 고정)|
+|wire 프로토콜|`ctest --preset debug -R wire`|
+|E2E|`ctest --preset debug -R e2e`|
+|직전에 실패한 테스트|`ctest --preset debug --rerun-failed`|
 
-### 측정 방법
+실패한 테스트의 출력은 자동으로 표시됩니다.
 
-부하는 실제 운영 경로를 그대로 사용합니다.
-Agent마다 heartbeat를 0.5초, Status 보고를 1초 간격으로 보내므로(배포 설정 기준), Agent가 N대면 Controller는 초당 약 3N건을 수신하고, 여기에 정책이 발행하는 명령과 응답 왕복이 더해집니다.
-
-지표는 네 가지입니다:
-
-- `tick_avg_us` / `tick_max_cum_us`: Controller tick(명령 재전송, liveness 검사, 정책 평가) 한 번의 소요 시간.
-  이 값이 tick 주기(기본 1초)에 근접하면 코어 하나로 감당할 수 있는 한계이며, 같은 값을 `ddcs_tick_duration_seconds` 계열 메트릭으로 운영 중에도 확인할 수 있습니다.
-- `in_msgs_s`: 초당 수신 메시지.
-  유입이 기대치(약 3N)에 못 미치면 병목이 Controller가 아니라 부하 생성 쪽이므로, 그 레벨의 다른 열도 재해석해야 합니다.
-- `controller_cpu_pct`: 측정 창 양끝에서 읽은 같은 Controller host PID의 CPU jiffies 차이를, 실제 snapshot 간격과 `CLK_TCK`로 환산한 평균 사용률.
-  PID가 바뀌었거나 host `/proc`을 읽을 수 없으면 추정값으로 대체하지 않고 `N/A`로 남깁니다.
-- `rtt_ms`: 정책 명령 발행부터 성공 outcome까지의 왕복 시간(측정 창에서 완료된 명령의 평균).
-- `liveness_closed`: 측정 창에 `ddcs_connections_closed_total{reason="liveness_expired"}`가 증가한 수.
-
-`scripts/perf-ramp.sh`가 `balance` 또는 `single` 배치를 받아 Agent 수를 단계별로 늘립니다. 각 레벨은 목표 연결 뒤 30초간 안정화하고, 120초 동안 지표를 수집합니다. `balance`는 4개 zone에 균등 분배하므로 레벨이 4의 배수여야 하고, `single`은 전부 zone_a 하나에 둡니다. 스크립트는 표를 터미널에 출력하되 `rows.tsv`는 남기지 않습니다. 각 레벨의 양끝 Prometheus 원문과 `measurement.json`에는 실제 snapshot 시각 및 Controller CPU jiffies를 남기므로, rate와 CPU 평균은 언제든 원문에서 다시 계산할 수 있습니다. RTT 평균의 분모는 성공 계수가 아니라 같은 histogram의 `ddcs_command_rtt_seconds_count`입니다.
-500대 이상은 호스트 전제(ARP 이웃 테이블 상한)가 있으므로 스크립트 머리말을 먼저 읽으십시오:
+C++ 빌드와 테스트만 필요하면 아래 옵션으로 스크립트 테스트를 제외할 수 있습니다.
 
 ```sh
-DDCS_PERF_LEVELS="100 200 400 600 800 1000" \
-DDCS_PERF_SETTLE=30 \
-DDCS_PERF_SOAK=120 \
-scripts/perf-ramp.sh balance
+cmake --preset debug -DDDCS_ENABLE_SCRIPT_TEST=OFF
 ```
 
-제출용 자료는 `perf-suite.sh`로 수집합니다. suite는 Controller와 Agent 이미지를 한 번만 build한 뒤 `balance`와 `single`을 각각 한 번 실행하고, child ramp가 같은 build-key와 두 image ID를 재사용하는지 manifest로 검사합니다. suite manifest는 각 child manifest의 SHA-256·크기와 preflight warning 수를 보관해 build가 바뀌거나 경고를 놓치는 일을 막습니다.
+다시 포함하려면 옵션을 `ON`으로 지정합니다.
+Docker 이미지 빌드에서는 `OFF`를 사용합니다.
+
+</details>
+
+<details>
+<summary>최적화 빌드, Sanitizer와 커버리지</summary>
+
+|목적|명령|
+|---|---|
+|배포용 최적화 빌드·테스트|`cmake --workflow --preset release`|
+|ASan·UBSan 검사|`cmake --workflow --preset asan`|
+|코드 커버리지|`scripts/coverage-report.sh`|
+
+각 빌드 결과는 `build/<preset>/`에 생성됩니다.</br>
+테스트만 다시 실행할 때는 `ctest --preset` 뒤에 `release`, `asan`, `coverage`를 지정합니다.
+
+커버리지 측정에는 `gcovr`가 추가로 필요하며, HTML 리포트는 `build/coverage/html/index.html`에 생성됩니다.
+
+</details>
+
+<details>
+<summary>실제 스택의 장애 복구 검증과 성능 측정</summary>
+
+자동 테스트 외에 Docker 스택을 기동해 과열 보호, 부하 전환, 재접속과 정책 변경을 확인할 수 있습니다.</br>
+검증 절차와 판정 기준은 [시나리오](docs/scenario.md)에 정리했습니다.
+
+대규모 부하 생성에는 [AgentFleet](docs/performance.md#부하-생성기-agentfleet)을 사용합니다.</br>
+[성능 측정](docs/performance.md) 스크립트는 부하 구성과 결과 분석에 Python 3를 추가로 사용하며, 빌드의 `DDCS_ENABLE_SCRIPT_TEST` 설정과 무관하게 호스트에 설치되어 있어야 합니다.
+
+</details>
+
+## 문제 해결
+
+먼저 컨테이너 상태와 최근 로그를 확인합니다.</br>
+다른 구성을 사용 중이면 `-f` 뒤의 경로를 해당 Compose 파일로 바꿉니다.
 
 ```sh
-DDCS_PERF_SUITE_LEVELS="100 200 400 600 800 1000" \
-DDCS_PERF_SUITE_SETTLE=30 \
-DDCS_PERF_SUITE_SOAK=120 \
-scripts/perf-suite.sh
+docker compose -f docker/docker-compose.yml ps -a
+docker compose -f docker/docker-compose.yml logs --tail 50
 ```
 
-각 Release build는 `source revision/dirty 상태`, Controller·Agent image ID, `config/` 전체의 경로+내용 SHA-256을 줄 단위로 고정해 다시 SHA-256한 `build-key`로 식별합니다. `var/result/<build-key>/build.json`은 그 식별값과 향후 profile/scenario가 채울 상태 칸을 초기화하고, 성능 원문은 그 아래 `performance/`에 둡니다. suite가 output directory를 만들기 전 source 상태를 고정해 child에 전달하므로, 새 local 결과 파일 자체가 clean revision 판정을 dirty로 바꾸지 않습니다. `source_dirty=true`, preflight fail, 또는 기록된 warning은 숨기지 않고 진단 자료로 분류합니다.
+|증상·로그|확인할 항목|조치|
+|---|---|---|
+|기동 실패</br>`Address already in use`|포트 점유 확인</br>`lsof -i :8080`</br>`lsof -i :9000`|본인 테스트 스택인지 확인한 뒤 해당 스택 종료</br>다른 프로세스는 임의로 종료하지 않음|
+|설정 오류</br>`config: malformed JSON`|오류에 표시된 JSON 파일의 문법</br>예: `jq . config/controller.json`|문법 수정 후 기동 재시도</br>정책 리로드 중 오류라면 이전 정책 유지|
+|Agent가 연결을 반복 시도함|Controller 실행 상태</br>Agent의 `transport.host`·`transport.port`</br>네트워크 연결|접속 대상과 네트워크 확인</br>Docker에서는 컨테이너에 전달된 환경변수도 확인|
+|연결이 끊긴 뒤 재접속함|종료 로그의 `reason`</br>`liveness_expired`이면 상태 보고·heartbeat 지연 여부|Agent 정지·CPU 부하·네트워크 확인</br>heartbeat 주기·liveness 제한 시간 확인|
+|정책 명령이 적용되지 않음</br>`device.group.unknown`|Agent의 Group이</br>`policy.groups`에 정의돼 있는지 확인|해당 Group의 정책 추가</br>SIGHUP으로 리로드|
+|신원 저장 실패</br>`device.id.not_persisted`|`DDCS_DEVICE_ID_FILE` 경로</br>해당 경로의 쓰기 권한|저장 경로·권한 수정</br>또는 Agent별 고유 `DDCS_DEVICE_ID` 지정|
+|Fleet 기동 실패</br>`nofile limit too low`|로컬 실행 셸의 `ulimit -n`</br>또는 Compose의 `ulimits.nofile`|파일 디스크립터 한도를</br>Agent 수 N + 32 이상으로 설정|
 
-```text
-var/result/<build-key>/
-  build.json
-  performance/
-    <UTC>-perf-balance-<PID>/
-      manifest.json
-      preflight.txt
-      controller.jsonl
-      0100/
-        measurement.json
-        metrics-start.prom
-        metrics-end.prom
-    <UTC>-perf-suite-<PID>/
-      manifest.json
-      balance/
-        ... 위 ramp 산출물 ...
-      single/
-        ... 위 ramp 산출물 ...
-```
-
-같은 총 대수에서 가장 적대적인 케이스는 Group 하나에 몰아넣는 구성입니다.
-밴드 교차가 한 번 일어나면 정책 엔진이 Group 전체에 한 tick 안에 다시 명령하므로, burst 크기가 Group 크기와 같아집니다:
-
-```sh
-# 단일 Group 1000대: 최악 burst 측정 (rtt 분포 꼬리와 tick_max_cum_us를 본다)
-DDCS_PERF_LEVELS="1000" DDCS_PERF_SETTLE=30 DDCS_PERF_SOAK=120 scripts/perf-ramp.sh single
-```
-
-### 측정 결과
-
-Agent 수, 지연, 유실 세 축으로 나눠 싣습니다.
-
-#### Agent 수에 따른 변화
-
-아래 사전 capture는 zone 4개 균등 분배, 레벨당 30초 측정 창이며, `scripts/perf-preflight.sh`를 통과한 고정 클럭 상태에서 측정했습니다.
-
-|agents|tick_avg_us|tick_max_cum_us|cpu_pct|in_msgs_s|rtt_ms|
-|---|---|---|---|---|---|
-|100|333|9,491|0.8|356|1|
-|200|607|9,491|1.3|706|2|
-|300|993|9,491|1.9|1,073|3|
-|400|1,228|9,491|2.5|1,411|5|
-|500|1,564|9,491|3.2|1,780|6|
-|600|1,760|9,491|3.2|2,107|7|
-|700|2,449|9,491|4.2|2,532|10|
-|800|2,423|16,140|4.7|2,842|10|
-|900|2,574|16,140|4.2|3,143|11|
-|1000|3,734|16,140|5.4|3,593|14|
-
-tick은 Agent 수에 선형이며(한 대당 약 3.4us), 1,000대에서 평균 3.7ms로 tick 주기(1초)의 0.37%입니다.
-모든 레벨에서 미결 명령(`pending`)과 liveness 종료(`liveness_closed`)는 0이었고, `in_msgs_s`가 기대 유입(약 3N + 명령 응답)과 일치하므로 부하가 실제로 걸렸음을 표에서 그대로 확인할 수 있습니다.
-램프 전체에서 완료된 명령 74,789건 중 50ms를 넘긴 것은 0건입니다.
-`tick_max_cum_us`는 시작 후 누적 최대라 레벨 전이(수백 컨테이너 생성 폭풍)를 포함한 값이고, 상위 레벨의 `rtt_ms`에는 Agent 프로세스 1,000개와 코어를 나눠 쓰는 호스트 경합 몫이 섞입니다.
-
-**단일 Group(burst 최악 케이스).** zone_a 하나에 250대부터 1,000대까지 단계 상승시키며 레벨당 60초씩, 같은 고정 클럭 환경에서 측정했습니다:
-
-|agents (단일 Group)|tick_avg_us|cpu_pct|in_msgs_s|rtt_ms|
-|---|---|---|---|---|
-|250|691|1.6|870|3|
-|500|1,626|3.1|1,785|8|
-|750|2,077|3.8|2,606|12|
-|1000|3,275|5.1|3,587|14|
-
-전 구간에서 Regime 전환은 11회 일어났습니다.
-1,000대 레벨에서는 전환 한 번이 최대 1,000건의 동시 dispatch가 되는데, 그 tick을 포함해도 tick 최대 누적은 11.2ms로 tick 주기(1초)의 1.2%입니다.
-완료 84,171건 중 50ms 초과는 0.9%, 100ms 초과는 0건이었고, pending과 liveness_closed는 전부 0이었습니다.
-같은 대수를 zone 4개에 나눈 구성보다 rtt가 0~3ms 높은 것이 burst의 비용입니다.
-이 차이는 모든 명령에 고르게 퍼지지 않고 느린 쪽 명령에 몰리지만, 가장 느린 명령도 100ms 안에 끝납니다.
-
-![Agent 수에 따른 tick 평균과 명령 왕복 시간](assets/perf-scalability.svg)
-
-_그림 4. tick 평균과 명령 왕복 시간 (zone 4개 분배와 단일 Group)_
-
-이 비례는 tick이 매 주기 등록된 항목 전부를 훑기 때문에 나타납니다.
-단순 외삽으로는 한 코어가 수만 대까지 감당하지만 그 전에 소켓 fd, 메모리, 네트워크가 먼저 한계에 도달하며, 만료된 항목만 골라 처리하는 구조가 다음 개선 과제입니다([한계점과 확장 방향](docs/ARCHITECTURE.md#102-제약과-개선-방향)).
-
-#### 지연 시간
-
-Controller는 명령 왕복 시간을 히스토그램(`ddcs_command_rtt_seconds`)으로 기록하므로 평균뿐 아니라 p50, p99 같은 분위수를 뽑을 수 있습니다.
-아래는 그 분포 덕에 잡은 결함의 진단 기록이며, **Agent 소켓의 `TCP_NODELAY` 수정 전 값입니다.**
-
-Agent 30대를 3시간 운영했을 때 평균은 약 5.2ms로 무난해 보였지만, 히스토그램은 완료 76,634건 중 84%가 1ms 이내, 12%가 21~50ms 구간에 몰린 이봉 분포였습니다.
-그 사이 5~20ms 구간은 2건뿐이므로 이 꼬리는 부하가 만드는 연속적인 꼬리가 아니라 별개의 현상이고, 위치가 Linux delayed-ACK 타이머(최대 40ms)와 정확히 겹칩니다.
-원인은 네트워크가 아니라 코드에 있었는데, Agent는 명령 하나에 ack와 outcome을 중간 read 없이 연달아 보내면서도 connect하는 소켓에 `TCP_NODELAY`가 빠져 있어, Nagle이 두 번째 write를 상대 ACK까지 붙잡았습니다.
-Agent 소켓에도 같은 옵션을 걸어 수정했고([설계 결정](docs/ARCHITECTURE.md#9-설계-결정)), 평균만 노출했다면 5.2ms 하나로 지나쳤을 문제를 분포를 노출한 덕에 잡았습니다.
-
-![명령 왕복 시간과 tick 추이](assets/grafana-saturation.png)
-
-_그림 5. 3시간 연속 운영 구간의 rtt와 tick (`TCP_NODELAY` 수정 전)_
-
-오른쪽이 명령 왕복 시간(p50/p99), 왼쪽이 tick 시간이며, tick 시간은 3시간 내내 증가 추세 없이 일정합니다.
-
-> [!NOTE]
-> 위 측정은 단일 호스트(loopback)라 실제 네트워크의 전파 지연이 빠져 있습니다.
-> 다만 p99 40ms처럼 자기 코드가 만든 지연은 loopback에서 오히려 선명하게 드러나며, "Agent 수가 늘어날 때 CPU가 감당하는가"라는 질문에는 이 측정으로 충분합니다.
-
-#### 유실과 복구
-
-Agent 30대를 3시간 운영한 구간에서 명령 76,635건을 처리했고, 유실과 포기는 0건이었습니다.
-`docker pause`로 장애를 주입했을 때 축출까지 약 2.0초가 걸렸고(liveness 1.5초 설정 + sweep 1초 해상도), `unpause` 후 재접속으로 연결이 복구되기까지는 0.23초였습니다(2026-07-31 실측).
+연결 종료 원인은 `ddcs_connections_closed_total`의 `reason` 라벨과 로그를 함께 확인합니다.</br>
+설정 키는 [설정 가이드](docs/config.md), 지표와 이벤트는 [메트릭](docs/metrics.md)·[로그](docs/log.md)를 참고합니다.
 
 ## 라이선스
 

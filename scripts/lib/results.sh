@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # shellcheck shell=bash
-# source 전용: build 식별 및 결과 저장. 상세: docs/PROFILE.md.
+# source 전용: build 식별 및 결과 저장. 상세: docs/profiling.md.
 # 동일 build-key 초기화 시 기존 profile/scenario 결과를 보존한다.
 
 result_require_jq() {
