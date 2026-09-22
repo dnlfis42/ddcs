@@ -1,0 +1,64 @@
+<mxfile host="65bd71144e">
+    <diagram id="7p-MAqqJ8Cdu6yqOHzrf" name="Page-1">
+        <mxGraphModel dx="1450" dy="833" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="1000" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="13" value="" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Pretendard;spacing=0;" parent="1" vertex="1">
+                    <mxGeometry x="380" y="70" width="240" height="310" as="geometry"/>
+                </mxCell>
+                <mxCell id="8" value="" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Pretendard;spacing=4;spacingLeft=6;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="20" y="70" width="240" height="310" as="geometry"/>
+                </mxCell>
+                <mxCell id="19" value="상태 보고" style="edgeStyle=none;html=1;fontSize=14;fontFamily=Pretendard;fontStyle=1;labelPosition=center;verticalLabelPosition=top;align=center;verticalAlign=bottom;spacing=0;labelBackgroundColor=none;" parent="1" source="9" target="11" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="9" value="&lt;font style=&quot;font-size: 16px;&quot;&gt;&lt;b&gt;장치 상태 조회&lt;/b&gt;&lt;/font&gt;&lt;div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;동작 모드·부하율&lt;span style=&quot;color: rgb(63, 63, 63); background-color: transparent;&quot;&gt;·온도&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Pretendard;spacing=4;align=left;spacingLeft=6;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="160" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="16" value="반복" style="edgeStyle=none;html=1;fontFamily=Pretendard;fontSize=12;" parent="1" source="10" target="9" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="10" value="&lt;font style=&quot;font-size: 16px;&quot;&gt;&lt;b&gt;장치에 동작 모드 적용&lt;/b&gt;&lt;/font&gt;&lt;div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;다음 보고부터 반영&lt;/div&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Pretendard;spacing=4;align=left;spacingLeft=6;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="280" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="17" value="주기 평가" style="edgeStyle=none;html=1;fontFamily=Pretendard;fontSize=12;" parent="1" source="11" target="12" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="11" value="&lt;font style=&quot;font-size: 16px;&quot;&gt;&lt;b&gt;상태 사본 갱신&lt;/b&gt;&lt;/font&gt;&lt;div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;장치별 최신 보고 보관&lt;/div&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Pretendard;spacing=4;align=left;spacingLeft=6;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="400" y="160" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="12" value="&lt;font style=&quot;font-size: 16px;&quot;&gt;&lt;b&gt;목표 동작 모드 판단&lt;/b&gt;&lt;/font&gt;&lt;div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;구역 평균 부하&lt;span style=&quot;white-space: pre;&quot;&gt;&#x9;&lt;/span&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;→ 기본 모드&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;장치별 과열&lt;span style=&quot;white-space: pre;&quot;&gt;&#x9;&lt;/span&gt;&lt;/span&gt;&lt;span style=&quot;background-color: transparent;&quot;&gt;→ 보호 모드 우선&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fontFamily=Pretendard;spacing=4;align=left;spacingLeft=6;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="400" y="280" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="15" value="&lt;b&gt;&lt;font style=&quot;font-size: 20px;&quot;&gt;Agent x N&lt;/font&gt;&lt;/b&gt;&lt;div&gt;&lt;div&gt;&lt;div&gt;&lt;span style=&quot;color: rgb(63, 63, 63); background-color: transparent;&quot;&gt;&lt;br&gt;&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;color: rgb(63, 63, 63); background-color: transparent;&quot;&gt;각 Agent가 장치 하나를 담당&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=bottom;spacing=0;strokeColor=none;labelPosition=center;verticalLabelPosition=top;horizontal=1;fontFamily=Pretendard;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="140" width="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="18" value="&lt;b&gt;&lt;font style=&quot;font-size: 20px;&quot;&gt;Controller&lt;/font&gt;&lt;/b&gt;&lt;div&gt;&lt;span style=&quot;color: rgb(63, 63, 63); background-color: transparent;&quot;&gt;&lt;br&gt;&lt;/span&gt;&lt;/div&gt;&lt;div&gt;보고받은 상태와 구역별 정책 사용&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=bottom;spacing=0;strokeColor=none;fontFamily=Pretendard;labelPosition=center;verticalLabelPosition=top;" parent="1" vertex="1">
+                    <mxGeometry x="400" y="140" width="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="20" value="명령" style="edgeStyle=none;html=1;fontSize=14;fontFamily=Pretendard;labelPosition=center;verticalLabelPosition=bottom;align=center;verticalAlign=top;fontStyle=1;spacing=0;labelBackgroundColor=none;" parent="1" source="12" target="10" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="250" y="180" as="sourcePoint"/>
+                        <mxPoint x="450" y="180" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="21" value="수신 확인&lt;div&gt;적용 결과&lt;/div&gt;" style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=12;fontFamily=Pretendard;dashed=1;labelPosition=center;verticalLabelPosition=top;align=center;verticalAlign=bottom;spacing=0;labelBackgroundColor=none;" parent="1" source="8" target="13" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="250" y="220" as="sourcePoint"/>
+                        <mxPoint x="450" y="220" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="320" y="260"/>
+                            <mxPoint x="320" y="260"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="23" value="DDCS 제어 흐름" style="rounded=0;whiteSpace=wrap;html=1;spacing=0;spacingLeft=10;align=left;verticalAlign=bottom;labelPosition=center;verticalLabelPosition=top;fontSize=24;fontFamily=Pretendard;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="10" y="50" width="200" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
