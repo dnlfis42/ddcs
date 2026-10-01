@@ -105,14 +105,14 @@ void PolicyService::on_command_failed(domain::DeviceId device, port::CommandId c
 
 void PolicyService::set_policy(domain::GroupPolicy policy) {
     policy_ = std::move(policy);
-    // 부하와 과열 상태는 유지한다. 과열의 조기 해제를 막고,
+    // 부하와 과열 상태, 보호 모드 명령 여부는 유지한다. 과열의 조기 해제를 막고,
     // 부하가 두 임계값 사이에 있어도 기존 상태를 기준으로 새 정책을 적용한다.
     commanded_.clear();
 }
 
 void PolicyService::on_device_released(domain::DeviceId device) {
+    // 재접속하면 발행 기록이 비어 있으므로 현재 판단대로 다시 명령한다.
     commanded_.erase(device);
-    thermal_.erase(device);
 }
 
 void PolicyService::evaluate(common::Clock::time_point now) {
@@ -169,7 +169,8 @@ void PolicyService::evaluate(common::Clock::time_point now) {
         }
 
         auto& commanded = commanded_[id];
-        auto effective = rule.effective_mode(git->second.regime, thermal, commanded.mode);
+        domain::GroupLoadRegime const regime = git->second.regime;
+        auto effective = rule.effective_mode(regime, thermal, protection_commanded_.contains(id));
         if (!effective && commanded.failed) {
             // 과열 해제 후 부하 상태가 미정이어도 실패한 복귀 명령의 목표를 다시 사용한다.
             effective = commanded.mode;
@@ -182,6 +183,11 @@ void PolicyService::evaluate(common::Clock::time_point now) {
         }
         commanded.mode = effective;
         commanded.failed = false;
+        if (thermal == domain::DeviceThermalRegime::hot && rule.thermal()) {
+            protection_commanded_.insert(id);
+        } else if (regime != domain::GroupLoadRegime::unknown) {
+            protection_commanded_.erase(id); // 부하 상태는 다시 미정으로 돌아가지 않는다.
+        }
         pending_.emplace_back(id, *effective);
     });
 

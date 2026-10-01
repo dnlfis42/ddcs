@@ -13,6 +13,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -38,13 +39,14 @@ public:
     PolicyService(PolicyService&&) = delete;
     PolicyService& operator=(PolicyService&&) = delete;
 
-    // 정책을 적용하고 명령 기록을 비운다. 기존 부하 상태와 과열 상태는 유지한다.
+    // 정책을 적용하고 발행 기록을 비운다. 부하 상태, 과열 상태, 보호 모드 명령 여부는 유지한다.
     void set_policy(domain::GroupPolicy policy);
 
     // Controller의 tick마다 정책을 평가한다.
     void evaluate(common::Clock::time_point now);
 
-    // Device 연결이 종료되면 해당 Device의 명령 기록과 과열 상태를 제거한다.
+    // Device 연결이 종료되면 해당 Device의 발행 기록을 지운다.
+    // 과열 상태와 보호 모드 명령 여부는 DeviceShadow처럼 유지한다.
     void on_device_released(domain::DeviceId device) override;
 
     // 현재 명령의 최종 실패를 기록한다. 재발행 여부는 다음 evaluate()에서 결정한다.
@@ -75,6 +77,10 @@ private:
     };
     // 과열 해제 후 복귀할 목표를 유지한다. 명령 실패 시에도 목표 모드를 보존해 다시 발행한다.
     std::unordered_map<domain::DeviceId, CommandBelief> commanded_;
+    // 보호 모드를 마지막으로 명령한 Device. 부하 상태가 미정일 때 냉각되면 idle_mode로 복귀시킨다.
+    // 정책 교체와 연결 종료 뒤에도 남는다.
+    // 부하 상태가 정해진 뒤 과열이 아닌 목표를 발행할 때 지운다.
+    std::unordered_set<domain::DeviceId> protection_commanded_;
     std::vector<std::pair<domain::DeviceId, ddcs::device::Mode>> pending_; // Device 순회를 마친 뒤 전송할 명령 목록
 };
 

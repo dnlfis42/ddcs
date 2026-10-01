@@ -658,6 +658,109 @@ TEST(PolicyServiceTest, ThermalReleasesToBaselineWhenLoadInBand) {
     EXPECT_EQ(f.sender.sent.size(), 2u); // 해제 후 재발신 없음
 }
 
+// 온도 보호 규칙을 제거한 정책으로 바꿔도 보호 모드를 명령했던 Device는 idle_mode로 복귀한다.
+TEST(PolicyServiceTest, ReloadWithoutThermalRuleReleasesProtectionWhenRegimeUnknown) {
+    PolicyFixture f;
+    // 부하가 두 임계값 사이에 있어 부하 상태가 미정이다.
+    DeviceId const id = f.enroll(0x01, "sensors", 50.0);
+    f.policy.set_policy(PolicyFixture::hot_policy());
+    ASSERT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::normal, .load = 50.0, .temp = 95.0})
+    );
+    f.policy.evaluate(f.clock.now());
+    ASSERT_EQ(f.sender.sent.size(), 1u);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::performance);
+
+    f.policy.set_policy(PolicyFixture::sensors_policy()); // 온도 보호 규칙을 제거한다.
+    f.policy.evaluate(f.clock.now());
+
+    ASSERT_EQ(f.sender.sent.size(), 2u);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::normal);
+}
+
+// 같은 정책을 다시 적용한 뒤 냉각되어도 보호 모드를 명령했던 Device는 idle_mode로 복귀한다.
+TEST(PolicyServiceTest, ReloadKeepsProtectionReleaseWhenRegimeUnknown) {
+    PolicyFixture f;
+    // 부하가 두 임계값 사이에 있어 부하 상태가 미정이다.
+    DeviceId const id = f.enroll(0x01, "sensors", 50.0);
+    f.policy.set_policy(PolicyFixture::hot_policy());
+    ASSERT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::normal, .load = 50.0, .temp = 95.0})
+    );
+    f.policy.evaluate(f.clock.now());
+    ASSERT_EQ(f.sender.sent.size(), 1u);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::performance);
+
+    f.policy.set_policy(PolicyFixture::hot_policy());
+    ASSERT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::performance, .load = 50.0, .temp = 60.0})
+    );
+    f.policy.evaluate(f.clock.now()); // 해제 온도 70 아래로 냉각되었다.
+
+    ASSERT_EQ(f.sender.sent.size(), 2u);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::normal);
+}
+
+// 재접속해도 과열 상태와 보호 모드 명령 여부는 유지한다.
+TEST(PolicyServiceTest, ReconnectKeepsThermalLatchAndProtectionRelease) {
+    PolicyFixture f;
+    // 부하가 두 임계값 사이에 있어 부하 상태가 미정이다.
+    DeviceId const id = f.enroll(0x01, "sensors", 50.0);
+    f.policy.set_policy(PolicyFixture::hot_policy());
+    ASSERT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::normal, .load = 50.0, .temp = 95.0})
+    );
+    f.policy.evaluate(f.clock.now());
+    ASSERT_EQ(f.sender.sent.size(), 1u);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::performance);
+
+    f.policy.on_device_released(id);
+    ASSERT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::performance, .load = 50.0, .temp = 80.0})
+    );
+    f.policy.evaluate(f.clock.now()); // 두 기준 사이 온도이므로 과열 상태를 유지한다.
+
+    ASSERT_EQ(f.sender.sent.size(), 2u); // 발행 기록이 비어 있어 보호 모드를 다시 명령한다.
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::performance);
+
+    ASSERT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::performance, .load = 50.0, .temp = 60.0})
+    );
+    f.policy.evaluate(f.clock.now());
+
+    ASSERT_EQ(f.sender.sent.size(), 3u);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::normal);
+}
+
+// 보호 해제 명령이 최종 실패한 뒤 정책을 다시 적용해도 idle_mode를 다시 발행한다.
+TEST(PolicyServiceTest, ReloadReissuesFailedProtectionReleaseWhenRegimeUnknown) {
+    PolicyFixture f;
+    // 부하가 두 임계값 사이에 있어 부하 상태가 미정이다.
+    DeviceId const id = f.enroll(0x01, "sensors", 50.0);
+    f.policy.set_policy(PolicyFixture::hot_policy());
+    ASSERT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::normal, .load = 50.0, .temp = 95.0})
+    );
+    f.policy.evaluate(f.clock.now());
+    auto const hot = f.sender.sent.back().command_id;
+    f.commands.settle(id, hot, true, 0, f.clock.now());
+    ASSERT_TRUE(
+        f.devices.update_status(id, Status{.mode = Mode::performance, .load = 50.0, .temp = 60.0})
+    );
+    f.policy.evaluate(f.clock.now());
+    ASSERT_EQ(f.sender.sent.size(), 2u);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::normal);
+    f.clock.advance(6s);
+    f.commands.sweep(f.clock.now()); // 보호 해제 명령이 최종 실패한다.
+    ASSERT_EQ(f.commands.metrics().failed_exhausted_total, 1u);
+
+    f.policy.set_policy(PolicyFixture::hot_policy());
+    f.policy.evaluate(f.clock.now());
+
+    ASSERT_EQ(f.sender.sent.size(), 3u);
+    EXPECT_EQ(f.sender.sent.back().mode, Mode::normal);
+}
+
 // 전송 실패로 연결이 종료되면 활성 Device 목록이 바뀔 수 있다.
 // 명령은 대상을 모으는 순회가 끝난 뒤 전송해야 한다.
 TEST(PolicyServiceTest, DispatchesCommandsOutsideRosterIteration) {
