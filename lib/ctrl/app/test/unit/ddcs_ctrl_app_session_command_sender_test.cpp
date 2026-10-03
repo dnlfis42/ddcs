@@ -3,12 +3,12 @@
 #include "ddcs/common/clock.hpp"
 #include "ddcs/common/linear_buffer.hpp"
 #include "ddcs/common/object_pool.hpp"
-#include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/session/session.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
 #include "ddcs/ctrl/app/transport/port/connection_id.hpp"
 #include "ddcs/ctrl/app/transport/port/message_buffer.hpp"
 #include "ddcs/ctrl/app/transport/port/message_sender.hpp"
+#include "ddcs/ctrl/domain/command_id.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/device/mode.hpp"
 #include "ddcs/wire/command/command.hpp"
@@ -30,13 +30,13 @@ namespace cmd = ddcs::wire::command;
 namespace frame = ddcs::wire::frame;
 
 using ddcs::common::ManualClock;
-using ddcs::ctrl::app::device::port::CommandId;
 using ddcs::ctrl::app::device::port::SendResult;
 using ddcs::ctrl::app::session::CommandSender;
 using ddcs::ctrl::app::session::SessionRegistry;
 using ddcs::ctrl::app::transport::port::ConnectionId;
 using ddcs::ctrl::app::transport::port::MessageBuffer;
 using ddcs::ctrl::app::transport::port::MessageSender;
+using ddcs::ctrl::domain::CommandId;
 using ddcs::ctrl::domain::DeviceId;
 using ddcs::device::Mode;
 using ddcs::wire::command::SetMode;

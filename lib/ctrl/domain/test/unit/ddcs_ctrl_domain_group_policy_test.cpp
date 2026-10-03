@@ -3,7 +3,6 @@
 #include "ddcs/device/mode.hpp"
 
 #include <limits>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -168,68 +167,6 @@ TEST(GroupRuleTest, NextThermalStaysCoolWithoutThermalRule) {
     auto const rule = make_rule();
     EXPECT_EQ(rule.next_thermal(DeviceThermalRegime::hot, 200.0), DeviceThermalRegime::cool);
     EXPECT_EQ(rule.next_thermal(DeviceThermalRegime::cool, 200.0), DeviceThermalRegime::cool);
-}
-
-TEST(GroupRuleTest, EffectiveModeOverridesWithHighTempModeWhenHot) {
-    auto const rule = make_thermal_rule();
-    // hot이면 regime과 무관하게 hot_mode
-    EXPECT_EQ(
-        rule.effective_mode(GroupLoadRegime::busy, DeviceThermalRegime::hot, false), Mode::safe
-    );
-    EXPECT_EQ(
-        rule.effective_mode(GroupLoadRegime::idle, DeviceThermalRegime::hot, false), Mode::safe
-    );
-    EXPECT_EQ(
-        rule.effective_mode(GroupLoadRegime::unknown, DeviceThermalRegime::hot, false), Mode::safe
-    );
-}
-
-TEST(GroupRuleTest, EffectiveModeFollowsRegimeBaseModeWhenCool) {
-    auto const rule = make_thermal_rule();
-    EXPECT_EQ(
-        rule.effective_mode(GroupLoadRegime::busy, DeviceThermalRegime::cool, false),
-        Mode::performance
-    );
-    EXPECT_EQ(
-        rule.effective_mode(GroupLoadRegime::idle, DeviceThermalRegime::cool, false), Mode::normal
-    );
-}
-
-TEST(GroupRuleTest, EffectiveModeReleasesProtectionWhenRegimeUnknown) {
-    // thermal이 풀렸는데 regime 미확정: 마지막으로 보호 모드를 명령했다면 baseline으로 복귀
-    EXPECT_EQ(
-        make_thermal_rule().effective_mode(
-            GroupLoadRegime::unknown, DeviceThermalRegime::cool, true
-        ),
-        Mode::normal
-    );
-    // 리로드로 thermal 룰이 제거되어도 보호 모드를 해제한다
-    EXPECT_EQ(
-        make_rule().effective_mode(GroupLoadRegime::unknown, DeviceThermalRegime::cool, true),
-        Mode::normal
-    );
-}
-
-TEST(GroupRuleTest, EffectiveModeUndecidedWhenRegimeUnknown) {
-    // 보호 모드를 명령하지 않았으면 아직 결정 없음
-    EXPECT_EQ(
-        make_thermal_rule().effective_mode(
-            GroupLoadRegime::unknown, DeviceThermalRegime::cool, false
-        ),
-        std::nullopt
-    );
-    EXPECT_EQ(
-        make_rule().effective_mode(GroupLoadRegime::unknown, DeviceThermalRegime::cool, false),
-        std::nullopt
-    );
-}
-
-TEST(GroupRuleTest, EffectiveModeIgnoresHotWithoutThermalRule) {
-    // next_thermal이 만들지 않는 조합이지만 전 입력 안전: regime 분기로 강등된다
-    auto const rule = make_rule();
-    EXPECT_EQ(
-        rule.effective_mode(GroupLoadRegime::busy, DeviceThermalRegime::hot, false), Mode::safe
-    );
 }
 
 TEST(GroupPolicyTest, ContainsKnownGroupsOnly) {

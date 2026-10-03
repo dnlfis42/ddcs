@@ -4,6 +4,8 @@
 #include "ddcs/ctrl/app/device/command_service.hpp"
 #include "ddcs/ctrl/app/device/port/active_devices.hpp"
 #include "ddcs/ctrl/app/device/port/device_release_sink.hpp"
+#include "ddcs/ctrl/domain/command_id.hpp"
+#include "ddcs/ctrl/domain/device_control.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/domain/group_policy.hpp"
@@ -13,7 +15,6 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -50,7 +51,7 @@ public:
     void on_device_released(domain::DeviceId device) override;
 
     // 현재 명령의 최종 실패를 기록한다. 재발행 여부는 다음 evaluate()에서 결정한다.
-    void on_command_failed(domain::DeviceId device, port::CommandId command) noexcept override;
+    void on_command_failed(domain::DeviceId device, domain::CommandId command) noexcept override;
 
     // 현재 적용된 정책
     // set_policy()로 내용을 교체해도 정책 객체에 대한 참조는 유효하다.
@@ -68,19 +69,8 @@ private:
     domain::GroupPolicy policy_;
     std::unordered_map<std::string, domain::GroupLoadRegime>
         regime_; // Group별 부하 상태
-    std::unordered_map<domain::DeviceId, domain::DeviceThermalRegime>
-        thermal_; // Device별 과열 상태
-    struct CommandBelief {
-        std::optional<ddcs::device::Mode> mode;
-        port::CommandId command;
-        bool failed = false;
-    };
-    // 과열 해제 후 복귀할 목표를 유지한다. 명령 실패 시에도 목표 모드를 보존해 다시 발행한다.
-    std::unordered_map<domain::DeviceId, CommandBelief> commanded_;
-    // 보호 모드를 마지막으로 명령한 Device. 부하 상태가 미정일 때 냉각되면 idle_mode로 복귀시킨다.
-    // 정책 교체와 연결 종료 뒤에도 남는다.
-    // 부하 상태가 정해진 뒤 과열이 아닌 목표를 발행할 때 지운다.
-    std::unordered_set<domain::DeviceId> protection_commanded_;
+    std::unordered_map<domain::DeviceId, domain::DeviceControl>
+        controls_; // Device별 판단 상태. 정책 교체와 연결 종료 뒤에도 남는다.
     std::vector<std::pair<domain::DeviceId, ddcs::device::Mode>> pending_; // Device 순회를 마친 뒤 전송할 명령 목록
 };
 

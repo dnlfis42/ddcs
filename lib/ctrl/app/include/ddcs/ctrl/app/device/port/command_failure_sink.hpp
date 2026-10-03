@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ddcs/ctrl/app/device/port/command_id.hpp"
+#include "ddcs/ctrl/domain/command_id.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 
 namespace ddcs::ctrl::app::device::port {
@@ -10,7 +10,7 @@ namespace ddcs::ctrl::app::device::port {
 class CommandFailureSink {
 public:
     virtual ~CommandFailureSink() = default;
-    virtual void on_command_failed(domain::DeviceId device, CommandId command) noexcept = 0;
+    virtual void on_command_failed(domain::DeviceId device, domain::CommandId command) noexcept = 0;
 };
 
 } // namespace ddcs::ctrl::app::device::port

@@ -1,8 +1,8 @@
 #include "ddcs/ctrl/app/device/command_service.hpp"
 
 #include "ddcs/common/clock.hpp"
-#include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/device/port/command_sender.hpp"
+#include "ddcs/ctrl/domain/command_id.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/device/mode.hpp"
 #include "ddcs/wire/command/command.hpp"
@@ -20,9 +20,9 @@ namespace {
 
 using ddcs::common::ManualClock;
 using ddcs::ctrl::app::device::CommandService;
-using ddcs::ctrl::app::device::port::CommandId;
 using ddcs::ctrl::app::device::port::CommandSender;
 using ddcs::ctrl::app::device::port::SendResult;
+using ddcs::ctrl::domain::CommandId;
 using ddcs::ctrl::domain::DeviceId;
 using ddcs::device::Mode;
 using ddcs::wire::command::Command;

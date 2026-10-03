@@ -35,7 +35,7 @@ std::size_t CommandService::pending_count() const noexcept {
     return total;
 }
 
-port::CommandId CommandService::dispatch(
+domain::CommandId CommandService::dispatch(
     domain::DeviceId device, wire::command::Command command, common::Clock::time_point now,
     port::CommandFailureSink* failure_sink
 ) {
@@ -52,7 +52,7 @@ port::CommandId CommandService::dispatch(
         device_commands.slots.erase(old_slot);
     }
 
-    port::CommandId const command_id{next_command_id_++};
+    domain::CommandId const command_id{next_command_id_++};
     if (auto const sent = sender_.send(device, command_id, command); sent != port::SendResult::ok) {
         record_dispatch_failure(sent);
         LOG_COMMAND_DISPATCH_FAIL(device.to_string(), command_id.get(), port::to_string(sent));
@@ -79,7 +79,7 @@ port::CommandId CommandService::dispatch(
 }
 
 void CommandService::acknowledge(
-    domain::DeviceId device, port::CommandId command_id, common::Clock::time_point now
+    domain::DeviceId device, domain::CommandId command_id, common::Clock::time_point now
 ) {
     Slot* const slot = find_slot(device, command_id);
     if (slot == nullptr) {
@@ -94,7 +94,7 @@ void CommandService::acknowledge(
 }
 
 void CommandService::settle(
-    domain::DeviceId device, port::CommandId command_id, bool success, std::uint8_t code,
+    domain::DeviceId device, domain::CommandId command_id, bool success, std::uint8_t code,
     common::Clock::time_point now
 ) {
     Slot* const slot = find_slot(device, command_id);
@@ -129,7 +129,7 @@ void CommandService::settle(
 }
 
 void CommandService::sweep(common::Clock::time_point now) {
-    std::vector<std::pair<domain::DeviceId, port::CommandId>>
+    std::vector<std::pair<domain::DeviceId, domain::CommandId>>
         due; // 순회 중 목록을 변경하지 않도록 처리할 명령을 먼저 모은다.
     for (auto const& [device, commands] : pending_) {
         for (auto const& slot : commands.slots) {
@@ -154,7 +154,7 @@ void CommandService::sweep(common::Clock::time_point now) {
 }
 
 void CommandService::fail_attempt(
-    domain::DeviceId device, port::CommandId command_id, common::Clock::time_point now,
+    domain::DeviceId device, domain::CommandId command_id, common::Clock::time_point now,
     AttemptFailureReason reason
 ) {
     Slot* const slot = find_slot(device, command_id);
@@ -183,7 +183,7 @@ void CommandService::fail_attempt(
 }
 
 void CommandService::resend(
-    domain::DeviceId device, port::CommandId command_id, common::Clock::time_point now
+    domain::DeviceId device, domain::CommandId command_id, common::Clock::time_point now
 ) {
     Slot* const slot = find_slot(device, command_id);
     if (slot == nullptr) {
@@ -242,7 +242,7 @@ std::chrono::nanoseconds CommandService::backoff_for(int attempt) const noexcept
 }
 
 CommandService::Slot*
-CommandService::find_slot(domain::DeviceId device, port::CommandId command_id) {
+CommandService::find_slot(domain::DeviceId device, domain::CommandId command_id) {
     auto const it = pending_.find(device);
     if (it == pending_.end()) {
         return nullptr;
@@ -265,7 +265,7 @@ void CommandService::detach_failure_sink(port::CommandFailureSink& sink) noexcep
     }
 }
 
-void CommandService::close_failed_slot(domain::DeviceId device, port::CommandId command_id) {
+void CommandService::close_failed_slot(domain::DeviceId device, domain::CommandId command_id) {
     auto const* slot = find_slot(device, command_id);
     auto* sink = slot ? slot->failure_sink : nullptr;
     close_slot(device, command_id); // 콜백이 명령 목록을 변경할 수 있으므로 먼저 제거하고 이후에는 슬롯을 참조하지 않는다.
@@ -274,7 +274,7 @@ void CommandService::close_failed_slot(domain::DeviceId device, port::CommandId 
     }
 }
 
-void CommandService::close_slot(domain::DeviceId device, port::CommandId command_id) {
+void CommandService::close_slot(domain::DeviceId device, domain::CommandId command_id) {
     auto const it = pending_.find(device);
     if (it == pending_.end()) {
         return;

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/device/port/command_sender.hpp"
 #include "ddcs/ctrl/app/session/session_registry.hpp"
 #include "ddcs/ctrl/app/transport/port/message_sender.hpp"
+#include "ddcs/ctrl/domain/command_id.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/wire/command/command.hpp"
 
@@ -18,8 +18,7 @@ public:
     CommandSender(SessionRegistry& sessions, port::MessageSender& sender) noexcept;
 
     [[nodiscard]] device::port::SendResult send(
-        domain::DeviceId device, device::port::CommandId command_id,
-        wire::command::Command const& command
+        domain::DeviceId device, domain::CommandId command_id, wire::command::Command const& command
     ) override;
 
 private:

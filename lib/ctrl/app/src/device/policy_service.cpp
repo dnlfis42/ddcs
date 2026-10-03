@@ -1,6 +1,7 @@
 #include "ddcs/ctrl/app/device/policy_service.hpp"
 
 #include "ddcs/ctrl/app/device/group_aggregate.hpp"
+#include "ddcs/ctrl/domain/device_control.hpp"
 #include "ddcs/ctrl/domain/device_shadow.hpp"
 #include "ddcs/device/mode.hpp"
 #include "ddcs/logger/event.hpp"
@@ -96,23 +97,26 @@ PolicyService::~PolicyService() {
     commands_.detach_failure_sink(*this);
 }
 
-void PolicyService::on_command_failed(domain::DeviceId device, port::CommandId command) noexcept {
-    auto const it = commanded_.find(device);
-    if (it != commanded_.end() && it->second.command == command) {
-        it->second.failed = true;
+void PolicyService::on_command_failed(domain::DeviceId device, domain::CommandId command) noexcept {
+    if (auto const it = controls_.find(device); it != controls_.end()) {
+        it->second.failed(command);
     }
 }
 
 void PolicyService::set_policy(domain::GroupPolicy policy) {
     policy_ = std::move(policy);
-    // 부하와 과열 상태, 보호 모드 명령 여부는 유지한다. 과열의 조기 해제를 막고,
-    // 부하가 두 임계값 사이에 있어도 기존 상태를 기준으로 새 정책을 적용한다.
-    commanded_.clear();
+    // 부하 상태는 유지해 부하가 두 임계값 사이에 있어도 기존 상태를 기준으로 새 정책을 적용한다.
+    // DeviceControl은 발행 기록만 비우고 과열 상태를 유지해 과열의 조기 해제를 막는다.
+    for (auto& [device, control] : controls_) {
+        control.policy_replaced();
+    }
 }
 
 void PolicyService::on_device_released(domain::DeviceId device) {
     // 재접속하면 발행 기록이 비어 있으므로 현재 판단대로 다시 명령한다.
-    commanded_.erase(device);
+    if (auto const it = controls_.find(device); it != controls_.end()) {
+        it->second.released();
+    }
 }
 
 void PolicyService::evaluate(common::Clock::time_point now) {
@@ -158,37 +162,18 @@ void PolicyService::evaluate(common::Clock::time_point now) {
         }
         domain::GroupRule const& rule = *git->second.rule;
 
-        domain::DeviceThermalRegime& thermal = thermal_[id];
-        domain::DeviceThermalRegime const previous = thermal;
-        thermal = rule.next_thermal(thermal, shadow->status->temp);
-        if (thermal != previous) {
+        domain::DeviceControl& control = controls_[id];
+        domain::DeviceThermalRegime const previous = control.thermal();
+        auto const mode = control.decide(rule, git->second.regime, shadow->status->temp);
+        if (control.thermal() != previous) {
             // 과열 진입과 해제를 모두 기록한다.
             LOG_POLICY_THERMAL_UPDATE(
-                id.to_string(), domain::to_string(thermal), shadow->status->temp
+                id.to_string(), domain::to_string(control.thermal()), shadow->status->temp
             );
         }
-
-        auto& commanded = commanded_[id];
-        domain::GroupLoadRegime const regime = git->second.regime;
-        auto effective = rule.effective_mode(regime, thermal, protection_commanded_.contains(id));
-        if (!effective && commanded.failed) {
-            // 과열 해제 후 부하 상태가 미정이어도 실패한 복귀 명령의 목표를 다시 사용한다.
-            effective = commanded.mode;
+        if (mode) {
+            pending_.emplace_back(id, *mode);
         }
-        if (!effective) {
-            return; // 아직 목표 모드를 결정할 수 없다.
-        }
-        if (commanded.mode == effective && !commanded.failed) {
-            return; // 목표가 같고 실패하지 않은 명령은 다시 발행하지 않는다.
-        }
-        commanded.mode = effective;
-        commanded.failed = false;
-        if (thermal == domain::DeviceThermalRegime::hot && rule.thermal()) {
-            protection_commanded_.insert(id);
-        } else if (regime != domain::GroupLoadRegime::unknown) {
-            protection_commanded_.erase(id); // 부하 상태는 다시 미정으로 돌아가지 않는다.
-        }
-        pending_.emplace_back(id, *effective);
     });
 
     for (auto const& [device, mode] : pending_) {
@@ -204,10 +189,9 @@ void PolicyService::command_one(
     auto const command = commands_.dispatch(
         device, wire::command::SetMode{.mode = ddcs::device::encode_mode(mode)}, now, this
     );
-    // 전송 중 연결이 종료되어 명령 기록이 삭제되었다면 다시 만들지 않는다.
-    if (auto const it = commanded_.find(device); it != commanded_.end()) {
-        it->second.command = command;
-        it->second.failed = !command.valid();
+    // 전송 중 연결이 종료되어 발행 기록이 비었다면 DeviceControl이 결과를 무시한다.
+    if (auto const it = controls_.find(device); it != controls_.end()) {
+        it->second.dispatched(command);
     }
 }
 

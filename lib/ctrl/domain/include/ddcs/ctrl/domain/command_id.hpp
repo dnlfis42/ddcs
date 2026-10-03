@@ -4,9 +4,9 @@
 
 #include <cstdint>
 
-namespace ddcs::ctrl::app::device::port {
+namespace ddcs::ctrl::domain {
 
 // 명령 발송/응답 상관 토큰. CommandService가 발급하고 wire에서는 raw u64로 오간다.
 using CommandId = common::StrongId<struct CommandIdTag, std::uint64_t>;
 
-} // namespace ddcs::ctrl::app::device::port
+} // namespace ddcs::ctrl::domain

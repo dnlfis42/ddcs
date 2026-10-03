@@ -122,32 +122,6 @@ public:
         return prev;
     }
 
-    // load와 thermal을 합성한 effective mode. hot이면 hot_mode, 아니면 regime의 base
-    // mode(busy=busy_mode, idle=idle_mode)이다. regime 미확정(unknown)이면 마지막으로 보호
-    // 모드를 명령한 Device(protection_commanded)만 idle_mode로 풀고, 그 외에는 nullopt(아직
-    // 결정 없음)이다. 리로드로 thermal 룰이 제거되거나 hot_mode가 바뀌어도 해제 판단은 같다.
-    // hot인데 thermal 룰이 없는 조합은 next_thermal이 만들지 않지만, 들어와도 regime 분기로
-    // 강등해 전 입력에서 안전하다.
-    [[nodiscard]] std::optional<device::Mode> effective_mode(
-        GroupLoadRegime regime, DeviceThermalRegime thermal, bool protection_commanded
-    ) const noexcept {
-        if (thermal == DeviceThermalRegime::hot && thermal_) {
-            return thermal_->hot_mode;
-        }
-        switch (regime) {
-        case GroupLoadRegime::idle:
-            return idle_mode_;
-        case GroupLoadRegime::busy:
-            return busy_mode_;
-        case GroupLoadRegime::unknown:
-            break;
-        }
-        if (protection_commanded) {
-            return idle_mode_;
-        }
-        return std::nullopt;
-    }
-
 private:
     GroupRule(
         double busy_load, double idle_load, device::Mode busy_mode, device::Mode idle_mode,

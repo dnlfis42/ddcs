@@ -295,7 +295,7 @@ TEST(SessionServiceTest, KickOldNotifiesReleaseSinkForReplacedDevice) {
     DeviceId const device = f.register_active(1, 0xAA);
 
     // 같은 device가 새 conn으로 재등록 -> kick-old가 옛 conn을 동기로 끊는다.
-    // 이 경로(재시작/재접속)가 바로 stale 명령 belief를 남기던 곳이다.
+    // 이 경로(재시작/재접속)가 바로 지난 발행 기록을 남기던 곳이다.
     f.service.on_connected(ConnectionId{2});
     f.deliver(ConnectionId{2}, f.payload_register_request(make_uuid(0xAA), "g"));
 

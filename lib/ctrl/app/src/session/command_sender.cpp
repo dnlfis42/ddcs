@@ -22,8 +22,7 @@ CommandSender::CommandSender(SessionRegistry& sessions, port::MessageSender& sen
       sender_(sender) {}
 
 device::port::SendResult CommandSender::send(
-    domain::DeviceId device, device::port::CommandId command_id,
-    wire::command::Command const& command
+    domain::DeviceId device, domain::CommandId command_id, wire::command::Command const& command
 ) {
     // 역색인은 confirming도 담으므로 active만 송신 대상으로 거른다(등록 미확인 연결에는 명령 금지).
     Session const* const target = sessions_.find(device);

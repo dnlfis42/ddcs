@@ -1,6 +1,6 @@
 #include "ddcs/ctrl/app/session/session_service.hpp"
 
-#include "ddcs/ctrl/app/device/port/command_id.hpp"
+#include "ddcs/ctrl/domain/command_id.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/logger/event.hpp"
 
@@ -180,15 +180,13 @@ void SessionService::handle_active_message(
     }
     if (auto const* ack = std::get_if<msg::CommandAck>(&message)) {
         session.update_seen(now);
-        command_service_.acknowledge(
-            session.device(), device::port::CommandId{ack->command_id}, now
-        );
+        command_service_.acknowledge(session.device(), domain::CommandId{ack->command_id}, now);
         return;
     }
     if (auto const* outcome = std::get_if<msg::CommandOutcome>(&message)) {
         session.update_seen(now);
         command_service_.settle(
-            session.device(), device::port::CommandId{outcome->command_id},
+            session.device(), domain::CommandId{outcome->command_id},
             outcome->code == msg::CommandOutcome::Code::success,
             static_cast<std::uint8_t>(outcome->code), now
         );

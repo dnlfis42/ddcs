@@ -3,7 +3,6 @@
 #include "ddcs/common/clock.hpp"
 #include "ddcs/common/uuid.hpp"
 #include "ddcs/ctrl/app/device/command_service.hpp"
-#include "ddcs/ctrl/app/device/port/command_id.hpp"
 #include "ddcs/ctrl/app/device/port/command_sender.hpp"
 #include "ddcs/ctrl/app/device/port/device_release_sink.hpp"
 #include "ddcs/ctrl/app/device/registration_service.hpp"
@@ -16,6 +15,7 @@
 #include "ddcs/ctrl/app/transport/port/disconnector.hpp"
 #include "ddcs/ctrl/app/transport/port/message_buffer.hpp"
 #include "ddcs/ctrl/app/transport/port/message_sender.hpp"
+#include "ddcs/ctrl/domain/command_id.hpp"
 #include "ddcs/ctrl/domain/device_registry.hpp"
 #include "ddcs/ctrl/domain/group_policy.hpp"
 #include "ddcs/device/mode.hpp"
@@ -36,7 +36,6 @@ namespace {
 using ddcs::common::ManualClock;
 using ddcs::common::Uuid;
 using ddcs::ctrl::app::device::CommandService;
-using ddcs::ctrl::app::device::port::CommandId;
 using ddcs::ctrl::app::device::port::CommandSender;
 using ddcs::ctrl::app::device::port::SendResult;
 using ddcs::ctrl::app::metrics::MetricsService;
@@ -46,6 +45,7 @@ using ddcs::ctrl::app::transport::port::ConnectionId;
 using ddcs::ctrl::app::transport::port::Disconnector;
 using ddcs::ctrl::app::transport::port::MessageBuffer;
 using ddcs::ctrl::app::transport::port::MessageSender;
+using ddcs::ctrl::domain::CommandId;
 using ddcs::ctrl::domain::DeviceRegistry;
 using ddcs::wire::command::Command;
 using ddcs::wire::command::SetMode;

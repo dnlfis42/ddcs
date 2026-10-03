@@ -18,7 +18,6 @@ target_sources(
             FILES
                 include/ddcs/ctrl/app/device/port/active_devices.hpp
                 include/ddcs/ctrl/app/device/port/command_failure_sink.hpp
-                include/ddcs/ctrl/app/device/port/command_id.hpp
                 include/ddcs/ctrl/app/device/port/command_sender.hpp
                 include/ddcs/ctrl/app/device/port/device_release_sink.hpp
                 include/ddcs/ctrl/app/device/command_service.hpp

@@ -3,11 +3,15 @@ add_library(ddcs::ctrl::domain ALIAS ddcs_ctrl_domain)
 
 target_sources(
     ddcs_ctrl_domain
-    PRIVATE src/device_registry.cpp
+    PRIVATE
+        src/device_control.cpp
+        src/device_registry.cpp
     PUBLIC
         FILE_SET HEADERS
             BASE_DIRS include
             FILES
+                include/ddcs/ctrl/domain/command_id.hpp
+                include/ddcs/ctrl/domain/device_control.hpp
                 include/ddcs/ctrl/domain/device_id.hpp
                 include/ddcs/ctrl/domain/device_registry.hpp
                 include/ddcs/ctrl/domain/device_shadow.hpp

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ddcs/ctrl/app/device/port/command_id.hpp"
+#include "ddcs/ctrl/domain/command_id.hpp"
 #include "ddcs/ctrl/domain/device_id.hpp"
 #include "ddcs/wire/command/command.hpp"
 
@@ -37,8 +37,9 @@ public:
 
     // best-effort. 실패해도 로그는 남기지 않는다. 명령이 어떻게 됐는지를 아는 호출부가
     // 반환된 이유를 실어 한 줄로 알린다.
-    [[nodiscard]] virtual SendResult
-    send(domain::DeviceId device, CommandId command_id, wire::command::Command const& command) = 0;
+    [[nodiscard]] virtual SendResult send(
+        domain::DeviceId device, domain::CommandId command_id, wire::command::Command const& command
+    ) = 0;
 };
 
 } // namespace ddcs::ctrl::app::device::port
