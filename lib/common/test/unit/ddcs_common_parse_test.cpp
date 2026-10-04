@@ -21,12 +21,12 @@ TEST(ParsePortTest, RejectsInvalidDeterministically) {
     EXPECT_FALSE(parse_port("65536").has_value());       // 범위 초과
     EXPECT_FALSE(parse_port("99999999999").has_value()); // overflow(atoi였다면 UB)
     EXPECT_FALSE(parse_port("-1").has_value());          // 음수
-    EXPECT_FALSE(parse_port("8080abc").has_value()); // 후행 garbage(atoi는 8080으로 통과시킴)
-    EXPECT_FALSE(parse_port("8080 ").has_value());  // 후행 공백
-    EXPECT_FALSE(parse_port(" 8080").has_value());  // 선행 공백
-    EXPECT_FALSE(parse_port("0x1F90").has_value()); // 16진 표기(atoi는 0)
-    EXPECT_FALSE(parse_port("").has_value());       // 빈 문자열
-    EXPECT_FALSE(parse_port("abc").has_value());    // 비숫자
+    EXPECT_FALSE(parse_port("8080abc").has_value());     // 후행 garbage(atoi는 8080으로 통과시킴)
+    EXPECT_FALSE(parse_port("8080 ").has_value());       // 후행 공백
+    EXPECT_FALSE(parse_port(" 8080").has_value());       // 선행 공백
+    EXPECT_FALSE(parse_port("0x1F90").has_value());      // 16진 표기(atoi는 0)
+    EXPECT_FALSE(parse_port("").has_value());            // 빈 문자열
+    EXPECT_FALSE(parse_port("abc").has_value());         // 비숫자
 }
 
 TEST(ParseDoubleTest, ParsesValidDoubles) {
@@ -52,8 +52,8 @@ TEST(ParseUuidTest, ParsesValidIdentity) {
 
 TEST(ParseUuidTest, RejectsNilAndMalformed) {
     EXPECT_FALSE(parse_uuid("00000000-0000-0000-0000-000000000000").has_value()); // nil은 신원 불가
-    EXPECT_FALSE(parse_uuid("not-a-uuid").has_value()); // 형식 위반
-    EXPECT_FALSE(parse_uuid("").has_value());           // 빈 문자열
+    EXPECT_FALSE(parse_uuid("not-a-uuid").has_value());                           // 형식 위반
+    EXPECT_FALSE(parse_uuid("").has_value());                                     // 빈 문자열
 }
 
 } // namespace

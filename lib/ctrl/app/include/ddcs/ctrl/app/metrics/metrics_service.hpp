@@ -37,11 +37,11 @@ public:
 private:
     session::SessionRegistry const& sessions_;
     domain::DeviceRegistry const& devices_;
-    device::port::ActiveDevices& active_devices_; // 정책 평가와 동일한 활성 Device를 Group별로 집계한다.
+    device::port::ActiveDevices&
+        active_devices_; // 정책 평가와 동일한 활성 Device를 Group별로 집계한다.
     device::CommandService const& commands_;
     session::SessionService const& session_service_; // 수신 메시지와 연결 종료 횟수를 제공한다.
-    domain::GroupPolicy const&
-        policy_;             // 정책에 정의된 Group만 메트릭으로 제공한다.
+    domain::GroupPolicy const& policy_;              // 정책에 정의된 Group만 메트릭으로 제공한다.
     TickStats const& sweep_; // Controller tick 작업 시간, 시작 지연, 건너뛴 횟수
     transport::port::TransportStatsSource const& transport_stats_; // 송신 큐 깊이·풀 사용률
 };

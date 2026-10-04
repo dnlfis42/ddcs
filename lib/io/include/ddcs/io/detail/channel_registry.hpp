@@ -120,8 +120,8 @@ private:
         return static_cast<std::uint32_t>(token >> 32);
     }
 
-    [[nodiscard]] static constexpr std::uint32_t next_generation(std::uint32_t generation
-    ) noexcept {
+    [[nodiscard]] static constexpr std::uint32_t
+    next_generation(std::uint32_t generation) noexcept {
         ++generation;
         // generation 0은 기본 생성된 Token(값 0)과 겹치므로 건너뛴다.
         return generation == 0 ? 1 : generation;

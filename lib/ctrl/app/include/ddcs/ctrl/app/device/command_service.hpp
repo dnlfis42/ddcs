@@ -35,7 +35,7 @@ public:
         std::uint64_t attempt_failures_timeout_total{};       // 명령 결과의 응답 기한 초과
         std::uint64_t resends_total{};                        // 전송 계층에서 수락한 재전송 횟수
         std::uint64_t stale_responses_total{}; // 이미 종료되거나 교체된 명령에 대한 응답
-        std::uint64_t rtt_us_sum{};            // 첫 전송부터 성공 결과 수신까지 걸린 시간의 합(마이크로초)
+        std::uint64_t rtt_us_sum{}; // 첫 전송부터 성공 결과 수신까지 걸린 시간의 합(마이크로초)
 
         // RTT 버킷 경계는 마이크로초 단위이며, Prometheus 출력 시 초로 변환한다.
         static constexpr std::array<std::uint64_t, 10> rtt_bucket_bounds_us{
@@ -60,7 +60,8 @@ public:
 
     // 명령을 전송하고 응답 기한을 등록한다. 같은 Device의 같은 종류 명령은 교체한다.
     // 첫 전송에 실패하면 유효하지 않은 ID를 반환한다. 기존 명령의 교체는 취소하지 않는다.
-    // failure_sink는 등록된 명령의 최종 실패를 받는다. 먼저 소멸한다면 detach_failure_sink로 해제해야 한다.
+    // failure_sink는 등록된 명령의 최종 실패를 받는다. 먼저 소멸한다면 detach_failure_sink로
+    // 해제해야 한다.
     domain::CommandId dispatch(
         domain::DeviceId device, wire::command::Command command, common::Clock::time_point now,
         port::CommandFailureSink* failure_sink = nullptr
@@ -101,10 +102,11 @@ private:
     };
 
     struct Slot {
-        domain::CommandId id;                      // 재전송 시에도 유지하는 명령 ID
-        wire::command::Command command;            // 재전송할 명령. variant의 타입으로 명령 종류를 구분한다.
+        domain::CommandId id;           // 재전송 시에도 유지하는 명령 ID
+        wire::command::Command command; // 재전송할 명령. variant의 타입으로 명령 종류를 구분한다.
         common::Clock::time_point dispatched_at{}; // 첫 전송 시각. RTT 측정의 기준이다.
-        common::Clock::time_point next_at{};       // 응답 대기 중에는 응답 기한, 재전송 대기 중에는 다음 전송 시각
+        common::Clock::time_point
+            next_at{}; // 응답 대기 중에는 응답 기한, 재전송 대기 중에는 다음 전송 시각
         port::CommandFailureSink* failure_sink = nullptr;
         int attempts = 1;
         State state = State::in_flight;

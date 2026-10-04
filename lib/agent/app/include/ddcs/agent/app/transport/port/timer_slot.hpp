@@ -10,7 +10,7 @@ namespace ddcs::agent::app::transport::port {
 enum class TimerSlot : std::uint8_t {
     register_timeout, // registering: register_outcome 미수신 한도
     heartbeat,        // active: liveness 신호 주기
-    status_report,           // active: 텔레메트리 주기
+    status_report,    // active: 텔레메트리 주기
 };
 
 // 슬롯 수. transport가 슬롯별 예약 배열의 크기로 쓴다. 열거자를 추가하면 함께 갱신한다.

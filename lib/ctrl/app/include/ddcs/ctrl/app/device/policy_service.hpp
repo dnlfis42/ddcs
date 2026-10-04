@@ -23,7 +23,8 @@ namespace ddcs::ctrl::app::device {
 // 정책 JSON을 GroupPolicy로 변환한다. 필수 필드, 타입, 모드가 유효하지 않으면 nullopt를 반환한다.
 std::optional<domain::GroupPolicy> parse_policy(json::Value const& root);
 
-// Group 부하와 Device 온도로 목표 모드를 결정한다. 목표가 바뀌거나 이전 명령이 실패하면 SetMode를 발행한다.
+// Group 부하와 Device 온도로 목표 모드를 결정한다. 목표가 바뀌거나 이전 명령이 실패하면 SetMode를
+// 발행한다.
 class PolicyService : public port::DeviceReleaseSink, public port::CommandFailureSink {
 public:
     PolicyService(
@@ -67,11 +68,11 @@ private:
     domain::DeviceRegistry& devices_;
     CommandService& commands_;
     domain::GroupPolicy policy_;
-    std::unordered_map<std::string, domain::GroupLoadRegime>
-        regime_; // Group별 부하 상태
+    std::unordered_map<std::string, domain::GroupLoadRegime> regime_; // Group별 부하 상태
     std::unordered_map<domain::DeviceId, domain::DeviceControl>
         controls_; // Device별 판단 상태. 정책 교체와 연결 종료 뒤에도 남는다.
-    std::vector<std::pair<domain::DeviceId, ddcs::device::Mode>> pending_; // Device 순회를 마친 뒤 전송할 명령 목록
+    std::vector<std::pair<domain::DeviceId, ddcs::device::Mode>>
+        pending_; // Device 순회를 마친 뒤 전송할 명령 목록
 };
 
 } // namespace ddcs::ctrl::app::device

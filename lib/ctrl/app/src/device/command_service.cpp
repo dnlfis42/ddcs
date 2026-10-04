@@ -268,7 +268,9 @@ void CommandService::detach_failure_sink(port::CommandFailureSink& sink) noexcep
 void CommandService::close_failed_slot(domain::DeviceId device, domain::CommandId command_id) {
     auto const* slot = find_slot(device, command_id);
     auto* sink = slot ? slot->failure_sink : nullptr;
-    close_slot(device, command_id); // 콜백이 명령 목록을 변경할 수 있으므로 먼저 제거하고 이후에는 슬롯을 참조하지 않는다.
+    close_slot(
+        device, command_id
+    ); // 콜백이 명령 목록을 변경할 수 있으므로 먼저 제거하고 이후에는 슬롯을 참조하지 않는다.
     if (sink) {
         sink->on_command_failed(device, command_id);
     }

@@ -86,15 +86,18 @@ public:
 
     void send(ConnectionId conn, MessageBuffer message) override {
         auto const readable = message->data_span();
-        sent.push_back(Sent{
-            .conn = conn,
-            .payload = std::vector<std::byte>{readable.begin(), readable.end()},
-        });
+        sent.push_back(
+            Sent{
+                .conn = conn,
+                .payload = std::vector<std::byte>{readable.begin(), readable.end()},
+            }
+        );
     }
 
 private:
-    ObjectPool<LinearBuffer> pool_{ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256
-    })};
+    ObjectPool<LinearBuffer> pool_{
+        ddcs::common::ObjectPool<LinearBuffer>::create<8>(std::size_t{256})
+    };
 };
 
 // infra처럼 disconnect가 동기로 on_disconnected를 되부르는 대역

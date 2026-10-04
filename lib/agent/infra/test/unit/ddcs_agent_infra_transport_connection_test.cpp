@@ -38,7 +38,11 @@ protected:
     ddcs::io::Reactor reactor;
     ddcs::io::TimerScheduler timers{reactor};
     Connector connector{
-        reactor, timers, "127.0.0.1", 0, 4096,
+        reactor,
+        timers,
+        "127.0.0.1",
+        0,
+        4096,
         ddcs::agent::infra::transport::BackoffSchedule{
             std::chrono::seconds{1}, std::chrono::seconds{30}, 0xdeadbeefu
         }

@@ -101,7 +101,8 @@ std::string scrape_metrics(Controller& controller, std::uint16_t port) {
     return resp;
 }
 
-// 조립 루트 스모크: 구성 후 start, ephemeral 바인드, 이벤트 루프를 한 번 실행한다., stop까지 무사한지
+// 조립 루트 스모크: 구성 후 start, ephemeral 바인드, 이벤트 루프를 한 번 실행한다., stop까지
+// 무사한지
 TEST(ControllerTest, StartsBindsEphemeralPortAndDispatchesOnce) {
     CapturingSink sink;
     ScopedLogger logger{sink, ddcs::logger::Level::warn};
@@ -229,8 +230,12 @@ TEST(ControllerTest, SighupReloadsPolicy) {
     }
     controller.stop();
 
-    EXPECT_NE(sink.text.find(R"("trigger":"reload")"), std::string::npos); // SIGHUP으로 정책을 다시 읽었다.
-    EXPECT_NE(sink.text.find(R"("groups":2)"), std::string::npos); // Group 2개인 새 정책을 적용했다.
+    EXPECT_NE(
+        sink.text.find(R"("trigger":"reload")"), std::string::npos
+    ); // SIGHUP으로 정책을 다시 읽었다.
+    EXPECT_NE(
+        sink.text.find(R"("groups":2)"), std::string::npos
+    ); // Group 2개인 새 정책을 적용했다.
 
     std::filesystem::remove(path);
 }
@@ -260,7 +265,9 @@ TEST(ControllerTest, SighupWithMalformedPolicyKeepsOldPolicy) {
     controller.stop();
 
     EXPECT_NE(sink.text.find(R"("trigger":"reload")"), std::string::npos); // 정책 재로딩 요청 처리
-    EXPECT_NE(sink.text.find(R"("event":"policy.load.fail")"), std::string::npos); // 잘못된 JSON 거부
+    EXPECT_NE(
+        sink.text.find(R"("event":"policy.load.fail")"), std::string::npos
+    ); // 잘못된 JSON 거부
     // 정책 적용 성공 횟수는 시작 시 한 번이며, 재로딩 실패 후에는 증가하지 않는다.
     EXPECT_EQ(count_substr(sink.text, R"("event":"policy.load")"), 1U);
 

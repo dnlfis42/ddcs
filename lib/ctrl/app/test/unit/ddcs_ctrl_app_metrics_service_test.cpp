@@ -78,8 +78,9 @@ public:
 
     ddcs::ctrl::app::transport::port::ConnectionListener* listener = nullptr;
 
-    void disconnect(ConnectionId id, ddcs::ctrl::app::transport::port::DisconnectReason reason)
-        override {
+    void disconnect(
+        ConnectionId id, ddcs::ctrl::app::transport::port::DisconnectReason reason
+    ) override {
         if (listener != nullptr) {
             listener->on_disconnected(id, reason);
             return;
@@ -159,8 +160,7 @@ struct Fixture {
 
 TEST(MetricsServiceTest, ScrapeReportsGauges) {
     Fixture f;
-    EXPECT_TRUE(f.sessions.add(ConnectionId{1}, f.clock.now())
-    ); // 등록 중인 연결도 집계한다.
+    EXPECT_TRUE(f.sessions.add(ConnectionId{1}, f.clock.now())); // 등록 중인 연결도 집계한다.
     EXPECT_TRUE(f.sessions.add(ConnectionId{2}, f.clock.now()));
     f.devices.enroll(make_uuid(1), "");
 
@@ -254,7 +254,9 @@ TEST(MetricsServiceTest, ScrapeReportsCommandCounters) {
     EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_count 1"));
     EXPECT_TRUE(contains(text, "ddcs_commands_superseded_total 0"));
     EXPECT_TRUE(contains(text, "ddcs_command_stale_responses_total 0"));
-    EXPECT_FALSE(contains(text, "ddcs_commands_completed_total")); // 이전 메트릭 이름은 출력하지 않는다.
+    EXPECT_FALSE(
+        contains(text, "ddcs_commands_completed_total")
+    ); // 이전 메트릭 이름은 출력하지 않는다.
 }
 
 TEST(MetricsServiceTest, ScrapeSeparatesCommandFailureFamilies) {
@@ -322,9 +324,9 @@ TEST(MetricsServiceTest, ScrapeRttHistogramCumulates) {
     auto const text = f.metrics.scrape();
 
     EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.005\"} 1")); // 5ms
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.02\"} 1")); // 여전히 5ms만
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.05\"} 2")); // +30ms
-    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.25\"} 3")); // +200ms
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.02\"} 1"));  // 여전히 5ms만
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.05\"} 2"));  // +30ms
+    EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"0.25\"} 3"));  // +200ms
     EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_bucket{le=\"+Inf\"} 3"));
     EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_count 3"));
     EXPECT_TRUE(contains(text, "ddcs_command_rtt_seconds_sum 0.235")); // 5+30+200ms
@@ -335,7 +337,7 @@ TEST(MetricsServiceTest, ScrapeReportsSupersedeAndStale) {
     auto const device = f.activate(1, 0xAA);
 
     auto const first = f.send(device);
-    f.send(device);                                           // 같은 Device의 같은 종류 명령을 교체한다.
+    f.send(device); // 같은 Device의 같은 종류 명령을 교체한다.
     f.commands.settle(device, first, true, 0, f.clock.now()); // 교체된 명령의 응답은 무시한다.
 
     auto const text = f.metrics.scrape();
@@ -347,7 +349,9 @@ TEST(MetricsServiceTest, ScrapeReportsSupersedeAndStale) {
 TEST(MetricsServiceTest, ScrapeReflectsLivenessAndHandshakeCloseReasons) {
     Fixture f;
     f.activate(1, 0xAA);
-    EXPECT_TRUE(f.sessions.add(ConnectionId{2}, f.clock.now())); // 연결 후 등록을 완료하지 않은 상태
+    EXPECT_TRUE(
+        f.sessions.add(ConnectionId{2}, f.clock.now())
+    ); // 연결 후 등록을 완료하지 않은 상태
 
     f.clock.advance(4s); // 응답 없이 연결 유지 기한 3초를 넘긴다.
     f.session_service.sweep(f.clock.now());
@@ -401,7 +405,8 @@ TEST(MetricsServiceTest, ScrapeReportsGroupGauges) {
     // zone_b에는 부하가 10인 safe 모드 Device 1개가 있다.
     auto const b1 = f.activate(3, 0x03);
     f.devices.enroll(b1, "zone_b");
-    EXPECT_TRUE(f.devices.update_status(b1, Status{.mode = Mode::safe, .load = 10.0, .temp = 30.0})
+    EXPECT_TRUE(
+        f.devices.update_status(b1, Status{.mode = Mode::safe, .load = 10.0, .temp = 30.0})
     );
 
     auto const text = f.metrics.scrape();

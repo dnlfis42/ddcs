@@ -56,7 +56,9 @@ public:
             throw_errno(err, "signalfd");
         }
 
-        channel_.init(std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this);
+        channel_.init(
+            std::move(fd), ChannelEvents::readable | ChannelEvents::edge_triggered, *this
+        );
 
         if (auto const result = reactor_.add(channel_); !result) {
             channel_.close();

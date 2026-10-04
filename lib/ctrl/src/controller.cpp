@@ -40,9 +40,7 @@
 
 namespace ddcs::ctrl {
 
-namespace {
-
-} // namespace
+namespace {} // namespace
 
 class Controller::Impl final : public io::TimerHandler {
 public:
@@ -70,8 +68,8 @@ public:
 private:
     void on_expired(io::TimerToken id) override;
     void schedule_sweep();
-    [[nodiscard]] std::optional<std::uint64_t> relative_profile_ns(common::Clock::time_point time
-    ) const noexcept {
+    [[nodiscard]] std::optional<std::uint64_t>
+    relative_profile_ns(common::Clock::time_point time) const noexcept {
         if (!profile_timestamp_converter_) {
             return std::nullopt;
         }
@@ -107,7 +105,8 @@ private:
     app::device::PolicyService policy_service_;
     // 연결 및 메시지 이벤트를 처리하고 세션의 등록·응답 기한을 점검한다.
     app::session::SessionService session_service_;
-    app::metrics::TickStats sweep_stats_; // 참조하는 metrics_service_보다 먼저 생성하고 나중에 소멸한다.
+    app::metrics::TickStats
+        sweep_stats_; // 참조하는 metrics_service_보다 먼저 생성하고 나중에 소멸한다.
     app::metrics::MetricsService metrics_service_;
 
     // 메트릭 포트가 설정되어 있으면 start()에서 서버를 생성한다.
@@ -205,15 +204,17 @@ void Controller::Impl::on_expired(io::TimerToken /*id*/) {
     if (profile_recorder_ != nullptr && profile_timestamp_converter_) {
         auto const tick_id = next_profile_tick_id_++;
         if (auto const started_ns = relative_profile_ns(now)) {
-            profile_sample.emplace(profile::TickSample{
-                .tick_id = tick_id,
-                .started_ns = *started_ns,
-                .command_sweep_ended_ns = 0,
-                .session_sweep_ended_ns = 0,
-                .policy_evaluate_ended_ns = 0,
-                .finished_ns = 0,
-                .outcome = profile::TickOutcome::completed,
-            });
+            profile_sample.emplace(
+                profile::TickSample{
+                    .tick_id = tick_id,
+                    .started_ns = *started_ns,
+                    .command_sweep_ended_ns = 0,
+                    .session_sweep_ended_ns = 0,
+                    .policy_evaluate_ended_ns = 0,
+                    .finished_ns = 0,
+                    .outcome = profile::TickOutcome::completed,
+                }
+            );
         }
     }
 
@@ -243,7 +244,9 @@ void Controller::Impl::on_expired(io::TimerToken /*id*/) {
         [this, now, &profile_sample] {
             policy_service_.evaluate(now); // Group 부하와 Device 상태에 따라 모드 변경을 요청한다.
             auto const finished = clock_.now();
-            sweep_stats_.work.record(finished - now); // 다음 예약에 걸리는 시간을 제외한 tick 작업 시간을 기록한다.
+            sweep_stats_.work.record(
+                finished - now
+            ); // 다음 예약에 걸리는 시간을 제외한 tick 작업 시간을 기록한다.
             if (profile_sample) {
                 if (auto const finished_ns = relative_profile_ns(finished)) {
                     profile_sample->policy_evaluate_ended_ns = *finished_ns;

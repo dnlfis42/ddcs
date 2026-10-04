@@ -95,7 +95,8 @@ public:
 };
 
 // 활성 Device 순회 중인지 표시해 전송 콜백의 재진입을 검증한다.
-// 목록 복사본을 순회해 변경으로 인한 무효 참조를 피하고, 전송 대역에서 순회 중 송신 여부를 확인한다.
+// 목록 복사본을 순회해 변경으로 인한 무효 참조를 피하고, 전송 대역에서 순회 중 송신 여부를
+// 확인한다.
 class WindowedActiveDevices final : public ActiveDevices {
 public:
     std::vector<DeviceId> active;
@@ -168,7 +169,8 @@ struct PolicyFixture {
         return p;
     }
 
-    // 부하가 높으면 safe, 낮으면 normal을 사용한다. 온도 90에서 performance로 전환하고 70에서 해제한다.
+    // 부하가 높으면 safe, 낮으면 normal을 사용한다. 온도 90에서 performance로 전환하고 70에서
+    // 해제한다.
     static GroupPolicy hot_policy() {
         GroupPolicy p;
         p.set(
@@ -369,7 +371,9 @@ TEST(PolicyServiceTest, ExcludesInactiveDevicesFromAggregationAndCommands) {
 
     f.policy.evaluate(f.clock.now());
 
-    ASSERT_EQ(f.sender.sent.size(), 1u); // 활성 Device의 부하 10만 집계하고 해당 Device에만 명령한다.
+    ASSERT_EQ(
+        f.sender.sent.size(), 1u
+    ); // 활성 Device의 부하 10만 집계하고 해당 Device에만 명령한다.
     EXPECT_EQ(f.sender.sent[0].device, make_device_id(0x01));
     EXPECT_EQ(f.sender.sent[0].mode, Mode::normal);
 }
@@ -429,7 +433,9 @@ TEST(PolicyServiceTest, ReloadPreservesThermalLatchInDeadband) {
     f.policy.evaluate(f.clock.now());
 
     ASSERT_GT(f.sender.sent.size(), before); // 발행 기록이 초기화되어 다시 발행한다.
-    EXPECT_EQ(f.sender.sent.back().mode, Mode::performance); // 과열 상태가 유지되어 hot_mode를 적용한다.
+    EXPECT_EQ(
+        f.sender.sent.back().mode, Mode::performance
+    ); // 과열 상태가 유지되어 hot_mode를 적용한다.
 }
 
 // 정책을 다시 적용하면 기존 부하 상태를 기준으로 새 모드를 선택한다.
@@ -450,7 +456,7 @@ TEST(PolicyServiceTest, ReloadAppliesNewModeToDeadbandGroup) {
     f.policy.set_policy(std::move(changed));
     f.policy.evaluate(f.clock.now());
 
-    ASSERT_GT(f.sender.sent.size(), before);            // 기존 부하 상태를 유지하면서 새 모드로 명령한다.
+    ASSERT_GT(f.sender.sent.size(), before); // 기존 부하 상태를 유지하면서 새 모드로 명령한다.
     EXPECT_EQ(f.sender.sent.back().mode, Mode::normal); // 새 busy_mode 적용
 }
 

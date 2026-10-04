@@ -49,12 +49,16 @@ public:
         : owner_(owner),
           reactor_(reactor),
           acceptor_(Acceptor{owner, port, backlog}),
-          connection_pool_(common::ObjectPool<Connection>::create<connection_pool_chunk_size>(
-              wire::frame::fit_rx_capacity(rx_buffer_size)
-          )),
-          message_pool_(common::ObjectPool<common::LinearBuffer>::create<message_pool_chunk_size>(
-              wire::frame::max_frame_size
-          )) {
+          connection_pool_(
+              common::ObjectPool<Connection>::create<connection_pool_chunk_size>(
+                  wire::frame::fit_rx_capacity(rx_buffer_size)
+              )
+          ),
+          message_pool_(
+              common::ObjectPool<common::LinearBuffer>::create<message_pool_chunk_size>(
+                  wire::frame::max_frame_size
+              )
+          ) {
         if (auto const fitted = wire::frame::fit_rx_capacity(rx_buffer_size);
             fitted != rx_buffer_size) {
             LOG_TRANSPORT_RX_BUFFER_ADJUST(rx_buffer_size, fitted);

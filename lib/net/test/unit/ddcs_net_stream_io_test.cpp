@@ -28,8 +28,8 @@ using ddcs::common::PoolHandle;
 using ddcs::io::Fd;
 using ddcs::net::receive_into;
 using ddcs::net::ReceiveResult;
-using ddcs::net::TransmitResult;
 using ddcs::net::transmit_from;
+using ddcs::net::TransmitResult;
 
 // nonblocking AF_UNIX socketpair
 struct SocketPair {

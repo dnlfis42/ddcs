@@ -100,8 +100,9 @@ get_duration_ms(json::Value const& root, std::string_view path, std::chrono::nan
         // ns 변환(x1'000'000)이 int64를 넘지 않는 상한까지만 받는다 (초과는 signed overflow UB)
         constexpr std::int64_t max_ms = std::numeric_limits<std::int64_t>::max() / 1'000'000;
         if (auto const n = v->as_int64(); n && *n >= 0 && *n <= max_ms) {
-            return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::milliseconds{*n
-            });
+            return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::milliseconds{*n}
+            );
         }
         // 음수/과대 ms가 시한 값으로 흘러가면 timeout 산술이 전부 무의미해진다
         LOG_CONFIG_VALUE_INVALID("file", path, "non-negative integer", v->dump());

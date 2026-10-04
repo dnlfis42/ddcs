@@ -90,11 +90,15 @@ net::TransmitResult Connection::transmit() {
             continue;
         }
         if (n == 0) {
-            return {.code = net::TransmitResult::Code::error}; // errno 미설정. stale errno 판독 방지
+            return {
+                .code = net::TransmitResult::Code::error
+            }; // errno 미설정. stale errno 판독 방지
         }
         int const err = errno;
         if (err == EAGAIN || err == EWOULDBLOCK) {
-            return {.code = net::TransmitResult::Code::would_block}; // 커널 송신 버퍼 포화 시 writable 대기
+            return {
+                .code = net::TransmitResult::Code::would_block
+            }; // 커널 송신 버퍼 포화 시 writable 대기
         }
         return {.code = net::TransmitResult::Code::error, .err = err};
     }
